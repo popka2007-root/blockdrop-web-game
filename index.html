@@ -792,20 +792,12 @@
       <button class="icon-button" id="pauseButton" aria-label="Пауза">II</button>
     </section>
 
-    <section class="tabs">
-      <button id="tabClassic" class="active">Классика</button>
-      <button id="tabSprint">40 линий</button>
-      <button id="tabRelax">Дзен</button>
-      <button id="tabChaos">Хаос</button>
-    </section>
-
     <section class="status-strip">
       <div class="status-card">
         <span>Цель</span>
         <b id="goalValue">Выжить</b>
         <div class="progress"><i id="progressFill"></i></div>
       </div>
-      <div class="status-card hidden"><span>Темп</span><b id="speedValue">Спокойно</b></div>
       <div class="status-card"><span>Ранг</span><b id="rankValue">Новичок</b></div>
     </section>
 
@@ -837,7 +829,6 @@
           <div class="mini-stat"><b id="heightValue">0</b><span>Высота</span></div>
         </div>
 
-        <div class="mission-board hidden" id="missionBoard"></div>
         <div class="online-panel" id="onlinePanel"></div>
       </aside>
     </section>
@@ -1076,6 +1067,8 @@
 
       const COLS = 10;
       const ROWS = 20;
+      const LOCK_DELAY_MS = 480;
+      const MAX_LOCK_RESETS = 12;
       const STORAGE = {
         high: "blockdrop-high-score",
         stats: "blockdrop-stats-v2",
@@ -1150,17 +1143,10 @@
         ["relaxFan", "Спокойный ход", "Сыграть 5 партий в режиме Дзен", (s) => s.relaxGames >= 5]
       ];
 
-      const MISSIONS = [
-        { id: "lines5", label: "Очистить 5 линий", goal: 5, value: () => state.lines },
-        { id: "drops10", label: "10 резких сбросов", goal: 10, value: () => state.hardDrops },
-        { id: "hold3", label: "3 раза использовать запас", goal: 3, value: () => state.holds },
-        { id: "combo2", label: "Комбо x2", goal: 2, value: () => state.bestComboRun }
-      ];
-
       const ui = {};
       for (const id of [
         "app","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
-        "goalValue","progressFill","speedValue","rankValue","apmValue","heightValue","missionBoard","onlinePanel",
+        "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
         "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
         "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton","settingsButton","soundButton","leftButton","rightButton",
         "rotateButton","downButton","dropButton","holdButton","startMode","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
@@ -1169,7 +1155,7 @@
         "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
         "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","newRoomButton","startTournamentButton","disconnectOnlineButton","closeOnlineButton",
         "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
-        "finalRecord","gameOverTitle","gameOverText","toast","fxLayer","tabClassic","tabSprint","tabRelax","tabChaos"
+        "finalRecord","gameOverTitle","gameOverText","toast","fxLayer"
       ]) {
         ui[id] = document.getElementById(id);
       }
@@ -1186,7 +1172,6 @@
         hold: null,
         holdUsed: false,
         rng: Math.random,
-        challengeCode: "",
         mode: "classic",
         difficulty: "normal",
         score: 0,
@@ -1211,6 +1196,8 @@
         lastTime: 0,
         elapsedMs: 0,
         dropMs: 0,
+        lockDelayMs: 0,
+        lockResets: 0,
         flashes: [],
         audio: null,
         settings: loadSettings(),
@@ -1325,26 +1312,11 @@
         return state.rng ? state.rng() : Math.random();
       }
 
-      function makeRng(seedText) {
-        let seed = 2166136261;
-        for (let i = 0; i < seedText.length; i += 1) {
-          seed ^= seedText.charCodeAt(i);
-          seed = Math.imul(seed, 16777619);
-        }
-        return () => {
-          seed += 0x6D2B79F5;
-          let t = seed;
-          t = Math.imul(t ^ (t >>> 15), t | 1);
-          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-        };
-      }
-
       function normalizeCode(value) {
         return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
       }
 
-      function generateChallengeCode() {
+      function generateRoomCode() {
         const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         let code = "";
         for (let i = 0; i < 8; i += 1) {
@@ -1386,7 +1358,6 @@
         state.bag = [];
         state.hold = null;
         state.holdUsed = false;
-        state.challengeCode = "";
         state.rng = Math.random;
         state.mode = mode;
         state.difficulty = difficulty;
@@ -1412,6 +1383,8 @@
         state.lastTime = 0;
         state.elapsedMs = 0;
         state.dropMs = 0;
+        state.lockDelayMs = 0;
+        state.lockResets = 0;
         state.flashes = [];
         hideOverlays();
         fillQueue();
@@ -1420,7 +1393,6 @@
         spawn();
         ensureAudio();
         buzz(8);
-        syncTabs();
         syncUi();
         saveCurrentGame();
       }
@@ -1430,6 +1402,8 @@
         state.active = makePiece(state.queue.shift());
         fillQueue();
         state.holdUsed = false;
+        state.lockDelayMs = 0;
+        state.lockResets = 0;
         if (!valid(state.active)) finish(false, "Башня дошла до верхней границы.");
       }
 
@@ -1452,11 +1426,33 @@
         sendOnlineUpdate(true);
       }
 
+      function isGrounded(piece = state.active) {
+        return Boolean(piece) && !valid({ ...piece, y: piece.y + 1 });
+      }
+
+      function resetLockDelayIfGrounded() {
+        if (!isGrounded() || state.lockResets >= MAX_LOCK_RESETS) return;
+        state.lockDelayMs = 0;
+        state.lockResets += 1;
+      }
+
+      function updateLockDelay(delta) {
+        if (!state.active) return;
+        if (!isGrounded()) {
+          state.lockDelayMs = 0;
+          state.lockResets = 0;
+          return;
+        }
+        state.lockDelayMs += delta;
+        if (state.lockDelayMs >= LOCK_DELAY_MS) lock();
+      }
+
       function move(dx, dy, scoreSoft = false) {
         if (!canInput()) return false;
         const candidate = { ...state.active, x: state.active.x + dx, y: state.active.y + dy };
         if (!valid(candidate)) return false;
         state.active = candidate;
+        if (dx !== 0) resetLockDelayIfGrounded();
         if (scoreSoft && dy > 0) addScore(1);
         if (dx !== 0) {
           state.moves += 1;
@@ -1478,6 +1474,7 @@
           const candidate = { ...rotated, x: rotated.x + dx, y: rotated.y + dy };
           if (valid(candidate)) {
             state.active = candidate;
+            resetLockDelayIfGrounded();
             state.rotations += 1;
             state.stats.totalRotations += 1;
             playSound(560, 0.04, "sawtooth");
@@ -1488,7 +1485,7 @@
       }
 
       function softDrop() {
-        if (!move(0, 1, true)) lock();
+        if (!move(0, 1, true)) updateLockDelay(80);
       }
 
       function hardDrop() {
@@ -1697,8 +1694,9 @@
           state.dropMs += delta;
           if (state.dropMs >= dropInterval()) {
             state.dropMs = 0;
-            if (!move(0, 1, false)) lock();
+            move(0, 1, false);
           }
+          updateLockDelay(delta);
         }
 
         state.flashes = state.flashes.map((f) => ({ ...f, life: f.life - delta / 200 })).filter((f) => f.life > 0);
@@ -1857,11 +1855,9 @@
         ui.heightValue.textContent = currentHeight();
         ui.goalValue.textContent = goalText();
         ui.progressFill.style.width = `${progressPercent()}%`;
-        ui.speedValue.textContent = "";
         ui.rankValue.textContent = rankText();
         ui.boardShell.classList.toggle("danger", state.settings.danger && topDanger());
         ui.soundButton.textContent = state.settings.sound ? "Звук: вкл" : "Звук: выкл";
-        renderMissions();
         renderOnlinePanel();
         sendOnlineUpdateThrottled();
       }
@@ -1888,24 +1884,12 @@
         return Math.min(100, Math.round(state.level / 20 * 100));
       }
 
-      function speedText() {
-        const ms = dropInterval();
-        if (ms > 620) return "Спокойно";
-        if (ms > 430) return "Быстро";
-        if (ms > 250) return "Жарко";
-        return "Молния";
-      }
-
       function rankText() {
         if (state.score >= 12000) return "Легенда";
         if (state.score >= 7000) return "Мастер";
         if (state.score >= 3500) return "Профи";
         if (state.score >= 1200) return "Игрок";
         return "Новичок";
-      }
-
-      function renderMissions() {
-        ui.missionBoard.innerHTML = "";
       }
 
       function defaultServerUrl() {
@@ -1916,14 +1900,14 @@
 
       function openOnline() {
         ui.onlineServerInput.value = ui.onlineServerInput.value || defaultServerUrl();
-        ui.onlineRoomInput.value = ui.onlineRoomInput.value || localStorage.getItem("tetris-last-room") || generateChallengeCode();
+        ui.onlineRoomInput.value = ui.onlineRoomInput.value || localStorage.getItem("tetris-last-room") || generateRoomCode();
         ui.onlineNameInput.value = ui.onlineNameInput.value || localStorage.getItem("blockdrop-player-name") || "Игрок";
         ui.onlineOverlay.hidden = false;
         renderOnlinePlayers();
       }
 
       function ensureRoomCode() {
-        const room = normalizeCode(ui.onlineRoomInput.value || state.online.room) || generateChallengeCode();
+        const room = normalizeCode(ui.onlineRoomInput.value || state.online.room) || generateRoomCode();
         ui.onlineRoomInput.value = room;
         localStorage.setItem("tetris-last-room", room);
         return room;
@@ -1955,7 +1939,7 @@
       }
 
       function createNewRoom() {
-        ui.onlineRoomInput.value = generateChallengeCode();
+        ui.onlineRoomInput.value = generateRoomCode();
         localStorage.setItem("tetris-last-room", ui.onlineRoomInput.value);
         ui.onlineStatus.textContent = `Новая комната ${ui.onlineRoomInput.value}`;
         showToast("Комната создана");
@@ -2146,13 +2130,6 @@
         return `${min}:${sec}`;
       }
 
-      function syncTabs() {
-        ui.tabClassic.classList.toggle("active", state.mode === "classic");
-        ui.tabSprint.classList.toggle("active", state.mode === "sprint");
-        ui.tabRelax.classList.toggle("active", state.mode === "relax");
-        ui.tabChaos.classList.toggle("active", state.mode === "chaos");
-      }
-
       function saveCurrentGame() {
         if (!state.running || state.gameOver) return;
         saveJson(STORAGE.save, {
@@ -2162,7 +2139,6 @@
           bag: state.bag,
           hold: state.hold,
           holdUsed: state.holdUsed,
-          challengeCode: state.challengeCode,
           mode: state.mode,
           difficulty: state.difficulty,
           score: state.score,
@@ -2187,12 +2163,10 @@
           showToast("Сохранения пока нет");
           return;
         }
-        Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, flashes: [] });
-        state.challengeCode = "";
+        Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
         state.difficulty = "normal";
         state.rng = Math.random;
         hideOverlays();
-        syncTabs();
         syncUi();
         showToast("Сохранение загружено");
       }
@@ -2301,13 +2275,13 @@
         const gain = state.audio.createGain();
         const softType = type === "sawtooth" || type === "square" ? "triangle" : type;
         oscillator.type = softType;
-        oscillator.frequency.setValueAtTime(Math.max(90, freq * 0.68), now);
+        oscillator.frequency.setValueAtTime(Math.max(110, freq * 0.82), now);
         filter.type = "lowpass";
-        filter.frequency.setValueAtTime(920, now);
+        filter.frequency.setValueAtTime(1650, now);
         filter.Q.setValueAtTime(0.35, now);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.022 * (state.settings.volume / 100), now + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 0.85);
+        gain.gain.exponentialRampToValueAtTime(0.04 * (state.settings.volume / 100), now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, duration * 0.9));
         oscillator.connect(filter);
         filter.connect(gain);
         gain.connect(state.audio.destination);
@@ -2445,11 +2419,6 @@
         bindPress(ui.downButton, softDrop);
         bindPress(ui.dropButton, hardDrop);
         bindPress(ui.holdButton, holdPiece);
-        bindPress(ui.tabClassic, () => startGame("classic", state.difficulty));
-        bindPress(ui.tabSprint, () => startGame("sprint", state.difficulty));
-        bindPress(ui.tabRelax, () => startGame("relax", state.difficulty));
-        bindPress(ui.tabChaos, () => startGame("chaos", state.difficulty));
-
         ui.themeSelect.addEventListener("change", () => { state.settings.theme = ui.themeSelect.value; applySettings(); });
         ui.sensitivityRange.addEventListener("input", () => { state.settings.sensitivity = Number(ui.sensitivityRange.value); applySettings(); });
         ui.ghostToggle.addEventListener("change", () => { state.settings.ghost = ui.ghostToggle.checked; applySettings(); });
@@ -2506,7 +2475,7 @@
         }
       }
 
-      function applyUrlChallenge() {
+      function applyUrlParams() {
         const params = new URLSearchParams(location.search);
         const mode = params.get("mode");
         if (mode && MODES[mode]) ui.startMode.value = mode;
@@ -2519,7 +2488,7 @@
       }
 
       bind();
-      applyUrlChallenge();
+      applyUrlParams();
       applySettings();
       syncUi();
       draw();
