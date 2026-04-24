@@ -85,6 +85,8 @@
     body {
       height: 100vh;
       min-height: 100vh;
+      width: 100%;
+      max-width: 100vw;
       display: flex;
       justify-content: center;
       padding: calc(8px + var(--safe-top)) 10px calc(8px + var(--safe-bottom));
@@ -94,6 +96,7 @@
     button,
     select {
       font: inherit;
+      min-width: 0;
     }
 
     .app {
@@ -121,6 +124,7 @@
       border: 1px solid var(--line);
       box-shadow: 0 14px 36px var(--shadow);
       backdrop-filter: blur(14px);
+      overflow-x: hidden;
     }
 
     .stat {
@@ -457,7 +461,7 @@
     }
 
     .controls-row.bottom {
-      grid-template-columns: 1fr 1fr 1.5fr;
+      grid-template-columns: 1fr 1fr;
     }
 
     .controls-row.tools {
@@ -466,6 +470,15 @@
 
     .controls-row.mobile-main {
       grid-template-columns: 1.4fr 1fr;
+    }
+
+    .control-buttons {
+      display: none;
+    }
+
+    body.controls-hybrid .control-buttons,
+    body.controls-buttons .control-buttons {
+      display: grid;
     }
 
     .select {
@@ -536,10 +549,11 @@
     }
 
     .modal {
-      width: min(100%, 400px);
+      width: min(calc(100vw - 28px), 400px);
       max-height: min(720px, calc(100vh - 34px));
       max-height: min(720px, calc(100dvh - 34px));
       overflow: auto;
+      overflow-x: hidden;
       scrollbar-width: thin;
       scrollbar-color: color-mix(in srgb, var(--accent) 72%, white) transparent;
       border-radius: 14px;
@@ -548,6 +562,7 @@
       background: color-mix(in srgb, var(--bg-a) 82%, black);
       box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
       text-align: center;
+      overflow-wrap: anywhere;
     }
 
     .logo {
@@ -702,6 +717,10 @@
       display: block;
     }
 
+    #gameOverInsight {
+      margin-top: 12px;
+    }
+
     .achievement small {
       display: block;
       margin-top: 3px;
@@ -783,26 +802,117 @@
     }
 
     @media (max-width: 420px) {
+      body {
+        padding-left: 6px;
+        padding-right: 6px;
+      }
+
+      .app {
+        width: 100%;
+        gap: 6px;
+      }
+
+      .overlay {
+        padding: 10px;
+      }
+
+      .modal {
+        width: min(calc(100vw - 20px), 400px);
+        padding: 14px;
+      }
+
+      .topbar {
+        gap: 5px;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) 38px;
+      }
+
+      .stat {
+        min-height: 39px;
+        padding: 5px;
+      }
+
+      .stat-value {
+        font-size: 16px;
+      }
+
+      .status-strip {
+        gap: 6px;
+      }
+
+      .status-card {
+        min-height: 36px;
+        padding: 5px 7px;
+      }
+
       .game-layout {
-        grid-template-columns: minmax(0, 1fr) 92px;
-        height: min(100%, calc(100dvh - 246px));
+        grid-template-columns: minmax(0, 1fr) 76px;
+        gap: 6px;
+        height: min(100%, calc(100dvh - 178px));
+      }
+
+      body.controls-hybrid .game-layout,
+      body.controls-buttons .game-layout {
+        height: min(100%, calc(100dvh - 268px));
+      }
+
+      .board-shell {
+        padding: 5px;
+      }
+
+      .side {
+        gap: 6px;
+      }
+
+      .panel {
+        padding: 6px;
+      }
+
+      .panel-title {
+        margin-bottom: 4px;
+        font-size: 9px;
       }
 
       .button,
       .icon-button,
       .select {
-        min-height: 44px;
-        font-size: 14px;
+        min-height: 42px;
+        font-size: 13px;
       }
 
-      .controls-row.bottom,
+      .controls {
+        gap: 6px;
+      }
+
+      .controls-row {
+        gap: 6px;
+      }
+
       .controls-row.tools {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       canvas.preview {
-        width: 64px;
-        height: 64px;
+        width: 58px;
+        height: 58px;
+      }
+
+      #next2,
+      #next3 {
+        width: 44px;
+        height: 44px;
+      }
+
+      .mini-stat {
+        min-height: 25px;
+        padding: 4px 5px;
+      }
+
+      .mini-stat b {
+        font-size: 12px;
+      }
+
+      .mini-stat span {
+        font-size: 8px;
       }
     }
   </style>
@@ -858,6 +968,15 @@
     </section>
 
     <section class="controls">
+      <div class="controls-row control-buttons">
+        <button class="button" id="leftButton">←</button>
+        <button class="button" id="rotateButton">Поворот</button>
+        <button class="button" id="rightButton">→</button>
+      </div>
+      <div class="controls-row bottom control-buttons">
+        <button class="button" id="downButton">Вниз</button>
+        <button class="button" id="dropButton">Сброс</button>
+      </div>
       <div class="controls-row mobile-main">
         <button class="button warn" id="holdButton">Запас</button>
         <button class="button" id="mainMenuButton">Меню</button>
@@ -921,6 +1040,14 @@
             <option value="mono">Минимализм</option>
           </select>
         </div>
+        <div class="setting">
+          <label for="controlModeSelect">Управление</label>
+          <select class="select" id="controlModeSelect">
+            <option value="gestures">Жесты + запас</option>
+            <option value="hybrid">Жесты и кнопки</option>
+            <option value="buttons">Только кнопки</option>
+          </select>
+        </div>
         <label class="check-row">Призрачная фигура <input id="ghostToggle" type="checkbox" checked></label>
         <label class="check-row">Крупные кнопки <input id="bigButtonsToggle" type="checkbox"></label>
         <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
@@ -941,6 +1068,8 @@
       <div class="result-grid" id="statsGrid"></div>
       <h3>Лучшие игры</h3>
       <div class="leaderboard" id="leaderboard"></div>
+      <h3>Серверные рекорды</h3>
+      <div class="leaderboard" id="serverLeaderboard"></div>
       <h3>Достижения</h3>
       <div class="achievements" id="achievementsList"></div>
       <div class="modal-actions">
@@ -1003,8 +1132,9 @@
           <div class="setting">
             <label for="onlineMaxPlayersSelect">Игроков</label>
             <select class="select" id="onlineMaxPlayersSelect">
+              <option value="2" selected>1v1</option>
               <option value="3">3 игрока</option>
-              <option value="4" selected>4 игрока</option>
+              <option value="4">4 игрока</option>
               <option value="5">5 игроков</option>
               <option value="6">6 игроков</option>
               <option value="7">7 игроков</option>
@@ -1054,9 +1184,12 @@
         <div class="result-row"><span>Комбо</span><span id="finalCombo">0</span></div>
         <div class="result-row"><span>Рекорд</span><span id="finalRecord">0</span></div>
       </div>
+      <div class="achievement" id="gameOverInsight"></div>
+      <p class="muted" id="serverRecordStatus"></p>
       <div class="modal-actions">
         <button class="button primary" id="playAgainButton">Играть снова</button>
         <button class="button" id="gameOverMenuButton">Главное меню</button>
+        <button class="button" id="gameOverCoachButton">Советы тренера</button>
         <button class="button" id="shareResultButton">Поделиться результатом</button>
         <button class="button" id="gameOverStatsButton">Статистика</button>
       </div>
@@ -1188,13 +1321,13 @@
         "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
         "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
         "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
-        "holdButton","startMode","themeSelect","ghostToggle",
+        "holdButton","leftButton","rightButton","rotateButton","downButton","dropButton","startMode","themeSelect","controlModeSelect","ghostToggle",
         "bigButtonsToggle","vibrationToggle",
         "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
-        "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
+        "leaderboard","serverLeaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
         "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","startTournamentButton","closeOnlineButton",
         "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
-        "finalRecord","gameOverTitle","gameOverText","toast","fxLayer"
+        "finalRecord","gameOverTitle","gameOverText","gameOverInsight","gameOverCoachButton","serverRecordStatus","toast","fxLayer"
       ]) {
         ui[id] = document.getElementById(id);
       }
@@ -1242,6 +1375,7 @@
         settings: loadSettings(),
         stats: loadStats(),
         scores: loadJson(STORAGE.scores, []),
+        serverRecords: [],
         unlocked: loadJson(STORAGE.achievements, {}),
         online: {
           socket: null,
@@ -1276,6 +1410,7 @@
         return {
           theme: "ember",
           sensitivity: 24,
+          controlMode: "gestures",
           ghost: true,
           bigButtons: false,
           vibration: true,
@@ -1328,12 +1463,15 @@
         state.settings.reducedMotion = false;
         state.settings.sound = state.settings.volume > 0;
         ui.themeSelect.value = state.settings.theme;
+        ui.controlModeSelect.value = state.settings.controlMode;
         ui.ghostToggle.checked = state.settings.ghost;
         ui.bigButtonsToggle.checked = state.settings.bigButtons;
         ui.vibrationToggle.checked = state.settings.vibration;
         ui.volumeRange.value = state.settings.volume;
         ui.volumeValue.textContent = state.settings.volume;
         document.body.classList.toggle("reduced-motion", state.settings.reducedMotion);
+        document.body.classList.toggle("controls-hybrid", state.settings.controlMode === "hybrid");
+        document.body.classList.toggle("controls-buttons", state.settings.controlMode === "buttons");
         saveJson(STORAGE.settings, state.settings);
       }
 
@@ -1460,6 +1598,7 @@
         state.receivedGarbage += count;
         addGarbage(count);
         shakeBoard();
+        playSound(150, 0.12, "sawtooth", "alert");
         showToast(`Атака от ${from}: +${count}`);
         sendOnlineUpdate(true);
       }
@@ -1500,7 +1639,7 @@
           state.softDrops += 1;
           state.stats.totalSoftDrops += 1;
         }
-        if (dx !== 0) playSound(420, 0.025, "square");
+        if (dx !== 0) playSound(420, 0.025, "square", "move");
         return true;
       }
 
@@ -1515,7 +1654,7 @@
             resetLockDelayIfGrounded();
             state.rotations += 1;
             state.stats.totalRotations += 1;
-            playSound(560, 0.04, "sawtooth");
+            playSound(560, 0.04, "sawtooth", "rotate");
             buzz(4);
             return;
           }
@@ -1534,7 +1673,7 @@
         state.stats.totalHardDrops += 1;
         addScore(distance * 2);
         lock();
-        playSound(190, 0.055, "square");
+        playSound(190, 0.055, "square", "drop");
         buzz(12);
         shakeBoard();
       }
@@ -1552,7 +1691,7 @@
           spawn();
         }
         state.holdUsed = true;
-        playSound(330, 0.05, "triangle");
+        playSound(330, 0.05, "triangle", "ui");
       }
 
       function lock() {
@@ -1570,7 +1709,7 @@
           state.lines += count;
           addScore(lineScore(count) + state.combo * 25);
           state.level = MODES[state.mode].relaxed ? 1 : Math.min(20, Math.floor(state.lines / 10) + DIFFICULTY[state.difficulty].startLevel);
-          playSound(count === 4 ? 880 : 720, count === 4 ? 0.14 : 0.08, "triangle");
+          playSound(count === 4 ? 880 : 720, count === 4 ? 0.14 : 0.08, "triangle", "clear");
           const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
           if (count === 4) showToast("Четыре линии сразу!");
           else if (count >= 2) showToast(`${count} линии${comboText}`);
@@ -1603,7 +1742,7 @@
           if (state.board[y].every(Boolean)) rows.push(y);
         }
         if (!rows.length) return 0;
-        state.flashes = rows.map((row) => ({ row, life: 1 }));
+        state.flashes = rows.map((row) => ({ row, life: 1, width: 0 }));
         state.board = state.board.filter((_, y) => !rows.includes(y));
         while (state.board.length < ROWS) state.board.unshift(Array(COLS).fill(null));
         return rows.length;
@@ -1673,12 +1812,14 @@
         ui.finalLines.textContent = state.lines;
         ui.finalCombo.textContent = state.bestComboRun;
         ui.finalRecord.textContent = state.stats.bestScore;
+        ui.gameOverInsight.innerHTML = gameOverInsight();
+        ui.serverRecordStatus.textContent = "Серверный рекорд отправляется...";
         ui.gameOverOverlay.hidden = false;
         renderCoachTips();
-        if (!won) ui.coachOverlay.hidden = false;
-        playSound(won ? 980 : 170, 0.22, won ? "triangle" : "sawtooth");
+        playSound(won ? 980 : 170, 0.22, won ? "triangle" : "sawtooth", "alert");
         if (won) burst(50);
         sendOnlineUpdate(true);
+        submitServerRecord();
       }
 
       function pause() {
@@ -1737,7 +1878,9 @@
           updateLockDelay(delta);
         }
 
-        state.flashes = state.flashes.map((f) => ({ ...f, life: f.life - delta / 200 })).filter((f) => f.life > 0);
+        state.flashes = state.flashes
+          .map((f) => ({ ...f, life: f.life - delta / 320, width: Math.min(1, f.width + delta / 140) }))
+          .filter((f) => f.life > 0);
         draw();
         syncUi();
         requestAnimationFrame(update);
@@ -1785,8 +1928,16 @@
         }
 
         for (const f of state.flashes) {
-          ctx.fillStyle = `rgba(255,255,255,${0.38 * f.life})`;
-          ctx.fillRect(x0, f.row * cell, boardW, cell);
+          const stripW = boardW * f.width;
+          const stripX = x0 + (boardW - stripW) / 2;
+          const gradient = ctx.createLinearGradient(stripX, 0, stripX + stripW, 0);
+          gradient.addColorStop(0, "rgba(255,255,255,0)");
+          gradient.addColorStop(0.5, `rgba(255,255,255,${0.62 * f.life})`);
+          gradient.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(stripX, f.row * cell, stripW, cell);
+          ctx.fillStyle = `rgba(86,223,186,${0.22 * f.life})`;
+          ctx.fillRect(x0, f.row * cell + cell * 0.42, boardW, Math.max(2, cell * 0.16));
         }
 
         drawPreview(previews[0], ui.next1, state.queue[0]);
@@ -1828,24 +1979,28 @@
       }
 
       function drawCell(context, x, y, size, kind, alpha) {
-        const pad = Math.max(1, size * 0.06);
+        const theme = state.settings.theme;
+        const pad = Math.max(1, size * (theme === "mono" ? 0.10 : theme === "candy" ? 0.04 : 0.06));
         const s = size - pad * 2;
+        const radius = theme === "mono" ? Math.max(2, size * 0.04) : theme === "candy" ? Math.max(5, size * 0.22) : Math.max(3, size * 0.15);
         context.globalAlpha = alpha;
         if (!kind) {
           context.fillStyle = "rgba(255,255,255,0.035)";
-          round(context, x + pad, y + pad, s, s, Math.max(3, size * 0.15), true, false);
+          round(context, x + pad, y + pad, s, s, radius, true, false);
           context.globalAlpha = 1;
           return;
         }
         const gradient = context.createLinearGradient(x, y, x + size, y + size);
         gradient.addColorStop(0, colorFor(kind));
-        gradient.addColorStop(1, shade(colorFor(kind), -20));
+        gradient.addColorStop(1, shade(colorFor(kind), theme === "day" ? -12 : -22));
         context.fillStyle = gradient;
-        round(context, x + pad, y + pad, s, s, Math.max(3, size * 0.15), true, false);
-        context.fillStyle = "rgba(255,255,255,0.16)";
-        round(context, x + pad + 3, y + pad + 3, Math.max(2, s - 6), Math.max(5, s * 0.22), Math.max(2, size * 0.08), true, false);
-        context.strokeStyle = "rgba(255,255,255,0.18)";
-        round(context, x + pad, y + pad, s, s, Math.max(3, size * 0.15), false, true);
+        round(context, x + pad, y + pad, s, s, radius, true, false);
+        if (theme !== "mono") {
+          context.fillStyle = theme === "candy" ? "rgba(255,255,255,0.26)" : "rgba(255,255,255,0.16)";
+          round(context, x + pad + 3, y + pad + 3, Math.max(2, s - 6), Math.max(5, s * 0.22), Math.max(2, size * 0.08), true, false);
+        }
+        context.strokeStyle = theme === "mono" ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.18)";
+        round(context, x + pad, y + pad, s, s, radius, false, true);
         context.globalAlpha = 1;
       }
 
@@ -1908,6 +2063,32 @@
       function currentHeight() {
         const first = state.board.findIndex((row) => row.some(Boolean));
         return first === -1 ? 0 : ROWS - first;
+      }
+
+      function columnHeights() {
+        return Array.from({ length: COLS }, (_, x) => {
+          for (let y = 0; y < ROWS; y += 1) {
+            if (state.board[y][x]) return ROWS - y;
+          }
+          return 0;
+        });
+      }
+
+      function countHoles() {
+        let holes = 0;
+        for (let x = 0; x < COLS; x += 1) {
+          let seenBlock = false;
+          for (let y = 0; y < ROWS; y += 1) {
+            if (state.board[y][x]) seenBlock = true;
+            else if (seenBlock) holes += 1;
+          }
+        }
+        return holes;
+      }
+
+      function surfaceBumpiness() {
+        const heights = columnHeights();
+        return heights.slice(1).reduce((sum, height, index) => sum + Math.abs(height - heights[index]), 0);
       }
 
       function goalText() {
@@ -2237,10 +2418,68 @@
           ? state.scores.map((s, i) => `<div class="score-row"><span>${i + 1}. ${s.mode}, ${s.date}</span><span>${s.score}</span></div>`).join("")
           : `<div class="score-row"><span>Пока пусто</span><span>0</span></div>`;
 
+        renderServerRecords();
+
         ui.achievementsList.innerHTML = ACHIEVEMENTS.map(([id, title, desc]) => {
           const open = state.unlocked[id];
           return `<div class="achievement"><b>${open ? "✓ " : ""}${title}</b><small>${desc}</small></div>`;
         }).join("");
+      }
+
+      function renderServerRecords() {
+        ui.serverLeaderboard.innerHTML = state.serverRecords.length
+          ? state.serverRecords.slice(0, 10).map((s, i) => `<div class="score-row"><span>${i + 1}. ${escapeHtml(s.name)} · ${escapeHtml(s.mode)} · ${escapeHtml(new Date(s.date).toLocaleDateString("ru-RU"))}</span><span>${s.score}</span></div>`).join("")
+          : `<div class="score-row"><span>Пока нет связи с сервером</span><span>—</span></div>`;
+      }
+
+      async function loadServerRecords() {
+        if (!location.protocol.startsWith("http")) return;
+        try {
+          const response = await fetch("/api/records", { cache: "no-store" });
+          const data = await response.json();
+          state.serverRecords = Array.isArray(data.records) ? data.records : [];
+          renderServerRecords();
+        } catch {
+          renderServerRecords();
+        }
+      }
+
+      async function submitServerRecord() {
+        if (!location.protocol.startsWith("http") || state.score <= 0) {
+          ui.serverRecordStatus.textContent = location.protocol.startsWith("http") ? "" : "Серверные рекорды доступны на онлайн-версии.";
+          return;
+        }
+        try {
+          const name = localStorage.getItem("blockdrop-player-name") || state.online.name || "Игрок";
+          const response = await fetch("/api/records", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name,
+              score: state.score,
+              lines: state.lines,
+              level: state.level,
+              mode: MODES[state.mode].name,
+              time: formatTime(state.elapsedMs)
+            })
+          });
+          const data = await response.json();
+          state.serverRecords = Array.isArray(data.records) ? data.records : [];
+          const place = state.serverRecords.findIndex((record) => record.score === state.score && record.lines === state.lines && record.time === formatTime(state.elapsedMs));
+          ui.serverRecordStatus.textContent = place >= 0 && place < 10 ? `Серверный топ: место ${place + 1}` : "Результат сохранён на сервере";
+        } catch {
+          ui.serverRecordStatus.textContent = "Офлайн: результат сохранён только на устройстве";
+        }
+      }
+
+      function gameOverInsight() {
+        const holes = countHoles();
+        const height = currentHeight();
+        if (holes >= 7) return `<b>Главная проблема: дыры</b><small>На поле осталось ${holes}. Играй ровнее и не закрывай пустые клетки, особенно S/Z фигурами.</small>`;
+        if (height >= 13) return `<b>Главная проблема: высота</b><small>Башня поднялась до ${height}. Держи рабочую зону ниже середины поля и чисти 2+ линии чаще.</small>`;
+        if (state.holds < 1 && state.pieces > 10) return `<b>Не использован запас</b><small>Кнопка “Запас” помогает пережить неудобную фигуру и подготовить место под I.</small>`;
+        if (state.bestClearInGame < 2 && state.lines >= 4) return `<b>Мало сильных очисток</b><small>Попробуй строить под 2-4 линии. В онлайне это ещё и отправляет мусор сопернику.</small>`;
+        return `<b>Хорошая база</b><small>Следующий шаг: заранее смотреть 2-3 фигуры вперёд и держать один ровный колодец сбоку.</small>`;
       }
 
       async function shareText(text) {
@@ -2268,6 +2507,14 @@
 
       function renderCoachTips() {
         const tips = [];
+        const holes = countHoles();
+        const bumpiness = surfaceBumpiness();
+        if (holes >= 6) {
+          tips.push(["Слишком много дыр", `Под блоками осталось ${holes} пустых клеток. Сначала закрывай низ ровными фигурами, а неудобные S/Z убирай в запас или на край.`]);
+        }
+        if (bumpiness >= 18) {
+          tips.push(["Неровная поверхность", "Поле стало зубчатым. Старайся ставить фигуры так, чтобы соседние столбцы отличались на 1-2 клетки, тогда меньше придётся крутить в панике."]);
+        }
         if (state.receivedGarbage > 0) {
           tips.push(["Онлайн-давление", `Ты получил ${state.receivedGarbage} мусорных линий. В PvP старайся отвечать очисткой 2+ линий, а не просто выживать.`]);
         }
@@ -2297,7 +2544,7 @@
             state.unlocked[id] = true;
             changed = true;
             showToast(`Достижение: ${title}`);
-            playSound(1040, 0.10, "triangle");
+            playSound(1040, 0.10, "triangle", "clear");
           }
         }
         if (changed) saveJson(STORAGE.achievements, state.unlocked);
@@ -2310,7 +2557,7 @@
         if (state.audio && state.audio.state === "suspended") state.audio.resume();
       }
 
-      function playSound(freq, duration, type) {
+      function playSound(freq, duration, type, category = "ui") {
         if (!state.settings.sound || state.settings.volume <= 0) return;
         ensureAudio();
         if (!state.audio) return;
@@ -2319,13 +2566,21 @@
         const filter = state.audio.createBiquadFilter();
         const gain = state.audio.createGain();
         const softType = type === "sawtooth" || type === "square" ? "triangle" : type;
+        const categoryGain = {
+          move: 0.35,
+          rotate: 0.42,
+          drop: 0.55,
+          clear: 0.88,
+          alert: 0.65,
+          ui: 0.45
+        }[category] || 0.45;
         oscillator.type = softType;
         oscillator.frequency.setValueAtTime(Math.max(110, freq * 0.82), now);
         filter.type = "lowpass";
-        filter.frequency.setValueAtTime(1650, now);
+        filter.frequency.setValueAtTime(category === "clear" ? 1900 : 1320, now);
         filter.Q.setValueAtTime(0.35, now);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.04 * (state.settings.volume / 100), now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.036 * categoryGain * (state.settings.volume / 100), now + 0.014);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, duration * 0.9));
         oscillator.connect(filter);
         filter.connect(gain);
@@ -2395,6 +2650,7 @@
         if (statsReturnOverlay) statsReturnOverlay.hidden = true;
         renderStats();
         ui.statsOverlay.hidden = false;
+        loadServerRecords();
       }
 
       function closeStats() {
@@ -2423,6 +2679,27 @@
         });
       }
 
+      function bindRepeat(element, handler, interval = 82) {
+        let timer = 0;
+        const stop = () => {
+          clearInterval(timer);
+          timer = 0;
+        };
+        element.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          handler();
+          syncUi();
+          stop();
+          timer = setInterval(() => {
+            handler();
+            syncUi();
+          }, interval);
+        });
+        element.addEventListener("pointerup", stop);
+        element.addEventListener("pointercancel", stop);
+        element.addEventListener("pointerleave", stop);
+      }
+
       function bind() {
         bindPress(ui.startButton, () => startGame());
         bindPress(ui.continueButton, loadCurrentGame);
@@ -2449,9 +2726,16 @@
         bindPress(ui.closeStatsButton, closeStats);
         bindPress(ui.shareStatsButton, () => shareText(statsText()));
         bindPress(ui.gameOverStatsButton, openStats);
+        bindPress(ui.gameOverCoachButton, () => ui.coachOverlay.hidden = false);
         bindPress(ui.shareResultButton, () => shareText(resultText()));
         bindPress(ui.holdButton, holdPiece);
+        bindRepeat(ui.leftButton, () => move(-1, 0));
+        bindRepeat(ui.rightButton, () => move(1, 0));
+        bindRepeat(ui.downButton, softDrop, 58);
+        bindPress(ui.rotateButton, rotate);
+        bindPress(ui.dropButton, hardDrop);
         ui.themeSelect.addEventListener("change", () => { state.settings.theme = ui.themeSelect.value; applySettings(); });
+        ui.controlModeSelect.addEventListener("change", () => { state.settings.controlMode = ui.controlModeSelect.value; applySettings(); });
         ui.ghostToggle.addEventListener("change", () => { state.settings.ghost = ui.ghostToggle.checked; applySettings(); });
         ui.bigButtonsToggle.addEventListener("change", () => { state.settings.bigButtons = ui.bigButtonsToggle.checked; applySettings(); });
         ui.vibrationToggle.addEventListener("change", () => { state.settings.vibration = ui.vibrationToggle.checked; applySettings(); });
@@ -2471,29 +2755,57 @@
 
         let sx = 0;
         let sy = 0;
+        let lastX = 0;
+        let gestureMoved = false;
+        let gestureHardDropped = false;
         ui.board.addEventListener("touchstart", (event) => {
+          if (state.settings.controlMode === "buttons") return;
           event.preventDefault();
           sx = event.changedTouches[0].clientX;
           sy = event.changedTouches[0].clientY;
+          lastX = sx;
+          gestureMoved = false;
+          gestureHardDropped = false;
+        }, { passive: false });
+        ui.board.addEventListener("touchmove", (event) => {
+          if (state.settings.controlMode === "buttons") return;
+          event.preventDefault();
+          const touch = event.changedTouches[0];
+          const threshold = state.settings.sensitivity;
+          const dx = touch.clientX - lastX;
+          const totalDy = touch.clientY - sy;
+          if (Math.abs(dx) >= threshold * 0.85 && Math.abs(dx) > Math.abs(totalDy) * 0.42) {
+            const steps = Math.max(1, Math.min(3, Math.floor(Math.abs(dx) / threshold)));
+            for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
+            lastX = touch.clientX;
+            gestureMoved = true;
+            syncUi();
+          }
         }, { passive: false });
         ui.board.addEventListener("touchend", (event) => {
+          if (state.settings.controlMode === "buttons") return;
           event.preventDefault();
           const touch = event.changedTouches[0];
           const dx = touch.clientX - sx;
           const dy = touch.clientY - sy;
           const threshold = state.settings.sensitivity;
-          if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) rotate();
-          else if (Math.abs(dx) > Math.abs(dy)) {
+          if (Math.abs(dx) < threshold && Math.abs(dy) < threshold && !gestureMoved) rotate();
+          else if (Math.abs(dx) > Math.abs(dy) && !gestureMoved) {
             const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
             for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
           }
           else if (dy < 0) rotate();
-          else hardDrop();
+          else if (!gestureHardDropped) hardDrop();
           syncUi();
         }, { passive: false });
 
         document.addEventListener("visibilitychange", () => {
           if (state.settings.autoPause && document.hidden && state.running && !state.paused) pause();
+        });
+        window.addEventListener("offline", () => showToast("Офлайн: одиночная игра доступна"));
+        window.addEventListener("online", () => {
+          showToast("Сеть вернулась");
+          loadServerRecords();
         });
         window.addEventListener("beforeunload", saveCurrentGame);
         window.addEventListener("resize", draw);
@@ -2523,6 +2835,7 @@
       syncUi();
       draw();
       bootPwa();
+      loadServerRecords();
       requestAnimationFrame(update);
     })();
   </script>

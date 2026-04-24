@@ -5,6 +5,8 @@ const path = require("path");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
+const RECORDS_FILE = path.join(ROOT, "records.json");
+const MAX_RECORDS = 50;
 const rooms = new Map();
 
 const mime = {
@@ -19,6 +21,12 @@ const mime = {
 
 const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+
+  if (requestUrl.pathname === "/api/records") {
+    handleRecordsApi(req, res);
+    return;
+  }
+
   const pathname = requestUrl.pathname === "/" || /^\/room\/[A-Z0-9]+$/i.test(requestUrl.pathname) ? "/index.html" : requestUrl.pathname;
   const safePath = path.normalize(decodeURIComponent(pathname)).replace(/^([/\\])/, "").replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(ROOT, safePath);
@@ -42,6 +50,84 @@ const server = http.createServer((req, res) => {
     res.end(data);
   });
 });
+
+function handleRecordsApi(req, res) {
+  if (req.method === "GET") {
+    sendJson(res, { records: readRecords() });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+    if (body.length > 4096) req.destroy();
+  });
+  req.on("end", () => {
+    let data = {};
+    try {
+      data = JSON.parse(body || "{}");
+    } catch {
+      sendJson(res, { error: "Bad JSON" }, 400);
+      return;
+    }
+
+    const record = sanitizeRecord(data);
+    if (record.score <= 0) {
+      sendJson(res, { records: readRecords() });
+      return;
+    }
+
+    const records = readRecords()
+      .concat(record)
+      .sort((a, b) => b.score - a.score || b.lines - a.lines || a.date.localeCompare(b.date))
+      .slice(0, MAX_RECORDS);
+    writeRecords(records);
+    sendJson(res, { records });
+  });
+}
+
+function sanitizeRecord(data) {
+  return {
+    name: cleanName(data.name || "Игрок"),
+    score: clamp(safeNumber(data.score), 0, 99999999),
+    lines: clamp(safeNumber(data.lines), 0, 9999),
+    level: clamp(safeNumber(data.level), 1, 99),
+    mode: String(data.mode || "Классика").replace(/[<>]/g, "").slice(0, 24),
+    time: String(data.time || "0:00").replace(/[<>]/g, "").slice(0, 12),
+    date: new Date().toISOString()
+  };
+}
+
+function readRecords() {
+  try {
+    const raw = fs.readFileSync(RECORDS_FILE, "utf8");
+    const records = JSON.parse(raw);
+    return Array.isArray(records) ? records.slice(0, MAX_RECORDS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecords(records) {
+  try {
+    fs.writeFileSync(RECORDS_FILE, JSON.stringify(records, null, 2));
+  } catch (error) {
+    console.error("Cannot write records:", error.message);
+  }
+}
+
+function sendJson(res, payload, status = 200) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-cache"
+  });
+  res.end(JSON.stringify(payload));
+}
 
 server.on("upgrade", (req, socket) => {
   if (req.headers.upgrade?.toLowerCase() !== "websocket") {
@@ -99,7 +185,7 @@ function createRoom(id, maxPlayers = 4, durationSec = 180) {
   return {
     id,
     clients: new Map(),
-    maxPlayers: clamp(maxPlayers, 3, 8),
+    maxPlayers: clamp(maxPlayers, 2, 8),
     durationSec: clamp(durationSec, 60, 1800),
     tournament: null
   };
@@ -139,7 +225,7 @@ function handleMessage(client, raw) {
 function joinRoom(client, data) {
   removeClient(client);
   const roomId = cleanCode(data.room) || "LOBBY";
-  const maxPlayers = clamp(safeNumber(data.maxPlayers) || 4, 3, 8);
+  const maxPlayers = clamp(safeNumber(data.maxPlayers) || 2, 2, 8);
   const durationSec = clamp(safeNumber(data.durationSec) || 180, 60, 1800);
   if (!rooms.has(roomId)) rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
   const room = rooms.get(roomId);
@@ -177,7 +263,7 @@ function updateClientState(client, data) {
 function startTournament(roomId, data) {
   const room = rooms.get(roomId);
   if (!room) return;
-  room.maxPlayers = clamp(safeNumber(data.maxPlayers) || room.maxPlayers, 3, 8);
+  room.maxPlayers = clamp(safeNumber(data.maxPlayers) || room.maxPlayers, 2, 8);
   room.durationSec = clamp(safeNumber(data.durationSec) || room.durationSec, 60, 1800);
   room.tournament = {
     active: true,
