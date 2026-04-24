@@ -19,7 +19,7 @@ const mime = {
 
 const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
+  const pathname = requestUrl.pathname === "/" || /^\/room\/[A-Z0-9]+$/i.test(requestUrl.pathname) ? "/index.html" : requestUrl.pathname;
   const safePath = path.normalize(decodeURIComponent(pathname)).replace(/^([/\\])/, "").replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(ROOT, safePath);
 

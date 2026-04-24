@@ -856,7 +856,7 @@
       <div class="controls-row tools">
         <button class="button" id="soundButton">Звук: вкл</button>
         <button class="button" id="settingsButton">Настройки</button>
-        <button class="button" id="restartButton">Рестарт</button>
+        <button class="button" id="mainMenuButton">Меню</button>
       </div>
     </section>
   </main>
@@ -899,6 +899,7 @@
         <button class="button primary" id="resumeButton">Продолжить</button>
         <button class="button" id="pauseSettingsButton">Настройки</button>
         <button class="button" id="pauseRestartButton">Рестарт</button>
+        <button class="button" id="pauseMenuButton">Главное меню</button>
       </div>
     </div>
   </section>
@@ -1025,6 +1026,8 @@
       <p class="muted" id="onlineStatus">Не подключено</p>
       <div class="modal-actions">
         <button class="button primary" id="connectOnlineButton">Подключиться</button>
+        <button class="button" id="shareRoomButton">Ссылка другу</button>
+        <button class="button" id="newRoomButton">Новая комната</button>
         <button class="button" id="startTournamentButton">Старт турнира</button>
         <button class="button" id="disconnectOnlineButton">Отключиться</button>
         <button class="button" id="closeOnlineButton">Закрыть</button>
@@ -1057,6 +1060,7 @@
       </div>
       <div class="modal-actions">
         <button class="button primary" id="playAgainButton">Играть снова</button>
+        <button class="button" id="gameOverMenuButton">Главное меню</button>
         <button class="button" id="shareResultButton">Поделиться результатом</button>
         <button class="button" id="gameOverStatsButton">Статистика</button>
       </div>
@@ -1158,12 +1162,12 @@
         "app","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
         "goalValue","progressFill","speedValue","rankValue","apmValue","heightValue","missionBoard","onlinePanel",
         "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
-        "playAgainButton","pauseButton","restartButton","pauseRestartButton","pauseSettingsButton","settingsButton","soundButton","leftButton","rightButton",
+        "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton","settingsButton","soundButton","leftButton","rightButton",
         "rotateButton","downButton","dropButton","holdButton","startMode","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
         "bigButtonsToggle","vibrationToggle","gridToggle","dangerToggle","particlesToggle","colorBlindToggle","autoPauseToggle","reducedMotionToggle",
         "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
         "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
-        "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","startTournamentButton","disconnectOnlineButton","closeOnlineButton",
+        "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","newRoomButton","startTournamentButton","disconnectOnlineButton","closeOnlineButton",
         "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
         "finalRecord","gameOverTitle","gameOverText","toast","fxLayer","tabClassic","tabSprint","tabRelax","tabChaos"
       ]) {
@@ -1656,6 +1660,18 @@
         ui.pauseOverlay.hidden = true;
       }
 
+      function returnToMainMenu() {
+        let saved = false;
+        if (state.running && !state.gameOver) {
+          state.paused = true;
+          saveCurrentGame();
+          saved = true;
+        }
+        hideOverlays();
+        ui.startOverlay.hidden = false;
+        showToast(saved ? "Партия сохранена" : "Главное меню");
+      }
+
       function togglePause() {
         if (state.paused) resume();
         else pause();
@@ -1900,17 +1916,57 @@
 
       function openOnline() {
         ui.onlineServerInput.value = ui.onlineServerInput.value || defaultServerUrl();
-        ui.onlineRoomInput.value = ui.onlineRoomInput.value || generateChallengeCode();
+        ui.onlineRoomInput.value = ui.onlineRoomInput.value || localStorage.getItem("tetris-last-room") || generateChallengeCode();
         ui.onlineNameInput.value = ui.onlineNameInput.value || localStorage.getItem("blockdrop-player-name") || "Игрок";
         ui.onlineOverlay.hidden = false;
         renderOnlinePlayers();
       }
 
+      function ensureRoomCode() {
+        const room = normalizeCode(ui.onlineRoomInput.value || state.online.room) || generateChallengeCode();
+        ui.onlineRoomInput.value = room;
+        localStorage.setItem("tetris-last-room", room);
+        return room;
+      }
+
+      function roomFromUrl() {
+        const pathRoom = location.pathname.match(/\/room\/([A-Z0-9]+)/i)?.[1];
+        const queryRoom = new URLSearchParams(location.search).get("room");
+        return normalizeCode(pathRoom || queryRoom);
+      }
+
+      function roomInviteUrl(room = ensureRoomCode()) {
+        const url = new URL(location.href);
+        const canUsePrettyRoom = location.protocol.startsWith("http") && !location.hostname.endsWith("github.io");
+        if (canUsePrettyRoom) {
+          const basePath = url.pathname.includes("/room/") ? url.pathname.split("/room/")[0] : url.pathname.replace(/\/[^/]*$/, "");
+          url.pathname = `${basePath.replace(/\/$/, "")}/room/${room}`;
+          url.search = "";
+        } else {
+          url.searchParams.set("room", room);
+        }
+        url.hash = "";
+        return url.toString();
+      }
+
+      function shareRoomLink() {
+        const room = ensureRoomCode();
+        shareText(`Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`);
+      }
+
+      function createNewRoom() {
+        ui.onlineRoomInput.value = generateChallengeCode();
+        localStorage.setItem("tetris-last-room", ui.onlineRoomInput.value);
+        ui.onlineStatus.textContent = `Новая комната ${ui.onlineRoomInput.value}`;
+        showToast("Комната создана");
+      }
+
       function connectOnline() {
         const server = ui.onlineServerInput.value.trim();
-        const room = normalizeCode(ui.onlineRoomInput.value) || generateChallengeCode();
+        const room = ensureRoomCode();
         const name = (ui.onlineNameInput.value.trim() || "Игрок").slice(0, 18);
         localStorage.setItem("blockdrop-player-name", name);
+        localStorage.setItem("tetris-last-room", room);
         ui.onlineRoomInput.value = room;
 
         disconnectOnline(false);
@@ -1932,6 +1988,7 @@
             }));
             sendOnlineUpdate(true);
             ui.onlineStatus.textContent = `Комната ${room}`;
+            if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(room));
             showToast(`Онлайн: ${room}`);
           });
 
@@ -2240,13 +2297,19 @@
         if (!state.audio) return;
         const now = state.audio.currentTime;
         const oscillator = state.audio.createOscillator();
+        const filter = state.audio.createBiquadFilter();
         const gain = state.audio.createGain();
-        oscillator.type = type;
-        oscillator.frequency.value = freq;
+        const softType = type === "sawtooth" || type === "square" ? "triangle" : type;
+        oscillator.type = softType;
+        oscillator.frequency.setValueAtTime(Math.max(90, freq * 0.68), now);
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(920, now);
+        filter.Q.setValueAtTime(0.35, now);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.06 * (state.settings.volume / 100), now + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-        oscillator.connect(gain);
+        gain.gain.exponentialRampToValueAtTime(0.022 * (state.settings.volume / 100), now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 0.85);
+        oscillator.connect(filter);
+        filter.connect(gain);
         gain.connect(state.audio.destination);
         oscillator.start(now);
         oscillator.stop(now + duration + 0.03);
@@ -2350,6 +2413,8 @@
         bindPress(ui.closeCoachButton, () => ui.coachOverlay.hidden = true);
         bindPress(ui.onlineButton, openOnline);
         bindPress(ui.connectOnlineButton, connectOnline);
+        bindPress(ui.shareRoomButton, shareRoomLink);
+        bindPress(ui.newRoomButton, createNewRoom);
         bindPress(ui.startTournamentButton, startTournament);
         bindPress(ui.disconnectOnlineButton, disconnectOnline);
         bindPress(ui.closeOnlineButton, () => ui.onlineOverlay.hidden = true);
@@ -2358,7 +2423,9 @@
         bindPress(ui.resumeButton, resume);
         bindPress(ui.playAgainButton, () => startGame(state.mode, state.difficulty));
         bindPress(ui.pauseButton, togglePause);
-        bindPress(ui.restartButton, () => startGame(state.mode, state.difficulty));
+        bindPress(ui.mainMenuButton, returnToMainMenu);
+        bindPress(ui.pauseMenuButton, returnToMainMenu);
+        bindPress(ui.gameOverMenuButton, returnToMainMenu);
         bindPress(ui.pauseRestartButton, () => startGame(state.mode, state.difficulty));
         bindPress(ui.pauseSettingsButton, openSettings);
         bindPress(ui.settingsButton, openSettings);
@@ -2443,6 +2510,12 @@
         const params = new URLSearchParams(location.search);
         const mode = params.get("mode");
         if (mode && MODES[mode]) ui.startMode.value = mode;
+        const room = roomFromUrl();
+        if (room) {
+          ui.onlineRoomInput.value = room;
+          localStorage.setItem("tetris-last-room", room);
+          setTimeout(openOnline, 0);
+        }
       }
 
       bind();
