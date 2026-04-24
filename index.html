@@ -215,10 +215,6 @@
       gap: 8px;
     }
 
-    .status-card:has(#speedValue) {
-      display: none;
-    }
-
     .status-card {
       min-height: 42px;
       padding: 7px 8px;
@@ -442,12 +438,6 @@
       text-transform: uppercase;
     }
 
-    .mini-stat:has(#piecesValue),
-    .mini-stat:has(#apmValue),
-    .mini-stat:has(#heightValue) {
-      display: none;
-    }
-
     .controls {
       display: grid;
       gap: 8px;
@@ -596,11 +586,6 @@
       color: var(--muted);
       line-height: 1.34;
       margin-bottom: 12px;
-    }
-
-    #startOverlay .setting:has(#startDifficulty),
-    #startOverlay .setting:has(#challengeInput) {
-      display: none;
     }
 
     .modal-actions {
@@ -814,7 +799,7 @@
         <b id="goalValue">Выжить</b>
         <div class="progress"><i id="progressFill"></i></div>
       </div>
-      <div class="status-card"><span>Темп</span><b id="speedValue">Спокойно</b></div>
+      <div class="status-card hidden"><span>Темп</span><b id="speedValue">Спокойно</b></div>
       <div class="status-card"><span>Ранг</span><b id="rankValue">Новичок</b></div>
     </section>
 
@@ -840,13 +825,13 @@
         <div class="panel tiny-grid">
           <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
           <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
-          <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
+          <div class="mini-stat hidden"><b id="piecesValue">0</b><span>Фигур</span></div>
           <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
-          <div class="mini-stat"><b id="apmValue">0</b><span>APM</span></div>
-          <div class="mini-stat"><b id="heightValue">0</b><span>Высота</span></div>
+          <div class="mini-stat hidden"><b id="apmValue">0</b><span>APM</span></div>
+          <div class="mini-stat hidden"><b id="heightValue">0</b><span>Высота</span></div>
         </div>
 
-        <div class="mission-board" id="missionBoard"></div>
+        <div class="mission-board hidden" id="missionBoard"></div>
         <div class="online-panel" id="onlinePanel"></div>
       </aside>
     </section>
@@ -888,23 +873,6 @@
             <option value="relax">Дзен</option>
             <option value="chaos">Хаос</option>
           </select>
-        </div>
-        <div class="setting">
-          <label for="startDifficulty">Сложность</label>
-          <select class="select" id="startDifficulty">
-            <option value="easy">Лёгкая</option>
-            <option value="normal" selected>Нормальная</option>
-            <option value="hard">Сложная</option>
-            <option value="expert">Эксперт</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="challengeInput">Код челленджа</label>
-          <input class="input" id="challengeInput" maxlength="16" placeholder="Пусто = случайно">
-          <div class="compact-actions">
-            <button class="button" id="randomChallengeButton">Новый код</button>
-            <button class="button" id="shareChallengeButton">Поделиться</button>
-          </div>
         </div>
       </div>
       <div class="modal-actions">
@@ -1185,9 +1153,9 @@
         "goalValue","progressFill","speedValue","rankValue","apmValue","heightValue","missionBoard","onlinePanel",
         "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
         "playAgainButton","pauseButton","restartButton","pauseRestartButton","pauseSettingsButton","settingsButton","soundButton","leftButton","rightButton",
-        "rotateButton","downButton","dropButton","holdButton","startMode","startDifficulty","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
+        "rotateButton","downButton","dropButton","holdButton","startMode","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
         "bigButtonsToggle","vibrationToggle","gridToggle","dangerToggle","particlesToggle","colorBlindToggle","autoPauseToggle","reducedMotionToggle",
-        "volumeRange","volumeValue","challengeInput","randomChallengeButton","shareChallengeButton","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
+        "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
         "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
         "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","startTournamentButton","disconnectOnlineButton","closeOnlineButton",
         "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
@@ -2240,24 +2208,6 @@
         ui.coachTips.innerHTML = tips.slice(0, 3).map(([title, body]) => `<div class="achievement"><b>${title}</b><small>${body}</small></div>`).join("");
       }
 
-      function challengeText() {
-        const code = normalizeCode(ui.challengeInput.value) || generateAndSetChallengeCode();
-        const params = new URLSearchParams({
-          challenge: code,
-          mode: ui.startMode.value,
-          difficulty: ui.startDifficulty.value
-        });
-        const base = location.protocol.startsWith("http") ? `${location.origin}${location.pathname}` : "Откройте index.html";
-        return `БлокДроп челлендж: код ${code}, режим ${MODES[ui.startMode.value].name}, сложность ${DIFFICULTY[ui.startDifficulty.value].name}. Ссылка: ${base}?${params.toString()}`;
-      }
-
-      function generateAndSetChallengeCode() {
-        const code = generateChallengeCode();
-        ui.challengeInput.value = code;
-        showToast(`Код: ${code}`);
-        return code;
-      }
-
       function checkAchievements() {
         let changed = false;
         for (const [id, title, , rule] of ACHIEVEMENTS) {
@@ -2399,8 +2349,6 @@
         bindPress(ui.closeOnlineButton, () => ui.onlineOverlay.hidden = true);
         bindPress(ui.closeTournamentButton, () => ui.tournamentOverlay.hidden = true);
         bindPress(ui.rematchButton, startTournament);
-        bindPress(ui.randomChallengeButton, generateAndSetChallengeCode);
-        bindPress(ui.shareChallengeButton, () => shareText(challengeText()));
         bindPress(ui.resumeButton, resume);
         bindPress(ui.playAgainButton, () => startGame(state.mode, state.difficulty));
         bindPress(ui.pauseButton, togglePause);
