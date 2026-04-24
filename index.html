@@ -464,8 +464,8 @@
       grid-template-columns: 1fr 1fr 1fr;
     }
 
-    .controls-row.solo {
-      grid-template-columns: 1fr;
+    .controls-row.mobile-main {
+      grid-template-columns: 1.4fr 1fr;
     }
 
     .select {
@@ -858,8 +858,9 @@
     </section>
 
     <section class="controls">
-      <div class="controls-row solo">
+      <div class="controls-row mobile-main">
         <button class="button warn" id="holdButton">Запас</button>
+        <button class="button" id="mainMenuButton">Меню</button>
       </div>
     </section>
   </main>
@@ -1186,7 +1187,7 @@
         "app","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
         "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
         "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
-        "playAgainButton","pauseButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
+        "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
         "holdButton","startMode","themeSelect","ghostToggle",
         "bigButtonsToggle","vibrationToggle",
         "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
@@ -2439,6 +2440,7 @@
         bindPress(ui.resumeButton, resume);
         bindPress(ui.playAgainButton, () => startGame(state.mode, state.difficulty));
         bindPress(ui.pauseButton, togglePause);
+        bindPress(ui.mainMenuButton, returnToMainMenu);
         bindPress(ui.pauseMenuButton, returnToMainMenu);
         bindPress(ui.gameOverMenuButton, returnToMainMenu);
         bindPress(ui.pauseRestartButton, () => startGame(state.mode, state.difficulty));
