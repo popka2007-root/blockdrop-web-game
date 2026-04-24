@@ -1,0 +1,2268 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="БлокДроп">
+  <meta name="theme-color" content="#182033">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>БлокДроп</title>
+  <style>
+    :root {
+      --bg-a: #172033;
+      --bg-b: #243d42;
+      --bg-c: #f06f4f;
+      --panel: rgba(255, 255, 255, 0.10);
+      --panel-strong: rgba(255, 255, 255, 0.16);
+      --text: #f8fbff;
+      --muted: rgba(248, 251, 255, 0.72);
+      --accent: #56dfba;
+      --accent-2: #ffb24a;
+      --danger: #ff5f6d;
+      --line: rgba(255, 255, 255, 0.12);
+      --shadow: rgba(0, 0, 0, 0.28);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    [data-theme="day"] {
+      --bg-a: #f4e7d0;
+      --bg-b: #89cfc3;
+      --bg-c: #e45757;
+      --panel: rgba(20, 30, 42, 0.10);
+      --panel-strong: rgba(20, 30, 42, 0.15);
+      --text: #172033;
+      --muted: rgba(23, 32, 51, 0.70);
+      --accent: #167f72;
+      --accent-2: #c7553f;
+      --line: rgba(23, 32, 51, 0.16);
+      --shadow: rgba(50, 64, 80, 0.20);
+    }
+
+    [data-theme="candy"] {
+      --bg-a: #2c2646;
+      --bg-b: #0c7f78;
+      --bg-c: #ffcf56;
+      --accent: #ffcf56;
+      --accent-2: #ff7a90;
+    }
+
+    [data-theme="mono"] {
+      --bg-a: #161817;
+      --bg-b: #3b4942;
+      --bg-c: #d9d0bd;
+      --accent: #d9d0bd;
+      --accent-2: #8dd3c7;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--text);
+      font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--bg-c) 36%, transparent), transparent 28%),
+        radial-gradient(circle at 82% 10%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 30%),
+        linear-gradient(145deg, var(--bg-a), var(--bg-b));
+      overscroll-behavior: none;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      justify-content: center;
+      padding: calc(8px + var(--safe-top)) 10px calc(8px + var(--safe-bottom));
+      overflow: hidden;
+    }
+
+    button,
+    select {
+      font: inherit;
+    }
+
+    .app {
+      width: min(100%, 520px);
+      height: calc(100vh - var(--safe-top) - var(--safe-bottom) - 16px);
+      height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px);
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) 44px;
+      gap: 8px;
+    }
+
+    .stat,
+    .panel,
+    .button,
+    .icon-button,
+    .select,
+    .tabs button {
+      border: 1px solid var(--line);
+      box-shadow: 0 14px 36px var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .stat {
+      min-height: 46px;
+      border-radius: 8px;
+      background: var(--panel);
+      display: grid;
+      place-items: center;
+      padding: 7px;
+      text-align: center;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .icon-button,
+    .button,
+    .select,
+    .tabs button {
+      min-height: 46px;
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .icon-button {
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+    }
+
+    .button {
+      padding: 0 10px;
+      font-weight: 900;
+    }
+
+    .button.primary {
+      color: #061318;
+      border-color: rgba(255, 255, 255, 0.26);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+    }
+
+    .button.warn {
+      color: #191006;
+      background: linear-gradient(180deg, #ffd482, var(--accent-2));
+    }
+
+    .button:active,
+    .icon-button:active,
+    .tabs button:active {
+      transform: scale(0.97);
+    }
+
+    body.big-buttons .button,
+    body.big-buttons .icon-button {
+      min-height: 54px;
+      font-size: 16px;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .tabs button {
+      padding: 0 6px;
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--muted);
+    }
+
+    .tabs button.active {
+      color: #061318;
+      background: var(--accent);
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+
+    .status-card {
+      min-height: 42px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 28px var(--shadow);
+      overflow: hidden;
+    }
+
+    .status-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .status-card b {
+      display: block;
+      margin-top: 2px;
+      font-size: 14px;
+      line-height: 1.05;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress {
+      height: 5px;
+      margin-top: 5px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.12);
+      overflow: hidden;
+    }
+
+    .progress i {
+      display: block;
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+      transition: width 180ms ease;
+    }
+
+    .mission-board {
+      display: grid;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+
+    .mission-board:empty {
+      display: none;
+    }
+
+    .online-panel {
+      display: none;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .online-panel.active {
+      display: grid;
+    }
+
+    .online-player {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    .mission {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .mission.done {
+      color: var(--accent);
+    }
+
+    .game-layout {
+      min-height: 0;
+      height: min(100%, calc(100dvh - 330px));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 104px;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .board-shell {
+      position: relative;
+      min-height: 0;
+      height: 100%;
+      border-radius: 10px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.26);
+      box-shadow: 0 20px 50px var(--shadow);
+      overflow: hidden;
+    }
+
+    .board-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 24%);
+      pointer-events: none;
+    }
+
+    #board {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: auto;
+      max-width: 100%;
+      height: 100%;
+      margin: 0 auto;
+      aspect-ratio: 1 / 2;
+      border-radius: 8px;
+      touch-action: none;
+    }
+
+    .danger-band {
+      position: absolute;
+      z-index: 2;
+      left: 8px;
+      right: 8px;
+      top: 8px;
+      height: 15%;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(255, 95, 109, 0.20), transparent);
+      opacity: 0;
+      transition: opacity 180ms ease;
+    }
+
+    .danger .danger-band {
+      opacity: 1;
+    }
+
+    .side {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    .panel {
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--panel);
+    }
+
+    .panel-title {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      text-align: center;
+    }
+
+    canvas.preview {
+      display: block;
+      width: 76px;
+      height: 76px;
+      margin: 0 auto;
+    }
+
+    #next2,
+    #next3 {
+      width: 58px;
+      height: 58px;
+      opacity: 0.82;
+    }
+
+    .tiny-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .mini-stat {
+      text-align: center;
+      padding: 8px 4px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .mini-stat b {
+      display: block;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .mini-stat span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .controls {
+      display: grid;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .controls-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .controls-row.bottom {
+      grid-template-columns: 1fr 1fr 1.5fr;
+    }
+
+    .controls-row.tools {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .select {
+      width: 100%;
+      padding: 0 10px;
+      font-weight: 900;
+      appearance: none;
+      text-align: center;
+      background: var(--panel-strong);
+      color: var(--text);
+      color-scheme: dark;
+    }
+
+    .select option {
+      background: #1d2638;
+      color: #f8fbff;
+      font-weight: 900;
+    }
+
+    [data-theme="day"] .select {
+      color-scheme: light;
+    }
+
+    [data-theme="day"] .select option {
+      background: #f6ead7;
+      color: #172033;
+    }
+
+    .input {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 12px;
+      background: var(--panel-strong);
+      color: var(--text);
+      box-shadow: 0 14px 36px var(--shadow);
+      font: inherit;
+      font-weight: 900;
+      text-align: center;
+      text-transform: uppercase;
+      user-select: text;
+    }
+
+    .compact-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(6, 10, 16, 0.68);
+      backdrop-filter: blur(14px);
+    }
+
+    .overlay[hidden] {
+      display: none;
+    }
+
+    .modal {
+      width: min(100%, 400px);
+      max-height: min(760px, calc(100vh - 34px));
+      overflow: auto;
+      border-radius: 14px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg-a) 82%, black);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+      text-align: center;
+    }
+
+    .logo {
+      width: 118px;
+      height: 118px;
+      margin: 0 auto 12px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .logo span {
+      border-radius: 7px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 42px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      font-size: 32px;
+      line-height: 1.08;
+      margin-bottom: 8px;
+    }
+
+    h3 {
+      margin: 14px 0 8px;
+      font-size: 18px;
+      text-align: left;
+    }
+
+    .muted {
+      color: var(--muted);
+      line-height: 1.42;
+      margin-bottom: 14px;
+    }
+
+    .modal-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .settings-grid {
+      display: grid;
+      gap: 8px;
+      text-align: left;
+    }
+
+    .setting {
+      display: grid;
+      gap: 5px;
+    }
+
+    .setting label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.07);
+      font-weight: 900;
+    }
+
+    .range-row {
+      display: grid;
+      grid-template-columns: 1fr 50px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    input[type="checkbox"] {
+      width: 22px;
+      height: 22px;
+      accent-color: var(--accent);
+    }
+
+    .result-grid,
+    .achievements,
+    .leaderboard {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .result-row,
+    .achievement,
+    .score-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.07);
+      text-align: left;
+      font-weight: 900;
+    }
+
+    .result-row span:first-child,
+    .score-row span:first-child,
+    .achievement small {
+      color: var(--muted);
+    }
+
+    .achievement {
+      display: block;
+    }
+
+    .achievement small {
+      display: block;
+      margin-top: 3px;
+      font-weight: 700;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(18px + var(--safe-bottom));
+      z-index: 30;
+      transform: translateX(-50%) translateY(20px);
+      min-width: min(92%, 320px);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #061318;
+      background: var(--accent);
+      box-shadow: 0 14px 40px var(--shadow);
+      font-weight: 900;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease, transform 180ms ease;
+      text-align: center;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .fx-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 25;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .particle {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      background: var(--accent);
+      animation: pop 700ms ease-out forwards;
+    }
+
+    .shake {
+      animation: shake 190ms linear;
+    }
+
+    @keyframes pop {
+      from {
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+      }
+      to {
+        opacity: 0;
+        transform: translate(var(--dx), var(--dy)) scale(0.25) rotate(180deg);
+      }
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      50% { transform: translateX(4px); }
+      75% { transform: translateX(-2px); }
+    }
+
+    body.reduced-motion *,
+    body.reduced-motion *::before,
+    body.reduced-motion *::after {
+      animation-duration: 1ms !important;
+      transition-duration: 1ms !important;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 420px) {
+      .game-layout {
+        grid-template-columns: minmax(0, 1fr) 92px;
+        height: min(100%, calc(100dvh - 318px));
+      }
+
+      .button,
+      .icon-button,
+      .select {
+        min-height: 44px;
+        font-size: 14px;
+      }
+
+      .controls-row.bottom,
+      .controls-row.tools {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      canvas.preview {
+        width: 64px;
+        height: 64px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" id="app">
+    <section class="topbar">
+      <div class="stat"><div class="stat-label">Счёт</div><div class="stat-value" id="scoreValue">0</div></div>
+      <div class="stat"><div class="stat-label">Уровень</div><div class="stat-value" id="levelValue">1</div></div>
+      <div class="stat"><div class="stat-label">Линии</div><div class="stat-value" id="linesValue">0</div></div>
+      <button class="icon-button" id="pauseButton" aria-label="Пауза">II</button>
+    </section>
+
+    <section class="tabs">
+      <button id="tabClassic" class="active">Классика</button>
+      <button id="tabSprint">40 линий</button>
+      <button id="tabRelax">Дзен</button>
+      <button id="tabChaos">Хаос</button>
+    </section>
+
+    <section class="status-strip">
+      <div class="status-card">
+        <span>Цель</span>
+        <b id="goalValue">Выжить</b>
+        <div class="progress"><i id="progressFill"></i></div>
+      </div>
+      <div class="status-card"><span>Темп</span><b id="speedValue">Спокойно</b></div>
+      <div class="status-card"><span>Ранг</span><b id="rankValue">Новичок</b></div>
+    </section>
+
+    <section class="game-layout">
+      <div class="board-shell" id="boardShell">
+        <div class="danger-band"></div>
+        <canvas id="board" width="320" height="640"></canvas>
+      </div>
+
+      <aside class="side">
+        <div class="panel">
+          <div class="panel-title">Дальше</div>
+          <canvas class="preview" id="next1" width="76" height="76"></canvas>
+          <canvas class="preview" id="next2" width="58" height="58"></canvas>
+          <canvas class="preview" id="next3" width="58" height="58"></canvas>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Запас</div>
+          <canvas class="preview" id="hold" width="76" height="76"></canvas>
+        </div>
+
+        <div class="panel tiny-grid">
+          <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
+          <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
+          <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
+          <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
+          <div class="mini-stat"><b id="apmValue">0</b><span>APM</span></div>
+          <div class="mini-stat"><b id="heightValue">0</b><span>Высота</span></div>
+        </div>
+
+        <div class="mission-board" id="missionBoard"></div>
+        <div class="online-panel" id="onlinePanel"></div>
+      </aside>
+    </section>
+
+    <section class="controls">
+      <div class="controls-row">
+        <button class="button" id="leftButton">←</button>
+        <button class="button primary" id="rotateButton">Поворот</button>
+        <button class="button" id="rightButton">→</button>
+      </div>
+      <div class="controls-row bottom">
+        <button class="button" id="downButton">Вниз</button>
+        <button class="button warn" id="holdButton">Запас</button>
+        <button class="button primary" id="dropButton">Сброс</button>
+      </div>
+      <div class="controls-row tools">
+        <button class="button" id="soundButton">Звук: вкл</button>
+        <button class="button" id="settingsButton">Настройки</button>
+        <button class="button" id="restartButton">Рестарт</button>
+      </div>
+    </section>
+  </main>
+
+  <section class="overlay" id="startOverlay">
+    <div class="modal">
+      <div class="logo" aria-hidden="true">
+        <span style="background:#21d3f5"></span><span style="background:transparent;border-color:transparent"></span><span style="background:transparent;border-color:transparent"></span>
+        <span style="background:#ffd166"></span><span style="background:#ff6b6b"></span><span style="background:#7c4dff"></span>
+        <span style="background:transparent;border-color:transparent"></span><span style="background:#22d699"></span><span style="background:transparent;border-color:transparent"></span>
+      </div>
+      <h1>БлокДроп</h1>
+      <p class="muted">Готовая игра: открываешь файл и играешь. Есть режимы, темы, рекорды, достижения и автосохранение.</p>
+      <div class="settings-grid">
+        <div class="setting">
+          <label for="startMode">Режим</label>
+          <select class="select" id="startMode">
+            <option value="classic">Классика</option>
+            <option value="sprint">40 линий</option>
+            <option value="relax">Дзен</option>
+            <option value="chaos">Хаос</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="startDifficulty">Сложность</label>
+          <select class="select" id="startDifficulty">
+            <option value="easy">Лёгкая</option>
+            <option value="normal" selected>Нормальная</option>
+            <option value="hard">Сложная</option>
+            <option value="expert">Эксперт</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="challengeInput">Код челленджа</label>
+          <input class="input" id="challengeInput" maxlength="16" placeholder="Пусто = случайно">
+          <div class="compact-actions">
+            <button class="button" id="randomChallengeButton">Новый код</button>
+            <button class="button" id="shareChallengeButton">Поделиться</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="button primary" id="startButton">Начать игру</button>
+        <button class="button" id="continueButton">Продолжить сохранение</button>
+        <button class="button" id="onlineButton">Онлайн-комната</button>
+        <button class="button" id="openStatsButton">Статистика</button>
+        <button class="button" id="helpButton">Как играть</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="pauseOverlay" hidden>
+    <div class="modal">
+      <h2>Пауза</h2>
+      <p class="muted">Партия сохранена автоматически. Можно закрыть вкладку и вернуться позже.</p>
+      <div class="modal-actions">
+        <button class="button primary" id="resumeButton">Продолжить</button>
+        <button class="button" id="pauseSettingsButton">Настройки</button>
+        <button class="button" id="pauseRestartButton">Рестарт</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="settingsOverlay" hidden>
+    <div class="modal">
+      <h2>Настройки</h2>
+      <div class="settings-grid">
+        <div class="setting">
+          <label for="themeSelect">Тема</label>
+          <select class="select" id="themeSelect">
+            <option value="ember">Графит и мята</option>
+            <option value="day">Светлая</option>
+            <option value="candy">Аркада</option>
+            <option value="mono">Минимализм</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="sensitivityRange">Чувствительность свайпа</label>
+          <div class="range-row"><input id="sensitivityRange" type="range" min="16" max="54" value="24"><span id="sensitivityValue">24</span></div>
+        </div>
+        <label class="check-row">Призрачная фигура <input id="ghostToggle" type="checkbox" checked></label>
+        <label class="check-row">Крупные кнопки <input id="bigButtonsToggle" type="checkbox"></label>
+        <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
+        <label class="check-row">Сетка поля <input id="gridToggle" type="checkbox" checked></label>
+        <label class="check-row">Опасная зона <input id="dangerToggle" type="checkbox" checked></label>
+        <label class="check-row">Эффекты частиц <input id="particlesToggle" type="checkbox" checked></label>
+        <label class="check-row">Контрастные цвета <input id="colorBlindToggle" type="checkbox"></label>
+        <label class="check-row">Автопауза <input id="autoPauseToggle" type="checkbox" checked></label>
+        <label class="check-row">Меньше анимаций <input id="reducedMotionToggle" type="checkbox"></label>
+        <div class="setting">
+          <label for="volumeRange">Громкость</label>
+          <div class="range-row"><input id="volumeRange" type="range" min="0" max="100" value="70"><span id="volumeValue">70</span></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="button primary" id="closeSettingsButton">Готово</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="statsOverlay" hidden>
+    <div class="modal">
+      <h2>Статистика</h2>
+      <div class="result-grid" id="statsGrid"></div>
+      <h3>Лучшие игры</h3>
+      <div class="leaderboard" id="leaderboard"></div>
+      <h3>Достижения</h3>
+      <div class="achievements" id="achievementsList"></div>
+      <div class="modal-actions">
+        <button class="button primary" id="closeStatsButton">Закрыть</button>
+        <button class="button" id="shareStatsButton">Поделиться статистикой</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="helpOverlay" hidden>
+    <div class="modal">
+      <h2>Как играть</h2>
+      <div class="result-grid">
+        <div class="result-row"><span>Двигать</span><span>← → или свайп</span></div>
+        <div class="result-row"><span>Повернуть</span><span>↑ / W / тап</span></div>
+        <div class="result-row"><span>Сбросить</span><span>Пробел / свайп вниз</span></div>
+        <div class="result-row"><span>Запас</span><span>C или кнопка</span></div>
+        <div class="result-row"><span>Пауза</span><span>P / Esc</span></div>
+      </div>
+      <p class="muted">Совет: используй призрачную фигуру и запас, чтобы заранее готовить место под длинную фигуру.</p>
+      <div class="modal-actions">
+        <button class="button primary" id="closeHelpButton">Понятно</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="onlineOverlay" hidden>
+    <div class="modal">
+      <h2>Онлайн-комната</h2>
+      <p class="muted">Подключись к серверу, создай комнату и отправь код друзьям. Каждый играет на своём поле, а результаты обновляются вживую.</p>
+      <div class="settings-grid">
+        <div class="setting">
+          <label for="onlineServerInput">Сервер</label>
+          <input class="input" id="onlineServerInput" placeholder="ws://localhost:8787">
+        </div>
+        <div class="setting">
+          <label for="onlineRoomInput">Комната</label>
+          <input class="input" id="onlineRoomInput" maxlength="16" placeholder="Например: FRIENDS">
+        </div>
+        <div class="setting">
+          <label for="onlineNameInput">Имя</label>
+          <input class="input" id="onlineNameInput" maxlength="18" placeholder="Игрок">
+        </div>
+      </div>
+      <div class="result-grid" id="onlinePlayers"></div>
+      <p class="muted" id="onlineStatus">Не подключено</p>
+      <div class="modal-actions">
+        <button class="button primary" id="connectOnlineButton">Подключиться</button>
+        <button class="button" id="disconnectOnlineButton">Отключиться</button>
+        <button class="button" id="closeOnlineButton">Закрыть</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="gameOverOverlay" hidden>
+    <div class="modal">
+      <h2 id="gameOverTitle">Игра окончена</h2>
+      <p class="muted" id="gameOverText">Башня дошла до верхней границы.</p>
+      <div class="result-grid">
+        <div class="result-row"><span>Счёт</span><span id="finalScore">0</span></div>
+        <div class="result-row"><span>Уровень</span><span id="finalLevel">1</span></div>
+        <div class="result-row"><span>Линии</span><span id="finalLines">0</span></div>
+        <div class="result-row"><span>Комбо</span><span id="finalCombo">0</span></div>
+        <div class="result-row"><span>Рекорд</span><span id="finalRecord">0</span></div>
+      </div>
+      <div class="modal-actions">
+        <button class="button primary" id="playAgainButton">Играть снова</button>
+        <button class="button" id="shareResultButton">Поделиться результатом</button>
+        <button class="button" id="gameOverStatsButton">Статистика</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="fx-layer" id="fxLayer"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const COLS = 10;
+      const ROWS = 20;
+      const STORAGE = {
+        high: "blockdrop-high-score",
+        stats: "blockdrop-stats-v2",
+        settings: "blockdrop-settings-v2",
+        save: "blockdrop-save-v2",
+        scores: "blockdrop-scoreboard-v2",
+        achievements: "blockdrop-achievements-v2"
+      };
+
+      const COLORS = {
+        I: "#21d3f5",
+        O: "#ffd166",
+        T: "#9b6cff",
+        S: "#22d699",
+        Z: "#ff6b6b",
+        J: "#4f78ff",
+        L: "#ff9a3d",
+        X: "#dfe6ee"
+      };
+
+      const SAFE_COLORS = {
+        I: "#00b4d8",
+        O: "#f9c74f",
+        T: "#577590",
+        S: "#43aa8b",
+        Z: "#f94144",
+        J: "#277da1",
+        L: "#f8961e",
+        X: "#dfe6ee"
+      };
+
+      const SHAPES = {
+        I: [[[0,1],[1,1],[2,1],[3,1]], [[2,0],[2,1],[2,2],[2,3]], [[0,2],[1,2],[2,2],[3,2]], [[1,0],[1,1],[1,2],[1,3]]],
+        O: [[[1,0],[2,0],[1,1],[2,1]], [[1,0],[2,0],[1,1],[2,1]], [[1,0],[2,0],[1,1],[2,1]], [[1,0],[2,0],[1,1],[2,1]]],
+        T: [[[1,0],[0,1],[1,1],[2,1]], [[1,0],[1,1],[2,1],[1,2]], [[0,1],[1,1],[2,1],[1,2]], [[1,0],[0,1],[1,1],[1,2]]],
+        S: [[[1,0],[2,0],[0,1],[1,1]], [[1,0],[1,1],[2,1],[2,2]], [[1,1],[2,1],[0,2],[1,2]], [[0,0],[0,1],[1,1],[1,2]]],
+        Z: [[[0,0],[1,0],[1,1],[2,1]], [[2,0],[1,1],[2,1],[1,2]], [[0,1],[1,1],[1,2],[2,2]], [[1,0],[0,1],[1,1],[0,2]]],
+        J: [[[0,0],[0,1],[1,1],[2,1]], [[1,0],[2,0],[1,1],[1,2]], [[0,1],[1,1],[2,1],[2,2]], [[1,0],[1,1],[0,2],[1,2]]],
+        L: [[[2,0],[0,1],[1,1],[2,1]], [[1,0],[1,1],[1,2],[2,2]], [[0,1],[1,1],[2,1],[0,2]], [[0,0],[1,0],[1,1],[1,2]]]
+      };
+
+      const MODES = {
+        classic: { name: "Классика", goal: 0, relaxed: false, chaos: false },
+        sprint: { name: "40 линий", goal: 40, relaxed: false, chaos: false },
+        relax: { name: "Дзен", goal: 0, relaxed: true, chaos: false },
+        chaos: { name: "Хаос", goal: 0, relaxed: false, chaos: true }
+      };
+
+      const DIFFICULTY = {
+        easy: { name: "Лёгкая", startLevel: 1, speedBonus: -80, garbage: 0 },
+        normal: { name: "Нормальная", startLevel: 1, speedBonus: 0, garbage: 0 },
+        hard: { name: "Сложная", startLevel: 4, speedBonus: 40, garbage: 2 },
+        expert: { name: "Эксперт", startLevel: 7, speedBonus: 80, garbage: 4 }
+      };
+
+      const ACHIEVEMENTS = [
+        ["firstLine", "Первый шаг", "Очистить первую линию", (s) => s.totalLines >= 1],
+        ["tenLines", "Разогрев", "Очистить 10 линий за всё время", (s) => s.totalLines >= 10],
+        ["hundredLines", "Мастер поля", "Очистить 100 линий за всё время", (s) => s.totalLines >= 100],
+        ["score1000", "Тысяча", "Набрать 1000 очков", (s) => s.bestScore >= 1000],
+        ["score5000", "Пять тысяч", "Набрать 5000 очков", (s) => s.bestScore >= 5000],
+        ["combo3", "Комбо x3", "Сделать комбо 3", (s) => s.bestCombo >= 3],
+        ["tetris", "Четыре сразу", "Очистить 4 линии одним ходом", (s) => s.bestClear >= 4],
+        ["sprinter", "Спринтер", "Закончить режим 40 линий", (s) => s.sprintWins >= 1],
+        ["survivor", "Выживший", "Дойти до 10 уровня", (s) => s.bestLevel >= 10],
+        ["collector", "Коллекционер", "Поставить 300 фигур", (s) => s.totalPieces >= 300],
+        ["hardDropper", "Без тормозов", "Сделать 100 резких сбросов", (s) => s.totalHardDrops >= 100],
+        ["keeper", "Запасливый", "Использовать запас 50 раз", (s) => s.totalHolds >= 50],
+        ["spinner", "Вертушка", "Повернуть фигуры 250 раз", (s) => s.totalRotations >= 250],
+        ["patient", "Долгая партия", "Сыграть 10 минут суммарно", (s) => s.totalTime >= 600],
+        ["chaosFan", "Друг хаоса", "Сыграть 5 партий в режиме Хаос", (s) => s.chaosGames >= 5],
+        ["relaxFan", "Спокойный ход", "Сыграть 5 партий в режиме Дзен", (s) => s.relaxGames >= 5]
+      ];
+
+      const MISSIONS = [
+        { id: "lines5", label: "Очистить 5 линий", goal: 5, value: () => state.lines },
+        { id: "drops10", label: "10 резких сбросов", goal: 10, value: () => state.hardDrops },
+        { id: "hold3", label: "3 раза использовать запас", goal: 3, value: () => state.holds },
+        { id: "combo2", label: "Комбо x2", goal: 2, value: () => state.bestComboRun }
+      ];
+
+      const ui = {};
+      for (const id of [
+        "app","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
+        "goalValue","progressFill","speedValue","rankValue","apmValue","heightValue","missionBoard","onlinePanel",
+        "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
+        "playAgainButton","pauseButton","restartButton","pauseRestartButton","pauseSettingsButton","settingsButton","soundButton","leftButton","rightButton",
+        "rotateButton","downButton","dropButton","holdButton","startMode","startDifficulty","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
+        "bigButtonsToggle","vibrationToggle","gridToggle","dangerToggle","particlesToggle","colorBlindToggle","autoPauseToggle","reducedMotionToggle",
+        "volumeRange","volumeValue","challengeInput","randomChallengeButton","shareChallengeButton","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
+        "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
+        "onlinePlayers","onlineStatus","connectOnlineButton","disconnectOnlineButton","closeOnlineButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
+        "finalRecord","gameOverTitle","gameOverText","toast","fxLayer","tabClassic","tabSprint","tabRelax","tabChaos"
+      ]) {
+        ui[id] = document.getElementById(id);
+      }
+
+      const ctx = ui.board.getContext("2d");
+      const previews = [ui.next1.getContext("2d"), ui.next2.getContext("2d"), ui.next3.getContext("2d")];
+      const holdCtx = ui.hold.getContext("2d");
+
+      const state = {
+        board: makeBoard(),
+        active: null,
+        queue: [],
+        bag: [],
+        hold: null,
+        holdUsed: false,
+        rng: Math.random,
+        challengeCode: "",
+        mode: "classic",
+        difficulty: "normal",
+        score: 0,
+        lines: 0,
+        level: 1,
+        combo: 0,
+        bestComboRun: 0,
+        pieces: 0,
+        hardDrops: 0,
+        holds: 0,
+        rotations: 0,
+        moves: 0,
+        softDrops: 0,
+        bestClearInGame: 0,
+        running: false,
+        paused: false,
+        gameOver: false,
+        won: false,
+        lastTime: 0,
+        elapsedMs: 0,
+        dropMs: 0,
+        flashes: [],
+        audio: null,
+        settings: loadSettings(),
+        stats: loadStats(),
+        scores: loadJson(STORAGE.scores, []),
+        unlocked: loadJson(STORAGE.achievements, {}),
+        online: {
+          socket: null,
+          connected: false,
+          room: "",
+          name: "",
+          peers: {},
+          lastSent: 0
+        }
+      };
+
+      function makeBoard() {
+        return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+      }
+
+      function loadJson(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      function saveJson(key, value) {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+
+      function loadSettings() {
+        return {
+          theme: "ember",
+          sensitivity: 24,
+          ghost: true,
+          bigButtons: false,
+          vibration: true,
+          sound: true,
+          grid: true,
+          danger: true,
+          particles: true,
+          colorBlind: false,
+          autoPause: true,
+          reducedMotion: false,
+          volume: 70,
+          ...loadJson(STORAGE.settings, {})
+        };
+      }
+
+      function loadStats() {
+        return {
+          games: 0,
+          totalScore: 0,
+          totalLines: 0,
+          totalPieces: 0,
+          totalTime: 0,
+          bestScore: Number(localStorage.getItem(STORAGE.high)) || 0,
+          bestLevel: 1,
+          bestCombo: 0,
+          bestClear: 0,
+          sprintWins: 0,
+          modeWins: 0,
+          chaosGames: 0,
+          relaxGames: 0,
+          totalHardDrops: 0,
+          totalHolds: 0,
+          totalRotations: 0,
+          totalMoves: 0,
+          totalSoftDrops: 0,
+          pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
+          ...loadJson(STORAGE.stats, {})
+        };
+      }
+
+      function applySettings() {
+        document.documentElement.dataset.theme = state.settings.theme === "ember" ? "" : state.settings.theme;
+        document.body.classList.toggle("big-buttons", state.settings.bigButtons);
+        ui.themeSelect.value = state.settings.theme;
+        ui.sensitivityRange.value = state.settings.sensitivity;
+        ui.sensitivityValue.textContent = state.settings.sensitivity;
+        ui.ghostToggle.checked = state.settings.ghost;
+        ui.bigButtonsToggle.checked = state.settings.bigButtons;
+        ui.vibrationToggle.checked = state.settings.vibration;
+        ui.gridToggle.checked = state.settings.grid;
+        ui.dangerToggle.checked = state.settings.danger;
+        ui.particlesToggle.checked = state.settings.particles;
+        ui.colorBlindToggle.checked = state.settings.colorBlind;
+        ui.autoPauseToggle.checked = state.settings.autoPause;
+        ui.reducedMotionToggle.checked = state.settings.reducedMotion;
+        ui.volumeRange.value = state.settings.volume;
+        ui.volumeValue.textContent = state.settings.volume;
+        document.body.classList.toggle("reduced-motion", state.settings.reducedMotion);
+        ui.soundButton.textContent = state.settings.sound ? "Звук: вкл" : "Звук: выкл";
+        saveJson(STORAGE.settings, state.settings);
+      }
+
+      function refillBag() {
+        const kinds = Object.keys(SHAPES);
+        for (let i = kinds.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(random() * (i + 1));
+          [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+        }
+        state.bag.push(...kinds);
+      }
+
+      function random() {
+        return state.rng ? state.rng() : Math.random();
+      }
+
+      function makeRng(seedText) {
+        let seed = 2166136261;
+        for (let i = 0; i < seedText.length; i += 1) {
+          seed ^= seedText.charCodeAt(i);
+          seed = Math.imul(seed, 16777619);
+        }
+        return () => {
+          seed += 0x6D2B79F5;
+          let t = seed;
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function normalizeCode(value) {
+        return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+      }
+
+      function generateChallengeCode() {
+        const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let code = "";
+        for (let i = 0; i < 8; i += 1) {
+          code += alphabet[Math.floor(Math.random() * alphabet.length)];
+        }
+        return code;
+      }
+
+      function takeKind() {
+        if (state.bag.length === 0) refillBag();
+        return state.bag.shift();
+      }
+
+      function fillQueue() {
+        while (state.queue.length < 3) state.queue.push(takeKind());
+      }
+
+      function makePiece(kind) {
+        return { kind, rotation: 0, x: 3, y: 0 };
+      }
+
+      function cells(piece) {
+        return SHAPES[piece.kind][piece.rotation].map(([x, y]) => ({ x: piece.x + x, y: piece.y + y }));
+      }
+
+      function valid(piece) {
+        for (const c of cells(piece)) {
+          if (c.x < 0 || c.x >= COLS || c.y < 0 || c.y >= ROWS) return false;
+          if (state.board[c.y][c.x]) return false;
+        }
+        return true;
+      }
+
+      function startGame(mode = ui.startMode.value, difficulty = ui.startDifficulty.value) {
+        const challengeCode = normalizeCode(ui.challengeInput.value);
+        state.board = makeBoard();
+        state.active = null;
+        state.queue = [];
+        state.bag = [];
+        state.hold = null;
+        state.holdUsed = false;
+        state.challengeCode = challengeCode;
+        state.rng = challengeCode ? makeRng(`${challengeCode}:${mode}:${difficulty}`) : Math.random;
+        state.mode = mode;
+        state.difficulty = difficulty;
+        state.score = 0;
+        state.lines = 0;
+        state.level = DIFFICULTY[difficulty].startLevel;
+        state.combo = 0;
+        state.bestComboRun = 0;
+        state.pieces = 0;
+        state.hardDrops = 0;
+        state.holds = 0;
+        state.rotations = 0;
+        state.moves = 0;
+        state.softDrops = 0;
+        state.bestClearInGame = 0;
+        state.running = true;
+        state.paused = false;
+        state.gameOver = false;
+        state.won = false;
+        state.lastTime = 0;
+        state.elapsedMs = 0;
+        state.dropMs = 0;
+        state.flashes = [];
+        hideOverlays();
+        fillQueue();
+        addGarbage(DIFFICULTY[difficulty].garbage);
+        if (MODES[mode].chaos) addGarbage(4);
+        spawn();
+        ensureAudio();
+        buzz(20);
+        syncTabs();
+        syncUi();
+        saveCurrentGame();
+      }
+
+      function spawn() {
+        fillQueue();
+        state.active = makePiece(state.queue.shift());
+        fillQueue();
+        state.holdUsed = false;
+        if (!valid(state.active)) finish(false, "Башня дошла до верхней границы.");
+      }
+
+      function addGarbage(count) {
+        for (let i = 0; i < count; i += 1) {
+          const hole = Math.floor(random() * COLS);
+          state.board.shift();
+          state.board.push(Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")));
+        }
+      }
+
+      function move(dx, dy, scoreSoft = false) {
+        if (!canInput()) return false;
+        const candidate = { ...state.active, x: state.active.x + dx, y: state.active.y + dy };
+        if (!valid(candidate)) return false;
+        state.active = candidate;
+        if (scoreSoft && dy > 0) addScore(1);
+        if (dx !== 0) {
+          state.moves += 1;
+          state.stats.totalMoves += 1;
+        }
+        if (scoreSoft && dy > 0) {
+          state.softDrops += 1;
+          state.stats.totalSoftDrops += 1;
+        }
+        if (dx !== 0) playSound(420, 0.025, "square");
+        return true;
+      }
+
+      function rotate() {
+        if (!canInput()) return;
+        const rotated = { ...state.active, rotation: (state.active.rotation + 1) % 4 };
+        const kicks = [[0,0],[-1,0],[1,0],[-2,0],[2,0],[0,-1],[0,1]];
+        for (const [dx, dy] of kicks) {
+          const candidate = { ...rotated, x: rotated.x + dx, y: rotated.y + dy };
+          if (valid(candidate)) {
+            state.active = candidate;
+            state.rotations += 1;
+            state.stats.totalRotations += 1;
+            playSound(560, 0.04, "sawtooth");
+            buzz(10);
+            return;
+          }
+        }
+      }
+
+      function softDrop() {
+        if (!move(0, 1, true)) lock();
+      }
+
+      function hardDrop() {
+        if (!canInput()) return;
+        let distance = 0;
+        while (move(0, 1, false)) distance += 1;
+        state.hardDrops += 1;
+        state.stats.totalHardDrops += 1;
+        addScore(distance * 2);
+        lock();
+        playSound(190, 0.055, "square");
+        buzz(35);
+        shakeBoard();
+      }
+
+      function holdPiece() {
+        if (!canInput() || state.holdUsed) return;
+        const current = state.active.kind;
+        state.holds += 1;
+        state.stats.totalHolds += 1;
+        if (state.hold) {
+          state.active = makePiece(state.hold);
+          state.hold = current;
+        } else {
+          state.hold = current;
+          spawn();
+        }
+        state.holdUsed = true;
+        playSound(330, 0.05, "triangle");
+      }
+
+      function lock() {
+        if (!state.active) return;
+        for (const c of cells(state.active)) state.board[c.y][c.x] = state.active.kind;
+        state.stats.pieceCounts[state.active.kind] += 1;
+        state.pieces += 1;
+        state.stats.totalPieces += 1;
+        state.active = null;
+        const count = clearLines();
+        if (count > 0) {
+          state.combo += 1;
+          state.bestComboRun = Math.max(state.bestComboRun, state.combo);
+          state.bestClearInGame = Math.max(state.bestClearInGame, count);
+          state.lines += count;
+          addScore(lineScore(count) + state.combo * 25);
+          state.level = MODES[state.mode].relaxed ? 1 : Math.min(20, Math.floor(state.lines / 10) + DIFFICULTY[state.difficulty].startLevel);
+          playSound(count === 4 ? 880 : 720, count === 4 ? 0.14 : 0.08, "triangle");
+          const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
+          showToast(count === 4 ? "Четыре линии сразу!" : `Линий: ${count}${comboText}`);
+          burst(count === 4 ? 34 : 18);
+          shakeBoard();
+        } else {
+          state.combo = 0;
+        }
+
+        if (MODES[state.mode].goal && state.lines >= MODES[state.mode].goal) {
+          finish(true, "Цель выполнена. 40 линий очищены.");
+          return;
+        }
+
+        if (MODES[state.mode].chaos && state.pieces > 0 && state.pieces % 14 === 0) {
+          addGarbage(1);
+          showToast("Хаос добавил линию снизу");
+        }
+
+        spawn();
+        syncUi();
+        checkAchievements();
+        saveCurrentGame();
+      }
+
+      function clearLines() {
+        const rows = [];
+        for (let y = 0; y < ROWS; y += 1) {
+          if (state.board[y].every(Boolean)) rows.push(y);
+        }
+        if (!rows.length) return 0;
+        state.flashes = rows.map((row) => ({ row, life: 1 }));
+        state.board = state.board.filter((_, y) => !rows.includes(y));
+        while (state.board.length < ROWS) state.board.unshift(Array(COLS).fill(null));
+        return rows.length;
+      }
+
+      function lineScore(count) {
+        return [0, 100, 300, 500, 800][Math.min(count, 4)] * state.level;
+      }
+
+      function addScore(value) {
+        state.score += value;
+        state.stats.bestScore = Math.max(state.stats.bestScore, state.score);
+        localStorage.setItem(STORAGE.high, String(state.stats.bestScore));
+      }
+
+      function finish(won, text) {
+        state.running = false;
+        state.gameOver = true;
+        state.won = won;
+        state.stats.games += 1;
+        state.stats.totalScore += state.score;
+        state.stats.totalLines += state.lines;
+        state.stats.totalTime += Math.floor(state.elapsedMs / 1000);
+        state.stats.bestLevel = Math.max(state.stats.bestLevel, state.level);
+        state.stats.bestCombo = Math.max(state.stats.bestCombo, state.bestComboRun);
+        state.stats.bestClear = Math.max(state.stats.bestClear, state.bestClearInGame);
+        if (won) state.stats.modeWins += 1;
+        if (won && state.mode === "sprint") state.stats.sprintWins += 1;
+        if (state.mode === "chaos") state.stats.chaosGames += 1;
+        if (state.mode === "relax") state.stats.relaxGames += 1;
+        state.scores.unshift({
+          score: state.score,
+          lines: state.lines,
+          level: state.level,
+          mode: MODES[state.mode].name,
+          time: formatTime(state.elapsedMs),
+          date: new Date().toLocaleDateString("ru-RU")
+        });
+        state.scores = state.scores.sort((a, b) => b.score - a.score).slice(0, 10);
+        saveJson(STORAGE.stats, state.stats);
+        saveJson(STORAGE.scores, state.scores);
+        localStorage.removeItem(STORAGE.save);
+        checkAchievements();
+        ui.gameOverTitle.textContent = won ? "Победа!" : "Игра окончена";
+        ui.gameOverText.textContent = text;
+        ui.finalScore.textContent = state.score;
+        ui.finalLevel.textContent = state.level;
+        ui.finalLines.textContent = state.lines;
+        ui.finalCombo.textContent = state.bestComboRun;
+        ui.finalRecord.textContent = state.stats.bestScore;
+        ui.gameOverOverlay.hidden = false;
+        playSound(won ? 980 : 170, 0.22, won ? "triangle" : "sawtooth");
+        if (won) burst(50);
+        sendOnlineUpdate(true);
+      }
+
+      function pause() {
+        if (!state.running || state.gameOver) return;
+        state.paused = true;
+        saveCurrentGame();
+        ui.pauseOverlay.hidden = false;
+      }
+
+      function resume() {
+        if (!state.running || state.gameOver) return;
+        state.paused = false;
+        state.lastTime = 0;
+        ui.pauseOverlay.hidden = true;
+      }
+
+      function togglePause() {
+        if (state.paused) resume();
+        else pause();
+      }
+
+      function canInput() {
+        return state.running && !state.paused && !state.gameOver && state.active;
+      }
+
+      function dropInterval() {
+        const bonus = DIFFICULTY[state.difficulty].speedBonus;
+        const relaxed = MODES[state.mode].relaxed ? 180 : 0;
+        return Math.max(70, 760 + relaxed - (state.level - 1) * 42 - bonus);
+      }
+
+      function update(time) {
+        if (!state.lastTime) state.lastTime = time;
+        const delta = Math.min(80, time - state.lastTime);
+        state.lastTime = time;
+
+        if (state.running && !state.paused && !state.gameOver) {
+          state.elapsedMs += delta;
+          state.dropMs += delta;
+          if (state.dropMs >= dropInterval()) {
+            state.dropMs = 0;
+            if (!move(0, 1, false)) lock();
+          }
+        }
+
+        state.flashes = state.flashes.map((f) => ({ ...f, life: f.life - delta / 200 })).filter((f) => f.life > 0);
+        draw();
+        syncUi();
+        requestAnimationFrame(update);
+      }
+
+      function ghostPiece() {
+        if (!state.active) return null;
+        let ghost = { ...state.active };
+        while (valid({ ...ghost, y: ghost.y + 1 })) ghost.y += 1;
+        return ghost;
+      }
+
+      function draw() {
+        resize(ui.board, ui.board.clientWidth, ui.board.clientHeight);
+        for (const canvas of [ui.next1, ui.next2, ui.next3, ui.hold]) resize(canvas, canvas.clientWidth, canvas.clientHeight);
+
+        const width = ui.board.clientWidth;
+        const height = ui.board.clientHeight;
+        const cell = Math.min(width / COLS, height / ROWS);
+        const boardW = cell * COLS;
+        const x0 = (width - boardW) / 2;
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = "rgba(255,255,255,0.035)";
+        round(ctx, x0, 0, boardW, cell * ROWS, 8, true, false);
+
+        for (let y = 0; y < ROWS; y += 1) {
+          for (let x = 0; x < COLS; x += 1) drawCell(ctx, x0 + x * cell, y * cell, cell, state.board[y][x], 1);
+        }
+
+        if (state.settings.ghost && state.active) {
+          for (const c of cells(ghostPiece())) drawCell(ctx, x0 + c.x * cell, c.y * cell, cell, state.active.kind, 0.22);
+        }
+
+        if (state.active) {
+          for (const c of cells(state.active)) drawCell(ctx, x0 + c.x * cell, c.y * cell, cell, state.active.kind, 1);
+        }
+
+        if (state.settings.grid) {
+          ctx.strokeStyle = "rgba(255,255,255,0.055)";
+          ctx.lineWidth = 1;
+          for (let x = 0; x <= COLS; x += 1) line(ctx, x0 + x * cell, 0, x0 + x * cell, ROWS * cell);
+          for (let y = 0; y <= ROWS; y += 1) line(ctx, x0, y * cell, x0 + boardW, y * cell);
+        }
+
+        for (const f of state.flashes) {
+          ctx.fillStyle = `rgba(255,255,255,${0.38 * f.life})`;
+          ctx.fillRect(x0, f.row * cell, boardW, cell);
+        }
+
+        drawPreview(previews[0], ui.next1, state.queue[0]);
+        drawPreview(previews[1], ui.next2, state.queue[1]);
+        drawPreview(previews[2], ui.next3, state.queue[2]);
+        drawPreview(holdCtx, ui.hold, state.hold);
+      }
+
+      function resize(canvas, width, height) {
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(width * ratio));
+        canvas.height = Math.max(1, Math.floor(height * ratio));
+        canvas.getContext("2d").setTransform(ratio, 0, 0, ratio, 0, 0);
+      }
+
+      function drawPreview(context, canvas, kind) {
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        context.clearRect(0, 0, width, height);
+        const size = Math.min(width, height) / 4;
+        for (let y = 0; y < 4; y += 1) {
+          for (let x = 0; x < 4; x += 1) {
+            const filled = kind && SHAPES[kind][0].some(([sx, sy]) => sx === x && sy === y);
+            drawCell(context, x * size + 2, y * size + 2, size - 2, filled ? kind : null, filled ? 1 : 0.5);
+          }
+        }
+      }
+
+      function drawCell(context, x, y, size, kind, alpha) {
+        const pad = Math.max(1, size * 0.06);
+        const s = size - pad * 2;
+        context.globalAlpha = alpha;
+        if (!kind) {
+          context.fillStyle = "rgba(255,255,255,0.035)";
+          round(context, x + pad, y + pad, s, s, Math.max(3, size * 0.15), true, false);
+          context.globalAlpha = 1;
+          return;
+        }
+        const gradient = context.createLinearGradient(x, y, x + size, y + size);
+        gradient.addColorStop(0, colorFor(kind));
+        gradient.addColorStop(1, shade(colorFor(kind), -20));
+        context.fillStyle = gradient;
+        round(context, x + pad, y + pad, s, s, Math.max(3, size * 0.15), true, false);
+        context.fillStyle = "rgba(255,255,255,0.16)";
+        round(context, x + pad + 3, y + pad + 3, Math.max(2, s - 6), Math.max(5, s * 0.22), Math.max(2, size * 0.08), true, false);
+        context.strokeStyle = "rgba(255,255,255,0.18)";
+        round(context, x + pad, y + pad, s, s, Math.max(3, size * 0.15), false, true);
+        context.globalAlpha = 1;
+      }
+
+      function round(context, x, y, w, h, r, fill, stroke) {
+        context.beginPath();
+        context.moveTo(x + r, y);
+        context.arcTo(x + w, y, x + w, y + h, r);
+        context.arcTo(x + w, y + h, x, y + h, r);
+        context.arcTo(x, y + h, x, y, r);
+        context.arcTo(x, y, x + w, y, r);
+        context.closePath();
+        if (fill) context.fill();
+        if (stroke) context.stroke();
+      }
+
+      function line(context, x1, y1, x2, y2) {
+        context.beginPath();
+        context.moveTo(x1, y1);
+        context.lineTo(x2, y2);
+        context.stroke();
+      }
+
+      function shade(hex, percent) {
+        const num = parseInt(hex.slice(1), 16);
+        const amount = Math.round(2.55 * percent);
+        const r = Math.max(0, Math.min(255, (num >> 16) + amount));
+        const g = Math.max(0, Math.min(255, ((num >> 8) & 255) + amount));
+        const b = Math.max(0, Math.min(255, (num & 255) + amount));
+        return `rgb(${r},${g},${b})`;
+      }
+
+      function colorFor(kind) {
+        return (state.settings.colorBlind ? SAFE_COLORS : COLORS)[kind] || COLORS.X;
+      }
+
+      function syncUi() {
+        ui.scoreValue.textContent = state.score;
+        ui.levelValue.textContent = state.level;
+        ui.linesValue.textContent = MODES[state.mode].goal ? `${state.lines}/${MODES[state.mode].goal}` : state.lines;
+        ui.recordValue.textContent = state.stats.bestScore;
+        ui.comboValue.textContent = state.combo;
+        ui.piecesValue.textContent = state.pieces;
+        ui.timeValue.textContent = formatTime(state.elapsedMs);
+        ui.apmValue.textContent = actionsPerMinute();
+        ui.heightValue.textContent = currentHeight();
+        ui.goalValue.textContent = goalText();
+        ui.progressFill.style.width = `${progressPercent()}%`;
+        ui.speedValue.textContent = speedText();
+        ui.rankValue.textContent = rankText();
+        ui.boardShell.classList.toggle("danger", state.settings.danger && topDanger());
+        ui.soundButton.textContent = state.settings.sound ? "Звук: вкл" : "Звук: выкл";
+        renderMissions();
+        renderOnlinePanel();
+        sendOnlineUpdateThrottled();
+      }
+
+      function actionsPerMinute() {
+        const minutes = Math.max(1 / 60, state.elapsedMs / 60000);
+        return Math.round((state.moves + state.rotations + state.hardDrops + state.holds + state.softDrops) / minutes);
+      }
+
+      function currentHeight() {
+        const first = state.board.findIndex((row) => row.some(Boolean));
+        return first === -1 ? 0 : ROWS - first;
+      }
+
+      function goalText() {
+        if (MODES[state.mode].goal) return `${state.lines}/${MODES[state.mode].goal} линий`;
+        if (state.mode === "relax") return "Без давления";
+        if (state.mode === "chaos") return "Выжить";
+        return "Рекорд";
+      }
+
+      function progressPercent() {
+        if (MODES[state.mode].goal) return Math.min(100, Math.round(state.lines / MODES[state.mode].goal * 100));
+        return Math.min(100, Math.round(state.level / 20 * 100));
+      }
+
+      function speedText() {
+        const ms = dropInterval();
+        if (ms > 620) return "Спокойно";
+        if (ms > 430) return "Быстро";
+        if (ms > 250) return "Жарко";
+        return "Молния";
+      }
+
+      function rankText() {
+        if (state.challengeCode) return `Код ${state.challengeCode}`;
+        if (state.score >= 12000) return "Легенда";
+        if (state.score >= 7000) return "Мастер";
+        if (state.score >= 3500) return "Профи";
+        if (state.score >= 1200) return "Игрок";
+        return "Новичок";
+      }
+
+      function renderMissions() {
+        ui.missionBoard.innerHTML = MISSIONS.map((mission) => {
+          const value = Math.min(mission.goal, mission.value());
+          const done = value >= mission.goal;
+          return `<div class="mission ${done ? "done" : ""}><span>${mission.label}</span><b>${value}/${mission.goal}</b></div>`;
+        }).join("");
+      }
+
+      function defaultServerUrl() {
+        if (location.protocol === "https:") return `wss://${location.host}`;
+        if (location.protocol === "http:") return `ws://${location.host}`;
+        return "ws://localhost:8787";
+      }
+
+      function openOnline() {
+        ui.onlineServerInput.value = ui.onlineServerInput.value || defaultServerUrl();
+        ui.onlineRoomInput.value = ui.onlineRoomInput.value || normalizeCode(ui.challengeInput.value) || generateChallengeCode();
+        ui.onlineNameInput.value = ui.onlineNameInput.value || localStorage.getItem("blockdrop-player-name") || "Игрок";
+        ui.onlineOverlay.hidden = false;
+        renderOnlinePlayers();
+      }
+
+      function connectOnline() {
+        const server = ui.onlineServerInput.value.trim();
+        const room = normalizeCode(ui.onlineRoomInput.value) || generateChallengeCode();
+        const name = (ui.onlineNameInput.value.trim() || "Игрок").slice(0, 18);
+        localStorage.setItem("blockdrop-player-name", name);
+        ui.onlineRoomInput.value = room;
+        ui.challengeInput.value = room;
+
+        disconnectOnline(false);
+        try {
+          const socket = new WebSocket(server);
+          state.online.socket = socket;
+          state.online.room = room;
+          state.online.name = name;
+          ui.onlineStatus.textContent = "Подключение...";
+
+          socket.addEventListener("open", () => {
+            state.online.connected = true;
+            socket.send(JSON.stringify({ type: "join", room, name }));
+            sendOnlineUpdate(true);
+            ui.onlineStatus.textContent = `Комната ${room}`;
+            showToast(`Онлайн: ${room}`);
+          });
+
+          socket.addEventListener("message", (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "state") {
+              state.online.peers = data.players || {};
+              renderOnlinePlayers();
+            }
+          });
+
+          socket.addEventListener("close", () => {
+            state.online.connected = false;
+            state.online.socket = null;
+            ui.onlineStatus.textContent = "Отключено";
+            renderOnlinePanel();
+          });
+
+          socket.addEventListener("error", () => {
+            ui.onlineStatus.textContent = "Ошибка подключения";
+            showToast("Сервер недоступен");
+          });
+        } catch {
+          showToast("Неверный адрес сервера");
+        }
+      }
+
+      function disconnectOnline(show = true) {
+        if (state.online.socket) state.online.socket.close();
+        state.online.socket = null;
+        state.online.connected = false;
+        state.online.peers = {};
+        renderOnlinePanel();
+        renderOnlinePlayers();
+        if (show) showToast("Онлайн отключён");
+      }
+
+      function sendOnlineUpdate(force = false) {
+        const socket = state.online.socket;
+        if (!state.online.connected || !socket || socket.readyState !== WebSocket.OPEN) return;
+        state.online.lastSent = performance.now();
+        socket.send(JSON.stringify({
+          type: "update",
+          room: state.online.room,
+          name: state.online.name,
+          score: state.score,
+          lines: state.lines,
+          level: state.level,
+          mode: MODES[state.mode].name,
+          time: formatTime(state.elapsedMs),
+          status: state.gameOver ? (state.won ? "Победа" : "Финиш") : state.paused ? "Пауза" : "Играет",
+          force
+        }));
+      }
+
+      function sendOnlineUpdateThrottled() {
+        if (performance.now() - state.online.lastSent > 700) sendOnlineUpdate(false);
+      }
+
+      function renderOnlinePlayers() {
+        const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score);
+        ui.onlinePlayers.innerHTML = players.length
+          ? players.map((p) => `<div class="result-row"><span>${escapeHtml(p.name)} · ${escapeHtml(p.status)}</span><span>${p.score}</span></div>`).join("")
+          : `<div class="result-row"><span>Игроков пока нет</span><span>0</span></div>`;
+      }
+
+      function renderOnlinePanel() {
+        if (!state.online.connected) {
+          ui.onlinePanel.classList.remove("active");
+          ui.onlinePanel.innerHTML = "";
+          return;
+        }
+        const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score).slice(0, 4);
+        ui.onlinePanel.classList.add("active");
+        ui.onlinePanel.innerHTML = `<div class="mission done"><span>Онлайн ${escapeHtml(state.online.room)}</span><b>${players.length}</b></div>` +
+          players.map((p) => `<div class="online-player"><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join("");
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#39;"
+        }[char]));
+      }
+
+      function topDanger() {
+        return state.board.slice(0, 4).some((row) => row.some(Boolean));
+      }
+
+      function formatTime(ms) {
+        const total = Math.floor(ms / 1000);
+        const min = Math.floor(total / 60);
+        const sec = String(total % 60).padStart(2, "0");
+        return `${min}:${sec}`;
+      }
+
+      function syncTabs() {
+        ui.tabClassic.classList.toggle("active", state.mode === "classic");
+        ui.tabSprint.classList.toggle("active", state.mode === "sprint");
+        ui.tabRelax.classList.toggle("active", state.mode === "relax");
+        ui.tabChaos.classList.toggle("active", state.mode === "chaos");
+      }
+
+      function saveCurrentGame() {
+        if (!state.running || state.gameOver) return;
+        saveJson(STORAGE.save, {
+          board: state.board,
+          active: state.active,
+          queue: state.queue,
+          bag: state.bag,
+          hold: state.hold,
+          holdUsed: state.holdUsed,
+          challengeCode: state.challengeCode,
+          mode: state.mode,
+          difficulty: state.difficulty,
+          score: state.score,
+          lines: state.lines,
+          level: state.level,
+          combo: state.combo,
+          bestComboRun: state.bestComboRun,
+          pieces: state.pieces,
+          hardDrops: state.hardDrops,
+          holds: state.holds,
+          rotations: state.rotations,
+          moves: state.moves,
+          softDrops: state.softDrops,
+          bestClearInGame: state.bestClearInGame,
+          elapsedMs: state.elapsedMs
+        });
+      }
+
+      function loadCurrentGame() {
+        const save = loadJson(STORAGE.save, null);
+        if (!save) {
+          showToast("Сохранения пока нет");
+          return;
+        }
+        Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, flashes: [] });
+        state.rng = state.challengeCode ? makeRng(`${state.challengeCode}:${state.mode}:${state.difficulty}`) : Math.random;
+        ui.challengeInput.value = state.challengeCode || "";
+        hideOverlays();
+        syncTabs();
+        syncUi();
+        showToast("Сохранение загружено");
+      }
+
+      function renderStats() {
+        const average = state.stats.games ? Math.round(state.stats.totalScore / state.stats.games) : 0;
+        ui.statsGrid.innerHTML = [
+          ["Игр сыграно", state.stats.games],
+          ["Лучший счёт", state.stats.bestScore],
+          ["Средний счёт", average],
+          ["Всего линий", state.stats.totalLines],
+          ["Всего фигур", state.stats.totalPieces],
+          ["Лучший уровень", state.stats.bestLevel],
+          ["Лучшее комбо", state.stats.bestCombo],
+          ["Резких сбросов", state.stats.totalHardDrops],
+          ["Запасов", state.stats.totalHolds],
+          ["Поворотов", state.stats.totalRotations],
+          ["Движений", state.stats.totalMoves],
+          ["Время в игре", formatTime(state.stats.totalTime * 1000)]
+        ].map(([k, v]) => `<div class="result-row"><span>${k}</span><span>${v}</span></div>`).join("");
+
+        ui.leaderboard.innerHTML = state.scores.length
+          ? state.scores.map((s, i) => `<div class="score-row"><span>${i + 1}. ${s.mode}, ${s.date}</span><span>${s.score}</span></div>`).join("")
+          : `<div class="score-row"><span>Пока пусто</span><span>0</span></div>`;
+
+        ui.achievementsList.innerHTML = ACHIEVEMENTS.map(([id, title, desc]) => {
+          const open = state.unlocked[id];
+          return `<div class="achievement"><b>${open ? "✓ " : ""}${title}</b><small>${desc}</small></div>`;
+        }).join("");
+      }
+
+      async function shareText(text) {
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: "БлокДроп", text });
+          } else if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            showToast("Текст скопирован");
+          } else {
+            showToast(text);
+          }
+        } catch {
+          showToast("Не удалось поделиться");
+        }
+      }
+
+      function resultText() {
+        return `БлокДроп: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${MODES[state.mode].name}.`;
+      }
+
+      function statsText() {
+        return `Моя статистика в БлокДроп: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`;
+      }
+
+      function challengeText() {
+        const code = normalizeCode(ui.challengeInput.value) || generateAndSetChallengeCode();
+        const params = new URLSearchParams({
+          challenge: code,
+          mode: ui.startMode.value,
+          difficulty: ui.startDifficulty.value
+        });
+        const base = location.protocol.startsWith("http") ? `${location.origin}${location.pathname}` : "Откройте index.html";
+        return `БлокДроп челлендж: код ${code}, режим ${MODES[ui.startMode.value].name}, сложность ${DIFFICULTY[ui.startDifficulty.value].name}. Ссылка: ${base}?${params.toString()}`;
+      }
+
+      function generateAndSetChallengeCode() {
+        const code = generateChallengeCode();
+        ui.challengeInput.value = code;
+        showToast(`Код: ${code}`);
+        return code;
+      }
+
+      function checkAchievements() {
+        let changed = false;
+        for (const [id, title, , rule] of ACHIEVEMENTS) {
+          if (!state.unlocked[id] && rule(state.stats)) {
+            state.unlocked[id] = true;
+            changed = true;
+            showToast(`Достижение: ${title}`);
+            playSound(1040, 0.10, "triangle");
+          }
+        }
+        if (changed) saveJson(STORAGE.achievements, state.unlocked);
+      }
+
+      function ensureAudio() {
+        if (!state.settings.sound) return;
+        const AudioClass = window.AudioContext || window.webkitAudioContext;
+        if (!state.audio && AudioClass) state.audio = new AudioClass();
+        if (state.audio && state.audio.state === "suspended") state.audio.resume();
+      }
+
+      function playSound(freq, duration, type) {
+        if (!state.settings.sound) return;
+        ensureAudio();
+        if (!state.audio) return;
+        const now = state.audio.currentTime;
+        const oscillator = state.audio.createOscillator();
+        const gain = state.audio.createGain();
+        oscillator.type = type;
+        oscillator.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.06 * (state.settings.volume / 100), now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        oscillator.connect(gain);
+        gain.connect(state.audio.destination);
+        oscillator.start(now);
+        oscillator.stop(now + duration + 0.03);
+      }
+
+      function buzz(ms) {
+        if (state.settings.vibration && navigator.vibrate) navigator.vibrate(ms);
+      }
+
+      let toastTimer = 0;
+      function showToast(text) {
+        ui.toast.textContent = text;
+        ui.toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => ui.toast.classList.remove("show"), 1800);
+      }
+
+      function shakeBoard() {
+        if (state.settings.reducedMotion) return;
+        ui.boardShell.classList.remove("shake");
+        void ui.boardShell.offsetWidth;
+        ui.boardShell.classList.add("shake");
+      }
+
+      function burst(count) {
+        if (!state.settings.particles || state.settings.reducedMotion) return;
+        const rect = ui.boardShell.getBoundingClientRect();
+        for (let i = 0; i < count; i += 1) {
+          const p = document.createElement("i");
+          p.className = "particle";
+          p.style.left = `${rect.left + rect.width / 2}px`;
+          p.style.top = `${rect.top + rect.height * 0.42}px`;
+          p.style.background = Object.values(state.settings.colorBlind ? SAFE_COLORS : COLORS)[i % 7];
+          p.style.setProperty("--dx", `${Math.cos(i * 1.7) * (60 + Math.random() * 110)}px`);
+          p.style.setProperty("--dy", `${Math.sin(i * 1.7) * (60 + Math.random() * 110)}px`);
+          ui.fxLayer.appendChild(p);
+          setTimeout(() => p.remove(), 760);
+        }
+      }
+
+      function hideOverlays() {
+        ui.startOverlay.hidden = true;
+        ui.pauseOverlay.hidden = true;
+        ui.settingsOverlay.hidden = true;
+        ui.statsOverlay.hidden = true;
+        ui.helpOverlay.hidden = true;
+        ui.onlineOverlay.hidden = true;
+        ui.gameOverOverlay.hidden = true;
+      }
+
+      function openSettings() {
+        ui.settingsOverlay.hidden = false;
+      }
+
+      function openStats() {
+        renderStats();
+        ui.statsOverlay.hidden = false;
+      }
+
+      function bindPress(element, handler) {
+        let ignoreClickUntil = 0;
+        const run = (event) => {
+          event.preventDefault();
+          handler();
+          syncUi();
+        };
+        element.addEventListener("pointerdown", (event) => {
+          ignoreClickUntil = performance.now() + 450;
+          run(event);
+        });
+        element.addEventListener("click", (event) => {
+          if (performance.now() < ignoreClickUntil) {
+            event.preventDefault();
+            return;
+          }
+          run(event);
+        });
+      }
+
+      function bind() {
+        bindPress(ui.startButton, () => startGame());
+        bindPress(ui.continueButton, loadCurrentGame);
+        bindPress(ui.openStatsButton, openStats);
+        bindPress(ui.helpButton, () => ui.helpOverlay.hidden = false);
+        bindPress(ui.closeHelpButton, () => ui.helpOverlay.hidden = true);
+        bindPress(ui.onlineButton, openOnline);
+        bindPress(ui.connectOnlineButton, connectOnline);
+        bindPress(ui.disconnectOnlineButton, disconnectOnline);
+        bindPress(ui.closeOnlineButton, () => ui.onlineOverlay.hidden = true);
+        bindPress(ui.randomChallengeButton, generateAndSetChallengeCode);
+        bindPress(ui.shareChallengeButton, () => shareText(challengeText()));
+        bindPress(ui.resumeButton, resume);
+        bindPress(ui.playAgainButton, () => startGame(state.mode, state.difficulty));
+        bindPress(ui.pauseButton, togglePause);
+        bindPress(ui.restartButton, () => startGame(state.mode, state.difficulty));
+        bindPress(ui.pauseRestartButton, () => startGame(state.mode, state.difficulty));
+        bindPress(ui.pauseSettingsButton, openSettings);
+        bindPress(ui.settingsButton, openSettings);
+        bindPress(ui.closeSettingsButton, () => ui.settingsOverlay.hidden = true);
+        bindPress(ui.closeStatsButton, () => ui.statsOverlay.hidden = true);
+        bindPress(ui.shareStatsButton, () => shareText(statsText()));
+        bindPress(ui.gameOverStatsButton, openStats);
+        bindPress(ui.shareResultButton, () => shareText(resultText()));
+        bindPress(ui.soundButton, () => {
+          state.settings.sound = !state.settings.sound;
+          applySettings();
+          playSound(620, 0.03, "triangle");
+        });
+        bindPress(ui.leftButton, () => move(-1, 0));
+        bindPress(ui.rightButton, () => move(1, 0));
+        bindPress(ui.rotateButton, rotate);
+        bindPress(ui.downButton, softDrop);
+        bindPress(ui.dropButton, hardDrop);
+        bindPress(ui.holdButton, holdPiece);
+        bindPress(ui.tabClassic, () => startGame("classic", state.difficulty));
+        bindPress(ui.tabSprint, () => startGame("sprint", state.difficulty));
+        bindPress(ui.tabRelax, () => startGame("relax", state.difficulty));
+        bindPress(ui.tabChaos, () => startGame("chaos", state.difficulty));
+
+        ui.themeSelect.addEventListener("change", () => { state.settings.theme = ui.themeSelect.value; applySettings(); });
+        ui.sensitivityRange.addEventListener("input", () => { state.settings.sensitivity = Number(ui.sensitivityRange.value); applySettings(); });
+        ui.ghostToggle.addEventListener("change", () => { state.settings.ghost = ui.ghostToggle.checked; applySettings(); });
+        ui.bigButtonsToggle.addEventListener("change", () => { state.settings.bigButtons = ui.bigButtonsToggle.checked; applySettings(); });
+        ui.vibrationToggle.addEventListener("change", () => { state.settings.vibration = ui.vibrationToggle.checked; applySettings(); });
+        ui.gridToggle.addEventListener("change", () => { state.settings.grid = ui.gridToggle.checked; applySettings(); });
+        ui.dangerToggle.addEventListener("change", () => { state.settings.danger = ui.dangerToggle.checked; applySettings(); });
+        ui.particlesToggle.addEventListener("change", () => { state.settings.particles = ui.particlesToggle.checked; applySettings(); });
+        ui.colorBlindToggle.addEventListener("change", () => { state.settings.colorBlind = ui.colorBlindToggle.checked; applySettings(); });
+        ui.autoPauseToggle.addEventListener("change", () => { state.settings.autoPause = ui.autoPauseToggle.checked; applySettings(); });
+        ui.reducedMotionToggle.addEventListener("change", () => { state.settings.reducedMotion = ui.reducedMotionToggle.checked; applySettings(); });
+        ui.volumeRange.addEventListener("input", () => { state.settings.volume = Number(ui.volumeRange.value); applySettings(); });
+
+        window.addEventListener("keydown", (event) => {
+          const key = event.key.toLowerCase();
+          if (key === "arrowleft" || key === "a") { event.preventDefault(); move(-1, 0); }
+          else if (key === "arrowright" || key === "d") { event.preventDefault(); move(1, 0); }
+          else if (key === "arrowdown" || key === "s") { event.preventDefault(); softDrop(); }
+          else if (key === "arrowup" || key === "w" || key === "x") { event.preventDefault(); rotate(); }
+          else if (key === " " || key === "z") { event.preventDefault(); hardDrop(); }
+          else if (key === "c") { event.preventDefault(); holdPiece(); }
+          else if (key === "p" || key === "escape") { event.preventDefault(); togglePause(); }
+          syncUi();
+        });
+
+        let sx = 0;
+        let sy = 0;
+        ui.board.addEventListener("touchstart", (event) => {
+          sx = event.changedTouches[0].clientX;
+          sy = event.changedTouches[0].clientY;
+        }, { passive: true });
+        ui.board.addEventListener("touchend", (event) => {
+          const touch = event.changedTouches[0];
+          const dx = touch.clientX - sx;
+          const dy = touch.clientY - sy;
+          const threshold = state.settings.sensitivity;
+          if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) rotate();
+          else if (Math.abs(dx) > Math.abs(dy)) dx < 0 ? move(-1, 0) : move(1, 0);
+          else if (dy < 0) rotate();
+          else hardDrop();
+          syncUi();
+        }, { passive: true });
+
+        document.addEventListener("visibilitychange", () => {
+          if (state.settings.autoPause && document.hidden && state.running && !state.paused) pause();
+        });
+        window.addEventListener("beforeunload", saveCurrentGame);
+        window.addEventListener("resize", draw);
+      }
+
+      function bootPwa() {
+        if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+          navigator.serviceWorker.register("sw.js").catch(() => {});
+        }
+      }
+
+      function applyUrlChallenge() {
+        const params = new URLSearchParams(location.search);
+        const code = normalizeCode(params.get("challenge"));
+        const mode = params.get("mode");
+        const difficulty = params.get("difficulty");
+        if (code) ui.challengeInput.value = code;
+        if (mode && MODES[mode]) ui.startMode.value = mode;
+        if (difficulty && DIFFICULTY[difficulty]) ui.startDifficulty.value = difficulty;
+      }
+
+      bind();
+      applyUrlChallenge();
+      applySettings();
+      syncUi();
+      draw();
+      bootPwa();
+      requestAnimationFrame(update);
+    })();
+  </script>
+</body>
+</html>

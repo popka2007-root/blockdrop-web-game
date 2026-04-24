@@ -1,0 +1,12 @@
+{
+  "name": "blockdrop-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "БлокДроп: браузерная игра с онлайн-комнатами.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
