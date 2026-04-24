@@ -464,6 +464,10 @@
       grid-template-columns: 1fr 1fr 1fr;
     }
 
+    .controls-row.solo {
+      grid-template-columns: 1fr;
+    }
+
     .select {
       width: 100%;
       padding: 0 10px;
@@ -854,20 +858,8 @@
     </section>
 
     <section class="controls">
-      <div class="controls-row">
-        <button class="button" id="leftButton">←</button>
-        <button class="button primary" id="rotateButton">Поворот</button>
-        <button class="button" id="rightButton">→</button>
-      </div>
-      <div class="controls-row bottom">
-        <button class="button" id="downButton">Вниз</button>
+      <div class="controls-row solo">
         <button class="button warn" id="holdButton">Запас</button>
-        <button class="button primary" id="dropButton">Сброс</button>
-      </div>
-      <div class="controls-row tools">
-        <button class="button" id="soundButton">Звук: вкл</button>
-        <button class="button" id="settingsButton">Настройки</button>
-        <button class="button" id="mainMenuButton">Меню</button>
       </div>
     </section>
   </main>
@@ -928,19 +920,9 @@
             <option value="mono">Минимализм</option>
           </select>
         </div>
-        <div class="setting">
-          <label for="sensitivityRange">Чувствительность свайпа</label>
-          <div class="range-row"><input id="sensitivityRange" type="range" min="16" max="54" value="24"><span id="sensitivityValue">24</span></div>
-        </div>
         <label class="check-row">Призрачная фигура <input id="ghostToggle" type="checkbox" checked></label>
         <label class="check-row">Крупные кнопки <input id="bigButtonsToggle" type="checkbox"></label>
         <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
-        <label class="check-row">Сетка поля <input id="gridToggle" type="checkbox" checked></label>
-        <label class="check-row">Опасная зона <input id="dangerToggle" type="checkbox" checked></label>
-        <label class="check-row">Эффекты частиц <input id="particlesToggle" type="checkbox" checked></label>
-        <label class="check-row">Контрастные цвета <input id="colorBlindToggle" type="checkbox"></label>
-        <label class="check-row">Автопауза <input id="autoPauseToggle" type="checkbox" checked></label>
-        <label class="check-row">Меньше анимаций <input id="reducedMotionToggle" type="checkbox"></label>
         <div class="setting">
           <label for="volumeRange">Громкость</label>
           <div class="range-row"><input id="volumeRange" type="range" min="0" max="100" value="70"><span id="volumeValue">70</span></div>
@@ -1111,6 +1093,40 @@
         X: "#dfe6ee"
       };
 
+      const THEME_COLORS = {
+        ember: COLORS,
+        day: {
+          I: "#0796a8",
+          O: "#e0a21a",
+          T: "#6d5bd0",
+          S: "#158a6f",
+          Z: "#d84b42",
+          J: "#2f6fbc",
+          L: "#d66b22",
+          X: "#4f5f67"
+        },
+        candy: {
+          I: "#5ce1ff",
+          O: "#ffdf6e",
+          T: "#c084fc",
+          S: "#66f2b9",
+          Z: "#ff7aa8",
+          J: "#7ca7ff",
+          L: "#ffb45f",
+          X: "#fff4cc"
+        },
+        mono: {
+          I: "#d9d0bd",
+          O: "#b8d8c8",
+          T: "#a9b0aa",
+          S: "#8dd3c7",
+          Z: "#c6a99c",
+          J: "#9fb8b1",
+          L: "#d6c28f",
+          X: "#eeeeee"
+        }
+      };
+
       const SAFE_COLORS = {
         I: "#00b4d8",
         O: "#f9c74f",
@@ -1170,9 +1186,9 @@
         "app","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
         "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
         "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
-        "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton","settingsButton","soundButton","leftButton","rightButton",
-        "rotateButton","downButton","dropButton","holdButton","startMode","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
-        "bigButtonsToggle","vibrationToggle","gridToggle","dangerToggle","particlesToggle","colorBlindToggle","autoPauseToggle","reducedMotionToggle",
+        "playAgainButton","pauseButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
+        "holdButton","startMode","themeSelect","ghostToggle",
+        "bigButtonsToggle","vibrationToggle",
         "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
         "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
         "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","startTournamentButton","closeOnlineButton",
@@ -1302,22 +1318,21 @@
       function applySettings() {
         document.documentElement.dataset.theme = state.settings.theme === "ember" ? "" : state.settings.theme;
         document.body.classList.toggle("big-buttons", state.settings.bigButtons);
+        state.settings.sensitivity = 24;
+        state.settings.grid = true;
+        state.settings.danger = true;
+        state.settings.particles = true;
+        state.settings.colorBlind = false;
+        state.settings.autoPause = true;
+        state.settings.reducedMotion = false;
+        state.settings.sound = state.settings.volume > 0;
         ui.themeSelect.value = state.settings.theme;
-        ui.sensitivityRange.value = state.settings.sensitivity;
-        ui.sensitivityValue.textContent = state.settings.sensitivity;
         ui.ghostToggle.checked = state.settings.ghost;
         ui.bigButtonsToggle.checked = state.settings.bigButtons;
         ui.vibrationToggle.checked = state.settings.vibration;
-        ui.gridToggle.checked = state.settings.grid;
-        ui.dangerToggle.checked = state.settings.danger;
-        ui.particlesToggle.checked = state.settings.particles;
-        ui.colorBlindToggle.checked = state.settings.colorBlind;
-        ui.autoPauseToggle.checked = state.settings.autoPause;
-        ui.reducedMotionToggle.checked = state.settings.reducedMotion;
         ui.volumeRange.value = state.settings.volume;
         ui.volumeValue.textContent = state.settings.volume;
         document.body.classList.toggle("reduced-motion", state.settings.reducedMotion);
-        ui.soundButton.textContent = state.settings.sound ? "Звук: вкл" : "Звук: выкл";
         saveJson(STORAGE.settings, state.settings);
       }
 
@@ -1862,7 +1877,8 @@
       }
 
       function colorFor(kind) {
-        return (state.settings.colorBlind ? SAFE_COLORS : COLORS)[kind] || COLORS.X;
+        const palette = state.settings.colorBlind ? SAFE_COLORS : (THEME_COLORS[state.settings.theme] || COLORS);
+        return palette[kind] || palette.X || COLORS.X;
       }
 
       function syncUi() {
@@ -1879,7 +1895,6 @@
         ui.progressFill.style.width = `${progressPercent()}%`;
         ui.rankValue.textContent = rankText();
         ui.boardShell.classList.toggle("danger", state.settings.danger && topDanger());
-        ui.soundButton.textContent = state.settings.sound ? "Звук: вкл" : "Звук: выкл";
         renderOnlinePanel();
         sendOnlineUpdateThrottled();
       }
@@ -2295,7 +2310,7 @@
       }
 
       function playSound(freq, duration, type) {
-        if (!state.settings.sound) return;
+        if (!state.settings.sound || state.settings.volume <= 0) return;
         ensureAudio();
         if (!state.audio) return;
         const now = state.audio.currentTime;
@@ -2424,39 +2439,20 @@
         bindPress(ui.resumeButton, resume);
         bindPress(ui.playAgainButton, () => startGame(state.mode, state.difficulty));
         bindPress(ui.pauseButton, togglePause);
-        bindPress(ui.mainMenuButton, returnToMainMenu);
         bindPress(ui.pauseMenuButton, returnToMainMenu);
         bindPress(ui.gameOverMenuButton, returnToMainMenu);
         bindPress(ui.pauseRestartButton, () => startGame(state.mode, state.difficulty));
         bindPress(ui.pauseSettingsButton, openSettings);
-        bindPress(ui.settingsButton, openSettings);
         bindPress(ui.closeSettingsButton, () => ui.settingsOverlay.hidden = true);
         bindPress(ui.closeStatsButton, closeStats);
         bindPress(ui.shareStatsButton, () => shareText(statsText()));
         bindPress(ui.gameOverStatsButton, openStats);
         bindPress(ui.shareResultButton, () => shareText(resultText()));
-        bindPress(ui.soundButton, () => {
-          state.settings.sound = !state.settings.sound;
-          applySettings();
-          playSound(620, 0.03, "triangle");
-        });
-        bindPress(ui.leftButton, () => move(-1, 0));
-        bindPress(ui.rightButton, () => move(1, 0));
-        bindPress(ui.rotateButton, rotate);
-        bindPress(ui.downButton, softDrop);
-        bindPress(ui.dropButton, hardDrop);
         bindPress(ui.holdButton, holdPiece);
         ui.themeSelect.addEventListener("change", () => { state.settings.theme = ui.themeSelect.value; applySettings(); });
-        ui.sensitivityRange.addEventListener("input", () => { state.settings.sensitivity = Number(ui.sensitivityRange.value); applySettings(); });
         ui.ghostToggle.addEventListener("change", () => { state.settings.ghost = ui.ghostToggle.checked; applySettings(); });
         ui.bigButtonsToggle.addEventListener("change", () => { state.settings.bigButtons = ui.bigButtonsToggle.checked; applySettings(); });
         ui.vibrationToggle.addEventListener("change", () => { state.settings.vibration = ui.vibrationToggle.checked; applySettings(); });
-        ui.gridToggle.addEventListener("change", () => { state.settings.grid = ui.gridToggle.checked; applySettings(); });
-        ui.dangerToggle.addEventListener("change", () => { state.settings.danger = ui.dangerToggle.checked; applySettings(); });
-        ui.particlesToggle.addEventListener("change", () => { state.settings.particles = ui.particlesToggle.checked; applySettings(); });
-        ui.colorBlindToggle.addEventListener("change", () => { state.settings.colorBlind = ui.colorBlindToggle.checked; applySettings(); });
-        ui.autoPauseToggle.addEventListener("change", () => { state.settings.autoPause = ui.autoPauseToggle.checked; applySettings(); });
-        ui.reducedMotionToggle.addEventListener("change", () => { state.settings.reducedMotion = ui.reducedMotionToggle.checked; applySettings(); });
         ui.volumeRange.addEventListener("input", () => { state.settings.volume = Number(ui.volumeRange.value); applySettings(); });
 
         window.addEventListener("keydown", (event) => {
@@ -2474,20 +2470,25 @@
         let sx = 0;
         let sy = 0;
         ui.board.addEventListener("touchstart", (event) => {
+          event.preventDefault();
           sx = event.changedTouches[0].clientX;
           sy = event.changedTouches[0].clientY;
-        }, { passive: true });
+        }, { passive: false });
         ui.board.addEventListener("touchend", (event) => {
+          event.preventDefault();
           const touch = event.changedTouches[0];
           const dx = touch.clientX - sx;
           const dy = touch.clientY - sy;
           const threshold = state.settings.sensitivity;
           if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) rotate();
-          else if (Math.abs(dx) > Math.abs(dy)) dx < 0 ? move(-1, 0) : move(1, 0);
+          else if (Math.abs(dx) > Math.abs(dy)) {
+            const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
+            for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
+          }
           else if (dy < 0) rotate();
           else hardDrop();
           syncUi();
-        }, { passive: true });
+        }, { passive: false });
 
         document.addEventListener("visibilitychange", () => {
           if (state.settings.autoPause && document.hidden && state.running && !state.paused) pause();
