@@ -289,6 +289,15 @@
       gap: 8px;
     }
 
+    .online-timer {
+      padding: 8px;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      color: var(--text);
+      font-weight: 900;
+      text-align: center;
+    }
+
     .mission {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -504,6 +513,10 @@
 
     .overlay[hidden] {
       display: none;
+    }
+
+    #coachOverlay {
+      z-index: 36;
     }
 
     .modal {
@@ -944,6 +957,17 @@
     </div>
   </section>
 
+  <section class="overlay" id="coachOverlay" hidden>
+    <div class="modal">
+      <h2>Бот-тренер</h2>
+      <p class="muted">Короткий разбор партии и 2-3 совета для следующей попытки.</p>
+      <div class="result-grid" id="coachTips"></div>
+      <div class="modal-actions">
+        <button class="button primary" id="closeCoachButton">Понятно</button>
+      </div>
+    </div>
+  </section>
+
   <section class="overlay" id="helpOverlay" hidden>
     <div class="modal">
       <h2>Как играть</h2>
@@ -978,13 +1002,46 @@
           <label for="onlineNameInput">Имя</label>
           <input class="input" id="onlineNameInput" maxlength="18" placeholder="Игрок">
         </div>
+        <div class="setting">
+          <label for="onlineMaxPlayersSelect">Игроков в турнире</label>
+          <select class="select" id="onlineMaxPlayersSelect">
+            <option value="3">3 игрока</option>
+            <option value="4" selected>4 игрока</option>
+            <option value="5">5 игроков</option>
+            <option value="6">6 игроков</option>
+            <option value="7">7 игроков</option>
+            <option value="8">8 игроков</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="onlineDurationSelect">Таймер</label>
+          <select class="select" id="onlineDurationSelect">
+            <option value="120">2 минуты</option>
+            <option value="180" selected>3 минуты</option>
+            <option value="300">5 минут</option>
+            <option value="600">10 минут</option>
+          </select>
+        </div>
       </div>
       <div class="result-grid" id="onlinePlayers"></div>
       <p class="muted" id="onlineStatus">Не подключено</p>
       <div class="modal-actions">
         <button class="button primary" id="connectOnlineButton">Подключиться</button>
+        <button class="button" id="startTournamentButton">Старт турнира</button>
         <button class="button" id="disconnectOnlineButton">Отключиться</button>
         <button class="button" id="closeOnlineButton">Закрыть</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="tournamentOverlay" hidden>
+    <div class="modal">
+      <h2>Турнир завершён</h2>
+      <p class="muted">Финальная таблица комнаты.</p>
+      <div class="result-grid" id="tournamentResults"></div>
+      <div class="modal-actions">
+        <button class="button primary" id="closeTournamentButton">Закрыть</button>
+        <button class="button" id="rematchButton">Реванш</button>
       </div>
     </div>
   </section>
@@ -1107,8 +1164,9 @@
         "rotateButton","downButton","dropButton","holdButton","startMode","startDifficulty","themeSelect","sensitivityRange","sensitivityValue","ghostToggle",
         "bigButtonsToggle","vibrationToggle","gridToggle","dangerToggle","particlesToggle","colorBlindToggle","autoPauseToggle","reducedMotionToggle",
         "volumeRange","volumeValue","challengeInput","randomChallengeButton","shareChallengeButton","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
-        "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
-        "onlinePlayers","onlineStatus","connectOnlineButton","disconnectOnlineButton","closeOnlineButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
+        "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
+        "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","startTournamentButton","disconnectOnlineButton","closeOnlineButton",
+        "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
         "finalRecord","gameOverTitle","gameOverText","toast","fxLayer","tabClassic","tabSprint","tabRelax","tabChaos"
       ]) {
         ui[id] = document.getElementById(id);
@@ -1136,6 +1194,9 @@
         bestComboRun: 0,
         pieces: 0,
         hardDrops: 0,
+        incomingGarbage: 0,
+        receivedGarbage: 0,
+        sentGarbage: 0,
         holds: 0,
         rotations: 0,
         moves: 0,
@@ -1156,10 +1217,12 @@
         unlocked: loadJson(STORAGE.achievements, {}),
         online: {
           socket: null,
+          id: "",
           connected: false,
           room: "",
           name: "",
           peers: {},
+          tournament: null,
           lastSent: 0
         }
       };
@@ -1332,6 +1395,9 @@
         state.bestComboRun = 0;
         state.pieces = 0;
         state.hardDrops = 0;
+        state.incomingGarbage = 0;
+        state.receivedGarbage = 0;
+        state.sentGarbage = 0;
         state.holds = 0;
         state.rotations = 0;
         state.moves = 0;
@@ -1371,6 +1437,17 @@
           state.board.shift();
           state.board.push(Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")));
         }
+        if (state.active && !valid(state.active)) finish(false, "Соперники вытолкнули башню мусорными линиями.");
+      }
+
+      function receiveGarbage(count, from = "соперника") {
+        if (!state.running || state.gameOver || count <= 0) return;
+        state.incomingGarbage += count;
+        state.receivedGarbage += count;
+        addGarbage(count);
+        shakeBoard();
+        showToast(`Атака от ${from}: +${count}`);
+        sendOnlineUpdate(true);
       }
 
       function move(dx, dy, scoreSoft = false) {
@@ -1459,6 +1536,7 @@
           playSound(count === 4 ? 880 : 720, count === 4 ? 0.14 : 0.08, "triangle");
           const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
           showToast(count === 4 ? "Четыре линии сразу!" : `Линий: ${count}${comboText}`);
+          sendAttackForClear(count);
           burst(count === 4 ? 34 : 18);
           shakeBoard();
         } else {
@@ -1495,6 +1573,25 @@
 
       function lineScore(count) {
         return [0, 100, 300, 500, 800][Math.min(count, 4)] * state.level;
+      }
+
+      function attackLinesForClear(count) {
+        if (count < 2) return 0;
+        if (count === 2) return 1;
+        if (count === 3) return 2;
+        return 4;
+      }
+
+      function sendAttackForClear(count) {
+        const lines = attackLinesForClear(count);
+        if (!lines || !state.online.connected || !state.online.socket || state.online.socket.readyState !== WebSocket.OPEN) return;
+        state.sentGarbage += lines;
+        state.online.socket.send(JSON.stringify({
+          type: "attack",
+          room: state.online.room,
+          lines
+        }));
+        showToast(`Атака соперникам: +${lines}`);
       }
 
       function addScore(value) {
@@ -1539,6 +1636,8 @@
         ui.finalCombo.textContent = state.bestComboRun;
         ui.finalRecord.textContent = state.stats.bestScore;
         ui.gameOverOverlay.hidden = false;
+        renderCoachTips();
+        if (!won) ui.coachOverlay.hidden = false;
         playSound(won ? 980 : 170, 0.22, won ? "triangle" : "sawtooth");
         if (won) burst(50);
         sendOnlineUpdate(true);
@@ -1613,6 +1712,8 @@
         ctx.fillStyle = "rgba(255,255,255,0.035)";
         round(ctx, x0, 0, boardW, cell * ROWS, 8, true, false);
 
+        drawOpponentGhost(x0, boardW, cell);
+
         for (let y = 0; y < ROWS; y += 1) {
           for (let x = 0; x < COLS; x += 1) drawCell(ctx, x0 + x * cell, y * cell, cell, state.board[y][x], 1);
         }
@@ -1661,6 +1762,18 @@
             drawCell(context, x * size + 2, y * size + 2, size - 2, filled ? kind : null, filled ? 1 : 0.5);
           }
         }
+      }
+
+      function drawOpponentGhost(x0, boardW, cell) {
+        const height = opponentHeight();
+        if (!height) return;
+        const ghostHeight = Math.min(ROWS, height) * cell;
+        const y = ROWS * cell - ghostHeight;
+        ctx.fillStyle = "rgba(255, 178, 74, 0.13)";
+        ctx.fillRect(x0, y, boardW, ghostHeight);
+        ctx.strokeStyle = "rgba(255, 178, 74, 0.45)";
+        ctx.lineWidth = 2;
+        line(ctx, x0, y, x0 + boardW, y);
       }
 
       function drawCell(context, x, y, size, kind, alpha) {
@@ -1817,7 +1930,13 @@
 
           socket.addEventListener("open", () => {
             state.online.connected = true;
-            socket.send(JSON.stringify({ type: "join", room, name }));
+            socket.send(JSON.stringify({
+              type: "join",
+              room,
+              name,
+              maxPlayers: Number(ui.onlineMaxPlayersSelect.value),
+              durationSec: Number(ui.onlineDurationSelect.value)
+            }));
             sendOnlineUpdate(true);
             ui.onlineStatus.textContent = `Комната ${room}`;
             showToast(`Онлайн: ${room}`);
@@ -1825,9 +1944,25 @@
 
           socket.addEventListener("message", (event) => {
             const data = JSON.parse(event.data);
+            if (data.type === "hello") {
+              state.online.id = data.id;
+            }
+            if (data.type === "error") {
+              ui.onlineStatus.textContent = data.message || "Ошибка комнаты";
+              showToast(data.message || "Ошибка комнаты");
+            }
             if (data.type === "state") {
               state.online.peers = data.players || {};
+              state.online.tournament = data.tournament || null;
               renderOnlinePlayers();
+              renderOnlinePanel();
+            }
+            if (data.type === "attack") {
+              receiveGarbage(Number(data.lines) || 0, data.from || "соперника");
+            }
+            if (data.type === "tournamentEnd") {
+              state.online.tournament = data.tournament || state.online.tournament;
+              showTournamentResults(data.players || state.online.peers || {});
             }
           });
 
@@ -1852,6 +1987,7 @@
         state.online.socket = null;
         state.online.connected = false;
         state.online.peers = {};
+        state.online.tournament = null;
         renderOnlinePanel();
         renderOnlinePlayers();
         if (show) showToast("Онлайн отключён");
@@ -1868,6 +2004,9 @@
           score: state.score,
           lines: state.lines,
           level: state.level,
+          height: currentHeight(),
+          sentGarbage: state.sentGarbage,
+          receivedGarbage: state.receivedGarbage,
           mode: MODES[state.mode].name,
           time: formatTime(state.elapsedMs),
           status: state.gameOver ? (state.won ? "Победа" : "Финиш") : state.paused ? "Пауза" : "Играет",
@@ -1879,11 +2018,29 @@
         if (performance.now() - state.online.lastSent > 700) sendOnlineUpdate(false);
       }
 
+      function startTournament() {
+        if (!state.online.connected || !state.online.socket || state.online.socket.readyState !== WebSocket.OPEN) {
+          showToast("Сначала подключись к комнате");
+          return;
+        }
+        state.online.socket.send(JSON.stringify({
+          type: "startTournament",
+          room: state.online.room,
+          maxPlayers: Number(ui.onlineMaxPlayersSelect.value),
+          durationSec: Number(ui.onlineDurationSelect.value)
+        }));
+        showToast("Турнир запускается");
+        startGame(state.mode, state.difficulty);
+      }
+
       function renderOnlinePlayers() {
         const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score);
         ui.onlinePlayers.innerHTML = players.length
           ? players.map((p) => `<div class="result-row"><span>${escapeHtml(p.name)} · ${escapeHtml(p.status)}</span><span>${p.score}</span></div>`).join("")
           : `<div class="result-row"><span>Игроков пока нет</span><span>0</span></div>`;
+        if (state.online.tournament?.active) {
+          ui.onlineStatus.textContent = `Турнир: ${formatTime(state.online.tournament.timeLeftMs)} · ${players.length}/${state.online.tournament.maxPlayers}`;
+        }
       }
 
       function renderOnlinePanel() {
@@ -1894,8 +2051,28 @@
         }
         const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score).slice(0, 4);
         ui.onlinePanel.classList.add("active");
-        ui.onlinePanel.innerHTML = `<div class="mission done"><span>Онлайн ${escapeHtml(state.online.room)}</span><b>${players.length}</b></div>` +
+        const timer = state.online.tournament?.active ? `<div class="online-timer">Турнир: ${formatTime(state.online.tournament.timeLeftMs)}</div>` : "";
+        ui.onlinePanel.innerHTML = timer + `<div class="mission done"><span>Онлайн ${escapeHtml(state.online.room)}</span><b>${players.length}</b></div>` +
           players.map((p) => `<div class="online-player"><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join("");
+      }
+
+      function showTournamentResults(playersObject) {
+        const players = Object.values(playersObject || {}).sort((a, b) => b.score - a.score);
+        ui.tournamentResults.innerHTML = players.length
+          ? players.map((p, i) => `<div class="result-row"><span>${i + 1}. ${escapeHtml(p.name)} · ${escapeHtml(p.status)}</span><span>${p.score}</span></div>`).join("")
+          : `<div class="result-row"><span>Нет результатов</span><span>0</span></div>`;
+        if (state.running && !state.gameOver) {
+          state.running = false;
+          state.gameOver = true;
+          localStorage.removeItem(STORAGE.save);
+        }
+        ui.tournamentOverlay.hidden = false;
+      }
+
+      function opponentHeight() {
+        return Object.values(state.online.peers || {})
+          .filter((p) => p.id !== state.online.id && Number.isFinite(Number(p.height)))
+          .sort((a, b) => b.score - a.score)[0]?.height || 0;
       }
 
       function escapeHtml(value) {
@@ -2019,6 +2196,30 @@
         return `Моя статистика в БлокДроп: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`;
       }
 
+      function renderCoachTips() {
+        const tips = [];
+        if (state.receivedGarbage > 0) {
+          tips.push(["Онлайн-давление", `Ты получил ${state.receivedGarbage} мусорных линий. В PvP старайся отвечать очисткой 2+ линий, а не просто выживать.`]);
+        }
+        if (currentHeight() >= 12) {
+          tips.push(["Высокая башня", "Поле стало слишком высоким. Оставляй один ровный колодец сбоку и не закрывай его S/Z фигурами."]);
+        }
+        if (state.holds < 2 && state.pieces > 12) {
+          tips.push(["Запас почти не использовался", "Запас нужен не только для I-фигуры. Убирай туда неудобную фигуру, если она ломает поверхность поля."]);
+        }
+        if (state.bestComboRun < 2 && state.lines > 3) {
+          tips.push(["Мало серий", "После очистки линии попробуй сразу готовить следующую. Даже комбо x2 уже заметно ускоряет набор очков."]);
+        }
+        if (state.hardDrops < 5 && state.elapsedMs > 60000) {
+          tips.push(["Слишком осторожно", "Резкий сброс экономит время. Используй призрачную фигуру, чтобы быстрее принимать решения."]);
+        }
+        if (state.rotations > state.pieces * 4 && state.pieces > 8) {
+          tips.push(["Много лишних поворотов", "Если фигура крутится 4+ раза, ты поздно решил, куда её ставить. Смотри на следующую фигуру заранее."]);
+        }
+        tips.push(["Следующая цель", state.mode === "sprint" ? "В режиме 40 линий цель не рекорд, а чистое поле и скорость. Не копи слишком высокую башню." : "Попробуй играть через 2-3 линии за раз: это уже включает PvP-атаки и тренирует контроль поля."]);
+        ui.coachTips.innerHTML = tips.slice(0, 3).map(([title, body]) => `<div class="achievement"><b>${title}</b><small>${body}</small></div>`).join("");
+      }
+
       function challengeText() {
         const code = normalizeCode(ui.challengeInput.value) || generateAndSetChallengeCode();
         const params = new URLSearchParams({
@@ -2116,7 +2317,9 @@
         ui.settingsOverlay.hidden = true;
         ui.statsOverlay.hidden = true;
         ui.helpOverlay.hidden = true;
+        ui.coachOverlay.hidden = true;
         ui.onlineOverlay.hidden = true;
+        ui.tournamentOverlay.hidden = true;
         ui.gameOverOverlay.hidden = true;
       }
 
@@ -2155,10 +2358,14 @@
         bindPress(ui.openStatsButton, openStats);
         bindPress(ui.helpButton, () => ui.helpOverlay.hidden = false);
         bindPress(ui.closeHelpButton, () => ui.helpOverlay.hidden = true);
+        bindPress(ui.closeCoachButton, () => ui.coachOverlay.hidden = true);
         bindPress(ui.onlineButton, openOnline);
         bindPress(ui.connectOnlineButton, connectOnline);
+        bindPress(ui.startTournamentButton, startTournament);
         bindPress(ui.disconnectOnlineButton, disconnectOnline);
         bindPress(ui.closeOnlineButton, () => ui.onlineOverlay.hidden = true);
+        bindPress(ui.closeTournamentButton, () => ui.tournamentOverlay.hidden = true);
+        bindPress(ui.rematchButton, startTournament);
         bindPress(ui.randomChallengeButton, generateAndSetChallengeCode);
         bindPress(ui.shareChallengeButton, () => shareText(challengeText()));
         bindPress(ui.resumeButton, resume);
