@@ -600,6 +600,26 @@
       margin-top: 10px;
     }
 
+    .advanced-online {
+      margin-top: 8px;
+      text-align: left;
+    }
+
+    .advanced-online summary {
+      min-height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--muted);
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .advanced-online .settings-grid {
+      margin-top: 8px;
+    }
+
     .settings-grid {
       display: grid;
       gap: 8px;
@@ -978,12 +998,7 @@
   <section class="overlay" id="onlineOverlay" hidden>
     <div class="modal">
       <h2>Онлайн-комната</h2>
-      <p class="muted">Подключись к серверу, создай комнату и отправь код друзьям. Каждый играет на своём поле, а результаты обновляются вживую.</p>
       <div class="settings-grid">
-        <div class="setting">
-          <label for="onlineServerInput">Сервер</label>
-          <input class="input" id="onlineServerInput" placeholder="ws://localhost:8787">
-        </div>
         <div class="setting">
           <label for="onlineRoomInput">Комната</label>
           <input class="input" id="onlineRoomInput" maxlength="16" placeholder="Например: FRIENDS">
@@ -992,35 +1007,42 @@
           <label for="onlineNameInput">Имя</label>
           <input class="input" id="onlineNameInput" maxlength="18" placeholder="Игрок">
         </div>
-        <div class="setting">
-          <label for="onlineMaxPlayersSelect">Игроков в турнире</label>
-          <select class="select" id="onlineMaxPlayersSelect">
-            <option value="3">3 игрока</option>
-            <option value="4" selected>4 игрока</option>
-            <option value="5">5 игроков</option>
-            <option value="6">6 игроков</option>
-            <option value="7">7 игроков</option>
-            <option value="8">8 игроков</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="onlineDurationSelect">Таймер</label>
-          <select class="select" id="onlineDurationSelect">
-            <option value="120">2 минуты</option>
-            <option value="180" selected>3 минуты</option>
-            <option value="300">5 минут</option>
-            <option value="600">10 минут</option>
-          </select>
-        </div>
       </div>
       <div class="result-grid" id="onlinePlayers"></div>
       <p class="muted" id="onlineStatus">Не подключено</p>
+      <details class="advanced-online">
+        <summary>Турнир и сервер</summary>
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="onlineServerInput">Сервер</label>
+            <input class="input" id="onlineServerInput" placeholder="ws://localhost:8787">
+          </div>
+          <div class="setting">
+            <label for="onlineMaxPlayersSelect">Игроков</label>
+            <select class="select" id="onlineMaxPlayersSelect">
+              <option value="3">3 игрока</option>
+              <option value="4" selected>4 игрока</option>
+              <option value="5">5 игроков</option>
+              <option value="6">6 игроков</option>
+              <option value="7">7 игроков</option>
+              <option value="8">8 игроков</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="onlineDurationSelect">Таймер</label>
+            <select class="select" id="onlineDurationSelect">
+              <option value="120">2 минуты</option>
+              <option value="180" selected>3 минуты</option>
+              <option value="300">5 минут</option>
+              <option value="600">10 минут</option>
+            </select>
+          </div>
+          <button class="button" id="startTournamentButton">Старт турнира</button>
+        </div>
+      </details>
       <div class="modal-actions">
         <button class="button primary" id="connectOnlineButton">Подключиться</button>
         <button class="button" id="shareRoomButton">Ссылка другу</button>
-        <button class="button" id="newRoomButton">Новая комната</button>
-        <button class="button" id="startTournamentButton">Старт турнира</button>
-        <button class="button" id="disconnectOnlineButton">Отключиться</button>
         <button class="button" id="closeOnlineButton">Закрыть</button>
       </div>
     </div>
@@ -1153,7 +1175,7 @@
         "bigButtonsToggle","vibrationToggle","gridToggle","dangerToggle","particlesToggle","colorBlindToggle","autoPauseToggle","reducedMotionToggle",
         "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
         "leaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
-        "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","newRoomButton","startTournamentButton","disconnectOnlineButton","closeOnlineButton",
+        "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","startTournamentButton","closeOnlineButton",
         "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
         "finalRecord","gameOverTitle","gameOverText","toast","fxLayer"
       ]) {
@@ -1904,6 +1926,7 @@
         ui.onlineNameInput.value = ui.onlineNameInput.value || localStorage.getItem("blockdrop-player-name") || "Игрок";
         ui.onlineOverlay.hidden = false;
         renderOnlinePlayers();
+        updateOnlineControls();
       }
 
       function ensureRoomCode() {
@@ -1938,13 +1961,6 @@
         shareText(`Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`);
       }
 
-      function createNewRoom() {
-        ui.onlineRoomInput.value = generateRoomCode();
-        localStorage.setItem("tetris-last-room", ui.onlineRoomInput.value);
-        ui.onlineStatus.textContent = `Новая комната ${ui.onlineRoomInput.value}`;
-        showToast("Комната создана");
-      }
-
       function connectOnline() {
         const server = ui.onlineServerInput.value.trim();
         const room = ensureRoomCode();
@@ -1973,6 +1989,7 @@
             sendOnlineUpdate(true);
             ui.onlineStatus.textContent = `Комната ${room}`;
             if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(room));
+            updateOnlineControls();
             showToast(`Онлайн: ${room}`);
           });
 
@@ -2005,6 +2022,7 @@
             state.online.socket = null;
             ui.onlineStatus.textContent = "Отключено";
             renderOnlinePanel();
+            updateOnlineControls();
           });
 
           socket.addEventListener("error", () => {
@@ -2024,7 +2042,18 @@
         state.online.tournament = null;
         renderOnlinePanel();
         renderOnlinePlayers();
+        updateOnlineControls();
         if (show) showToast("Онлайн отключён");
+      }
+
+      function toggleOnlineConnection() {
+        if (state.online.connected) disconnectOnline();
+        else connectOnline();
+      }
+
+      function updateOnlineControls() {
+        ui.connectOnlineButton.textContent = state.online.connected ? "Отключиться" : "Подключиться";
+        ui.connectOnlineButton.classList.toggle("primary", !state.online.connected);
       }
 
       function sendOnlineUpdate(force = false) {
@@ -2386,11 +2415,9 @@
         bindPress(ui.closeHelpButton, () => ui.helpOverlay.hidden = true);
         bindPress(ui.closeCoachButton, () => ui.coachOverlay.hidden = true);
         bindPress(ui.onlineButton, openOnline);
-        bindPress(ui.connectOnlineButton, connectOnline);
+        bindPress(ui.connectOnlineButton, toggleOnlineConnection);
         bindPress(ui.shareRoomButton, shareRoomLink);
-        bindPress(ui.newRoomButton, createNewRoom);
         bindPress(ui.startTournamentButton, startTournament);
-        bindPress(ui.disconnectOnlineButton, disconnectOnline);
         bindPress(ui.closeOnlineButton, () => ui.onlineOverlay.hidden = true);
         bindPress(ui.closeTournamentButton, () => ui.tournamentOverlay.hidden = true);
         bindPress(ui.rematchButton, startTournament);
