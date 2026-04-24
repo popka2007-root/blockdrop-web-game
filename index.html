@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="БлокДроп">
+  <meta name="apple-mobile-web-app-title" content="Тетрис">
   <meta name="theme-color" content="#182033">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>БлокДроп</title>
+  <title>Тетрис</title>
   <style>
     :root {
       --bg-a: #172033;
@@ -414,26 +414,32 @@
 
     .tiny-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
+      grid-template-columns: 1fr;
+      gap: 5px;
     }
 
     .mini-stat {
-      text-align: center;
-      padding: 8px 4px;
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      text-align: left;
+      padding: 6px 7px;
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.07);
     }
 
     .mini-stat b {
       display: block;
-      font-size: 16px;
+      font-size: 14px;
       line-height: 1;
+      text-align: right;
     }
 
     .mini-stat span {
       color: var(--muted);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 900;
       text-transform: uppercase;
     }
@@ -825,10 +831,10 @@
         <div class="panel tiny-grid">
           <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
           <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
-          <div class="mini-stat hidden"><b id="piecesValue">0</b><span>Фигур</span></div>
+          <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
           <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
-          <div class="mini-stat hidden"><b id="apmValue">0</b><span>APM</span></div>
-          <div class="mini-stat hidden"><b id="heightValue">0</b><span>Высота</span></div>
+          <div class="mini-stat"><b id="apmValue">0</b><span>APM</span></div>
+          <div class="mini-stat"><b id="heightValue">0</b><span>Высота</span></div>
         </div>
 
         <div class="mission-board hidden" id="missionBoard"></div>
@@ -862,7 +868,7 @@
         <span style="background:#ffd166"></span><span style="background:#ff6b6b"></span><span style="background:#7c4dff"></span>
         <span style="background:transparent;border-color:transparent"></span><span style="background:#22d699"></span><span style="background:transparent;border-color:transparent"></span>
       </div>
-      <h1>БлокДроп</h1>
+      <h1>Тетрис</h1>
       <p class="muted">Готовая игра: открываешь файл и играешь. Есть режимы, темы, рекорды, достижения и автосохранение.</p>
       <div class="settings-grid">
         <div class="setting">
@@ -2164,7 +2170,7 @@
       async function shareText(text) {
         try {
           if (navigator.share) {
-            await navigator.share({ title: "БлокДроп", text });
+            await navigator.share({ title: "Тетрис", text });
           } else if (navigator.clipboard) {
             await navigator.clipboard.writeText(text);
             showToast("Текст скопирован");
@@ -2177,11 +2183,11 @@
       }
 
       function resultText() {
-        return `БлокДроп: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${MODES[state.mode].name}.`;
+        return `Тетрис: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${MODES[state.mode].name}.`;
       }
 
       function statsText() {
-        return `Моя статистика в БлокДроп: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`;
+        return `Моя статистика в Тетрис: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`;
       }
 
       function renderCoachTips() {

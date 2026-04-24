@@ -1,6 +1,6 @@
 {
-  "name": "БлокДроп",
-  "short_name": "БлокДроп",
+  "name": "Тетрис",
+  "short_name": "Тетрис",
   "description": "Русская браузерная игра с падающими блоками.",
   "start_url": "index.html",
   "display": "standalone",
