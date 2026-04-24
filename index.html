@@ -76,9 +76,15 @@
       overscroll-behavior: none;
     }
 
-    body {
+    html {
       min-height: 100vh;
-      min-height: 100dvh;
+      overflow: hidden;
+      background: linear-gradient(145deg, var(--bg-a), var(--bg-b));
+    }
+
+    body {
+      height: 100vh;
+      min-height: 100vh;
       display: flex;
       justify-content: center;
       padding: calc(8px + var(--safe-top)) 10px calc(8px + var(--safe-bottom));
@@ -96,7 +102,7 @@
       height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px);
       min-height: 0;
       display: grid;
-      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
       gap: 8px;
     }
 
@@ -186,7 +192,7 @@
     }
 
     .tabs {
-      display: grid;
+      display: none;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
     }
@@ -205,8 +211,12 @@
 
     .status-strip {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 8px;
+    }
+
+    .status-card:has(#speedValue) {
+      display: none;
     }
 
     .status-card {
@@ -255,7 +265,7 @@
     }
 
     .mission-board {
-      display: grid;
+      display: none;
       gap: 6px;
       padding: 8px;
       border-radius: 8px;
@@ -313,7 +323,7 @@
 
     .game-layout {
       min-height: 0;
-      height: min(100%, calc(100dvh - 330px));
+      height: min(100%, calc(100dvh - 252px));
       display: grid;
       grid-template-columns: minmax(0, 1fr) 104px;
       gap: 10px;
@@ -432,6 +442,12 @@
       text-transform: uppercase;
     }
 
+    .mini-stat:has(#piecesValue),
+    .mini-stat:has(#apmValue),
+    .mini-stat:has(#heightValue) {
+      display: none;
+    }
+
     .controls {
       display: grid;
       gap: 8px;
@@ -521,8 +537,11 @@
 
     .modal {
       width: min(100%, 400px);
-      max-height: min(760px, calc(100vh - 34px));
+      max-height: min(720px, calc(100vh - 34px));
+      max-height: min(720px, calc(100dvh - 34px));
       overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, var(--accent) 72%, white) transparent;
       border-radius: 14px;
       padding: 18px;
       border: 1px solid var(--line);
@@ -532,13 +551,13 @@
     }
 
     .logo {
-      width: 118px;
-      height: 118px;
-      margin: 0 auto 12px;
+      width: 82px;
+      height: 82px;
+      margin: 0 auto 10px;
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 5px;
-      padding: 12px;
+      padding: 9px;
       border-radius: 12px;
       background: var(--panel);
     }
@@ -556,7 +575,7 @@
     }
 
     h1 {
-      font-size: 42px;
+      font-size: 36px;
       line-height: 1;
       margin-bottom: 8px;
     }
@@ -575,8 +594,13 @@
 
     .muted {
       color: var(--muted);
-      line-height: 1.42;
-      margin-bottom: 14px;
+      line-height: 1.34;
+      margin-bottom: 12px;
+    }
+
+    #startOverlay .setting:has(#startDifficulty),
+    #startOverlay .setting:has(#challengeInput) {
+      display: none;
     }
 
     .modal-actions {
@@ -746,7 +770,7 @@
     @media (max-width: 420px) {
       .game-layout {
         grid-template-columns: minmax(0, 1fr) 92px;
-        height: min(100%, calc(100dvh - 318px));
+        height: min(100%, calc(100dvh - 246px));
       }
 
       .button,
@@ -1376,16 +1400,16 @@
         return true;
       }
 
-      function startGame(mode = ui.startMode.value, difficulty = ui.startDifficulty.value) {
-        const challengeCode = normalizeCode(ui.challengeInput.value);
+      function startGame(mode = ui.startMode.value, difficulty = "normal") {
+        difficulty = "normal";
         state.board = makeBoard();
         state.active = null;
         state.queue = [];
         state.bag = [];
         state.hold = null;
         state.holdUsed = false;
-        state.challengeCode = challengeCode;
-        state.rng = challengeCode ? makeRng(`${challengeCode}:${mode}:${difficulty}`) : Math.random;
+        state.challengeCode = "";
+        state.rng = Math.random;
         state.mode = mode;
         state.difficulty = difficulty;
         state.score = 0;
@@ -1417,7 +1441,7 @@
         if (MODES[mode].chaos) addGarbage(4);
         spawn();
         ensureAudio();
-        buzz(20);
+        buzz(8);
         syncTabs();
         syncUi();
         saveCurrentGame();
@@ -1479,7 +1503,7 @@
             state.rotations += 1;
             state.stats.totalRotations += 1;
             playSound(560, 0.04, "sawtooth");
-            buzz(10);
+            buzz(4);
             return;
           }
         }
@@ -1498,7 +1522,7 @@
         addScore(distance * 2);
         lock();
         playSound(190, 0.055, "square");
-        buzz(35);
+        buzz(12);
         shakeBoard();
       }
 
@@ -1535,7 +1559,8 @@
           state.level = MODES[state.mode].relaxed ? 1 : Math.min(20, Math.floor(state.lines / 10) + DIFFICULTY[state.difficulty].startLevel);
           playSound(count === 4 ? 880 : 720, count === 4 ? 0.14 : 0.08, "triangle");
           const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
-          showToast(count === 4 ? "Четыре линии сразу!" : `Линий: ${count}${comboText}`);
+          if (count === 4) showToast("Четыре линии сразу!");
+          else if (count >= 2) showToast(`${count} линии${comboText}`);
           sendAttackForClear(count);
           burst(count === 4 ? 34 : 18);
           shakeBoard();
@@ -1842,7 +1867,7 @@
         ui.heightValue.textContent = currentHeight();
         ui.goalValue.textContent = goalText();
         ui.progressFill.style.width = `${progressPercent()}%`;
-        ui.speedValue.textContent = speedText();
+        ui.speedValue.textContent = "";
         ui.rankValue.textContent = rankText();
         ui.boardShell.classList.toggle("danger", state.settings.danger && topDanger());
         ui.soundButton.textContent = state.settings.sound ? "Звук: вкл" : "Звук: выкл";
@@ -1882,7 +1907,6 @@
       }
 
       function rankText() {
-        if (state.challengeCode) return `Код ${state.challengeCode}`;
         if (state.score >= 12000) return "Легенда";
         if (state.score >= 7000) return "Мастер";
         if (state.score >= 3500) return "Профи";
@@ -1891,11 +1915,7 @@
       }
 
       function renderMissions() {
-        ui.missionBoard.innerHTML = MISSIONS.map((mission) => {
-          const value = Math.min(mission.goal, mission.value());
-          const done = value >= mission.goal;
-          return `<div class="mission ${done ? "done" : ""}><span>${mission.label}</span><b>${value}/${mission.goal}</b></div>`;
-        }).join("");
+        ui.missionBoard.innerHTML = "";
       }
 
       function defaultServerUrl() {
@@ -1906,7 +1926,7 @@
 
       function openOnline() {
         ui.onlineServerInput.value = ui.onlineServerInput.value || defaultServerUrl();
-        ui.onlineRoomInput.value = ui.onlineRoomInput.value || normalizeCode(ui.challengeInput.value) || generateChallengeCode();
+        ui.onlineRoomInput.value = ui.onlineRoomInput.value || generateChallengeCode();
         ui.onlineNameInput.value = ui.onlineNameInput.value || localStorage.getItem("blockdrop-player-name") || "Игрок";
         ui.onlineOverlay.hidden = false;
         renderOnlinePlayers();
@@ -1918,7 +1938,6 @@
         const name = (ui.onlineNameInput.value.trim() || "Игрок").slice(0, 18);
         localStorage.setItem("blockdrop-player-name", name);
         ui.onlineRoomInput.value = room;
-        ui.challengeInput.value = room;
 
         disconnectOnline(false);
         try {
@@ -2138,8 +2157,9 @@
           return;
         }
         Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, flashes: [] });
-        state.rng = state.challengeCode ? makeRng(`${state.challengeCode}:${state.mode}:${state.difficulty}`) : Math.random;
-        ui.challengeInput.value = state.challengeCode || "";
+        state.challengeCode = "";
+        state.difficulty = "normal";
+        state.rng = Math.random;
         hideOverlays();
         syncTabs();
         syncUi();
@@ -2161,7 +2181,7 @@
           ["Поворотов", state.stats.totalRotations],
           ["Движений", state.stats.totalMoves],
           ["Время в игре", formatTime(state.stats.totalTime * 1000)]
-        ].map(([k, v]) => `<div class="result-row"><span>${k}</span><span>${v}</span></div>`).join("");
+        ].filter((_, index) => index !== 8).map(([k, v]) => `<div class="result-row"><span>${k}</span><span>${v}</span></div>`).join("");
 
         ui.leaderboard.innerHTML = state.scores.length
           ? state.scores.map((s, i) => `<div class="score-row"><span>${i + 1}. ${s.mode}, ${s.date}</span><span>${s.score}</span></div>`).join("")
@@ -2277,7 +2297,7 @@
       }
 
       function buzz(ms) {
-        if (state.settings.vibration && navigator.vibrate) navigator.vibrate(ms);
+        if (state.settings.vibration && navigator.vibrate) navigator.vibrate(Math.min(ms, 12));
       }
 
       let toastTimer = 0;
@@ -2327,9 +2347,22 @@
         ui.settingsOverlay.hidden = false;
       }
 
+      let statsReturnOverlay = null;
       function openStats() {
+        statsReturnOverlay =
+          !ui.gameOverOverlay.hidden ? ui.gameOverOverlay :
+          !ui.startOverlay.hidden ? ui.startOverlay :
+          !ui.pauseOverlay.hidden ? ui.pauseOverlay :
+          null;
+        if (statsReturnOverlay) statsReturnOverlay.hidden = true;
         renderStats();
         ui.statsOverlay.hidden = false;
+      }
+
+      function closeStats() {
+        ui.statsOverlay.hidden = true;
+        if (statsReturnOverlay) statsReturnOverlay.hidden = false;
+        statsReturnOverlay = null;
       }
 
       function bindPress(element, handler) {
@@ -2376,7 +2409,7 @@
         bindPress(ui.pauseSettingsButton, openSettings);
         bindPress(ui.settingsButton, openSettings);
         bindPress(ui.closeSettingsButton, () => ui.settingsOverlay.hidden = true);
-        bindPress(ui.closeStatsButton, () => ui.statsOverlay.hidden = true);
+        bindPress(ui.closeStatsButton, closeStats);
         bindPress(ui.shareStatsButton, () => shareText(statsText()));
         bindPress(ui.gameOverStatsButton, openStats);
         bindPress(ui.shareResultButton, () => shareText(resultText()));
@@ -2454,12 +2487,8 @@
 
       function applyUrlChallenge() {
         const params = new URLSearchParams(location.search);
-        const code = normalizeCode(params.get("challenge"));
         const mode = params.get("mode");
-        const difficulty = params.get("difficulty");
-        if (code) ui.challengeInput.value = code;
         if (mode && MODES[mode]) ui.startMode.value = mode;
-        if (difficulty && DIFFICULTY[difficulty]) ui.startDifficulty.value = difficulty;
       }
 
       bind();
