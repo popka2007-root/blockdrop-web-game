@@ -1,69 +1,142 @@
-# Тетрис
+# BlockDrop Web Game
 
-Браузерная игра с падающими блоками на русском языке. Можно открыть `index.html` и играть без установки, а для онлайн-комнат запустить Node.js сервер.
+Browser Tetris-style game with Russian UI, solo modes, local saves, server records, and online PvP rooms.
 
-## Запуск
-
-Обычная игра:
+Live demo:
 
 ```text
-Откройте index.html в браузере
+http://45.148.117.119/
 ```
 
-Локальный сервер:
+GitHub Pages can host the offline solo version. The Node.js server is still required for WebSocket rooms and server records.
+
+## Features
+
+- 10x20 playfield, ghost piece, hold, next queue, 7-bag randomizer.
+- SRS-style wall kicks, lock delay, DAS/ARR settings, soft drop and hard drop.
+- Classic, 40 lines, Zen, and Chaos modes.
+- Score, levels, local records, server records, achievements, and autosave.
+- Web Audio API sound effects for move, rotate, hard drop, line clear, Tetris, combo, level up, game over, and PvP attacks.
+- Online PvP rooms with 1v1, tournament timer, garbage attacks, and opponent progress silhouette.
+- PWA manifest and service worker for offline solo play on secure hosts.
+
+## Controls
+
+- Keyboard: arrows or WASD to move, Up/W/X to rotate, Space/Z for hard drop, C for hold, P/Esc for pause.
+- Touch: tap to rotate, swipe left/right to move, short swipe down for soft drop, long swipe down for hard drop.
+- Settings include swipe sensitivity, DAS, ARR, sound categories, vibration, theme, large buttons, and ghost piece.
+
+## Installation
 
 ```bash
+npm install
 npm start
 ```
 
-После запуска игра будет доступна на:
+Open:
 
 ```text
 http://localhost:8787
 ```
 
-## Онлайн-комнаты
+The static game can still be opened through `index.html`, but online rooms and server records require `server.js`.
 
-Онлайн и PvP работают через `server.js`.
+## Development
 
-Локально:
+Project structure:
+
+```text
+index.html
+styles.css
+js/config.js
+js/game-core.js
+js/game.js
+js/ui.js
+js/input.js
+js/audio.js
+js/online.js
+js/storage.js
+server.js
+tests/
+e2e/
+```
+
+Useful scripts:
 
 ```bash
-npm start
+npm run dev
+npm run lint
+npm test
+npm run test:e2e
+npm run format
 ```
 
-В игре откройте `Онлайн-комната` и укажите:
+## Testing
+
+Unit tests use Vitest and cover:
+
+- piece generation and 7-bag randomizer;
+- collision checks;
+- SRS wall kicks;
+- line clears;
+- scoring;
+- hold;
+- game over;
+- garbage and attack logic.
+
+E2E tests use Playwright and cover:
+
+- page loads;
+- game starts;
+- piece movement input is accepted;
+- pause overlay opens;
+- game over overlay is visible when triggered.
+
+## Online Multiplayer
+
+Run the Node server and share a room URL:
 
 ```text
-ws://localhost:8787
+http://localhost:8787/room/DUEL
 ```
 
-Чтобы друзья играли из интернета, сервер нужно разместить как Node.js приложение на Render, Railway или VPS. GitHub Pages подходит для одиночной игры, но не запускает WebSocket-сервер.
-
-На своём сервере у каждой комнаты есть ссылка:
+On the public server:
 
 ```text
-http://45.148.117.119/room/ROOMCODE
+http://45.148.117.119/room/DUEL
 ```
 
-Игрок открывает ссылку, игра сама подставляет комнату и открывает онлайн-окно.
+WebSocket messages are validated and rate-limited. Suspicious or oversized messages are closed without crashing existing rooms.
 
-## Офлайн
+## GitHub Pages
 
-`index.html` можно открыть как обычный файл без интернета. На HTTPS-хостинге игра также работает как PWA: браузер кэширует файлы через `sw.js`, после первого открытия одиночная игра доступна офлайн. Для офлайн-установки на телефон нужен HTTPS-домен или GitHub Pages; обычный `http://IP` не даёт браузеру установить service worker.
+GitHub Pages can serve the static files for solo play:
 
-## Возможности
+1. Push the repository to GitHub.
+2. Open repository settings.
+3. Enable Pages from the `master` branch.
+4. Open the generated Pages URL.
 
-- Классический режим, 40 линий, Дзен и Хаос.
-- Поле 10x20, все классические фигуры, запас, призрачная фигура.
-- Очистка линий, очки, уровни, рекорд и автосохранение.
-- Серверные рекорды через `GET/POST /api/records`.
-- PvP-атаки: очистка 2+ линий отправляет мусор соперникам.
-- Дуэль 1v1 и комнаты на 2-8 игроков с общим таймером и финальной таблицей.
-- Призрачный прогресс соперника на поле.
-- Бот-тренер после поражения с разбором неудачных постановок.
-- Сенсорное управление жестами, гибридный режим и режим кнопок.
-- Настройки чувствительности свайпа и громкости по категориям.
-- Адаптивный layout для портретных и ландшафтных экранов.
-- Установка офлайн-версии как PWA на HTTPS-хостинге.
-- PWA manifest и service worker.
+Known limitation: GitHub Pages cannot run `server.js`, so online rooms and server records need a VPS/Node host.
+
+## Screenshots / GIF
+
+Add screenshots or gameplay GIFs here:
+
+```text
+docs/screenshots/
+```
+
+## Roadmap
+
+- Move more runtime code from `js/game.js` into smaller imported modules.
+- Add HTTPS/domain deployment so PWA install works on the public server IP replacement.
+- Add stricter server-side scoring validation for competitive rooms.
+- Add mobile-first HUD variants for very small screens.
+- Add persistent server leaderboard UI filters.
+
+## Known Issues
+
+- The current public URL is plain HTTP, so full PWA install is limited by browser security rules.
+- `js/game.js` still contains the browser runtime; `js/game-core.js` is the testable gameplay core used for new tests.
+- Playwright requires browser binaries. In CI this is handled by `npx playwright install --with-deps chromium`.

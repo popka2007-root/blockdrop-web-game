@@ -7,6 +7,10 @@ const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
 const RECORDS_FILE = path.join(ROOT, "records.json");
 const MAX_RECORDS = 50;
+const MAX_WS_FRAME_BYTES = 4096;
+const MAX_MESSAGES_PER_10S = 90;
+const MAX_UPDATES_PER_SECOND = 8;
+const MAX_ATTACKS_PER_SECOND = 4;
 const rooms = new Map();
 
 const mime = {
@@ -155,11 +159,36 @@ server.on("upgrade", (req, socket) => {
     socket,
     room: "",
     name: "Player",
-    state: emptyState()
+    state: emptyState(),
+    buckets: {
+      windowStartedAt: Date.now(),
+      messages: 0,
+      updateStartedAt: Date.now(),
+      updates: 0,
+      attackStartedAt: Date.now(),
+      attacks: 0
+    }
   };
 
   socket.on("data", (chunk) => {
-    for (const message of decodeFrames(chunk)) handleMessage(client, message);
+    if (chunk.length > MAX_WS_FRAME_BYTES + 32) {
+      safeClose(client, "Frame too large");
+      return;
+    }
+    let messages;
+    try {
+      messages = decodeFrames(chunk);
+    } catch {
+      safeClose(client, "Bad frame");
+      return;
+    }
+    for (const message of messages) {
+      if (!allowMessage(client) || message.length > MAX_WS_FRAME_BYTES) {
+        safeClose(client, "Rate limited");
+        return;
+      }
+      handleMessage(client, message);
+    }
   });
 
   socket.on("close", () => removeClient(client));
@@ -196,6 +225,12 @@ function handleMessage(client, raw) {
   try {
     data = JSON.parse(raw);
   } catch {
+    safeClose(client, "Bad JSON");
+    return;
+  }
+
+  if (!data || typeof data !== "object" || typeof data.type !== "string") {
+    safeClose(client, "Bad payload");
     return;
   }
 
@@ -207,24 +242,38 @@ function handleMessage(client, raw) {
   if (!client.room) return;
 
   if (data.type === "update") {
+    if (!allowTypedMessage(client, "update")) return;
     updateClientState(client, data);
     broadcastRoom(client.room);
     return;
   }
 
   if (data.type === "attack") {
-    broadcastAttack(client, safeNumber(data.lines));
+    if (!allowTypedMessage(client, "attack")) return;
+    const lines = safeNumber(data.lines);
+    if (!Number.isInteger(lines) || lines < 1 || lines > 6) {
+      safeClose(client, "Bad attack");
+      return;
+    }
+    broadcastAttack(client, lines);
     return;
   }
 
   if (data.type === "startTournament") {
     startTournament(client.room, data);
+    return;
   }
+
+  safeClose(client, "Unknown message");
 }
 
 function joinRoom(client, data) {
   removeClient(client);
   const roomId = cleanCode(data.room) || "LOBBY";
+  if (data.room && roomId !== String(data.room).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16)) {
+    safeClose(client, "Bad room");
+    return;
+  }
   const maxPlayers = clamp(safeNumber(data.maxPlayers) || 2, 2, 8);
   const durationSec = clamp(safeNumber(data.durationSec) || 180, 60, 1800);
   if (!rooms.has(roomId)) rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
@@ -248,12 +297,12 @@ function joinRoom(client, data) {
 function updateClientState(client, data) {
   client.name = cleanName(data.name || client.name);
   client.state = {
-    score: safeNumber(data.score),
-    lines: safeNumber(data.lines),
-    level: safeNumber(data.level),
-    height: safeNumber(data.height),
-    sentGarbage: safeNumber(data.sentGarbage),
-    receivedGarbage: safeNumber(data.receivedGarbage),
+    score: clamp(safeNumber(data.score), 0, 99999999),
+    lines: clamp(safeNumber(data.lines), 0, 9999),
+    level: clamp(safeNumber(data.level), 1, 99),
+    height: clamp(safeNumber(data.height), 0, 20),
+    sentGarbage: clamp(safeNumber(data.sentGarbage), 0, 9999),
+    receivedGarbage: clamp(safeNumber(data.receivedGarbage), 0, 9999),
     mode: String(data.mode || "Classic").slice(0, 24),
     time: String(data.time || "0:00").slice(0, 12),
     status: String(data.status || "Playing").slice(0, 18)
@@ -274,6 +323,40 @@ function startTournament(roomId, data) {
   };
   broadcastRoom(roomId);
   scheduleTournamentEnd(roomId, room.durationSec * 1000 + 250);
+}
+
+function allowMessage(client) {
+  const now = Date.now();
+  if (now - client.buckets.windowStartedAt > 10000) {
+    client.buckets.windowStartedAt = now;
+    client.buckets.messages = 0;
+  }
+  client.buckets.messages += 1;
+  return client.buckets.messages <= MAX_MESSAGES_PER_10S;
+}
+
+function allowTypedMessage(client, type) {
+  const now = Date.now();
+  const key = type === "attack" ? "attack" : "update";
+  const max = type === "attack" ? MAX_ATTACKS_PER_SECOND : MAX_UPDATES_PER_SECOND;
+  const startedKey = `${key}StartedAt`;
+  const countKey = `${key}s`;
+  if (now - client.buckets[startedKey] > 1000) {
+    client.buckets[startedKey] = now;
+    client.buckets[countKey] = 0;
+  }
+  client.buckets[countKey] += 1;
+  return client.buckets[countKey] <= max;
+}
+
+function safeClose(client, reason = "Policy violation") {
+  removeClient(client);
+  try {
+    sendFrame(client.socket, JSON.stringify({ type: "error", message: reason }));
+  } catch {}
+  try {
+    client.socket.end();
+  } catch {}
 }
 
 function scheduleTournamentEnd(roomId, delay) {
