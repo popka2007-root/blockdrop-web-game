@@ -83,6 +83,16 @@ describe("server hardening", () => {
     expect(response.headers.get("content-type")).toContain("text/css");
   });
 
+  it("rejects malformed encoded paths without crashing", async () => {
+    const port = 18903;
+    await startServer(port);
+    const response = await fetch(`http://127.0.0.1:${port}/%E0%A4%A`);
+    expect(response.status).toBe(400);
+
+    const health = await fetch(`http://127.0.0.1:${port}/`);
+    expect(health.status).toBe(200);
+  });
+
   it("closes suspicious WebSocket clients instead of accepting bad payloads", async () => {
     const port = 18902;
     await startServer(port);
