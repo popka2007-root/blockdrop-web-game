@@ -86,7 +86,7 @@
         <span style="background:transparent;border-color:transparent"></span><span style="background:#22d699"></span><span style="background:transparent;border-color:transparent"></span>
       </div>
       <h1>Тетрис</h1>
-      <p class="muted">Готовая игра: открываешь файл и играешь. Есть режимы, темы, рекорды, достижения и автосохранение.</p>
+      <p class="muted">Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы, рекорды, офлайн-режим и онлайн-комнаты.</p>
       <div class="settings-grid">
         <div class="setting">
           <label for="startMode">Режим</label>
@@ -100,12 +100,10 @@
       </div>
       <div class="modal-actions">
         <button class="button primary" id="startButton">Начать игру</button>
-        <button class="button" id="continueButton">Продолжить сохранение</button>
+        <button class="button" id="continueButton">Продолжить</button>
         <button class="button" id="startSettingsButton">Настройки</button>
         <button class="button hidden" id="installButton">Установить офлайн</button>
         <button class="button" id="onlineButton">Онлайн-комната</button>
-        <button class="button" id="openStatsButton">Статистика</button>
-        <button class="button" id="helpButton">Как играть</button>
       </div>
     </div>
   </section>
@@ -139,44 +137,35 @@
         <div class="setting">
           <label for="controlModeSelect">Управление</label>
           <select class="select" id="controlModeSelect">
-            <option value="gestures">Жесты + запас</option>
-            <option value="hybrid">Жесты и кнопки</option>
+            <option value="gestures">Свайпы</option>
+            <option value="hybrid">Свайпы + кнопки</option>
             <option value="buttons">Только кнопки</option>
           </select>
         </div>
         <div class="setting">
-          <label for="sensitivityRange">Чувствительность свайпа</label>
-          <div class="range-row"><input id="sensitivityRange" type="range" min="12" max="42" value="24"><span id="sensitivityValue">24</span></div>
+          <label for="sensitivitySelect">Чувствительность</label>
+          <select class="select" id="sensitivitySelect">
+            <option value="low">Низкая</option>
+            <option value="medium">Средняя</option>
+            <option value="high">Высокая</option>
+          </select>
         </div>
         <div class="setting">
-          <label for="dasRange">DAS</label>
-          <div class="range-row"><input id="dasRange" type="range" min="60" max="260" value="140"><span id="dasValue">140</span></div>
+          <label for="handednessSelect">Рука</label>
+          <select class="select" id="handednessSelect">
+            <option value="right">Правая</option>
+            <option value="left">Левая</option>
+          </select>
         </div>
-        <div class="setting">
-          <label for="arrRange">ARR</label>
-          <div class="range-row"><input id="arrRange" type="range" min="0" max="100" value="36"><span id="arrValue">36</span></div>
-        </div>
-        <label class="check-row">Призрачная фигура <input id="ghostToggle" type="checkbox" checked></label>
-        <label class="check-row">Крупные кнопки <input id="bigButtonsToggle" type="checkbox"></label>
         <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
         <div class="setting">
-          <label for="volumeRange">Общая громкость</label>
+          <label for="volumeRange">Звук</label>
           <div class="range-row"><input id="volumeRange" type="range" min="0" max="100" value="70"><span id="volumeValue">70</span></div>
-        </div>
-        <div class="setting">
-          <label for="moveVolumeRange">Движение</label>
-          <div class="range-row"><input id="moveVolumeRange" type="range" min="0" max="140" value="55"><span id="moveVolumeValue">55</span></div>
-        </div>
-        <div class="setting">
-          <label for="clearVolumeRange">Очистка линий</label>
-          <div class="range-row"><input id="clearVolumeRange" type="range" min="0" max="140" value="100"><span id="clearVolumeValue">100</span></div>
-        </div>
-        <div class="setting">
-          <label for="alertVolumeRange">Атаки и финал</label>
-          <div class="range-row"><input id="alertVolumeRange" type="range" min="0" max="140" value="90"><span id="alertVolumeValue">90</span></div>
         </div>
       </div>
       <div class="modal-actions">
+        <button class="button" id="openStatsButton">Статистика</button>
+        <button class="button" id="helpButton">Как играть</button>
         <button class="button primary" id="closeSettingsButton">Готово</button>
       </div>
     </div>
@@ -214,14 +203,15 @@
     <div class="modal">
       <h2>Как играть</h2>
       <div class="result-grid">
-        <div class="result-row"><span>Двигать</span><span>← → или свайп</span></div>
-        <div class="result-row"><span>Повернуть</span><span>↑ / W / тап</span></div>
-        <div class="result-row"><span>Мягко вниз</span><span>Короткий свайп вниз</span></div>
-        <div class="result-row"><span>Жёстко вниз</span><span>Длинный свайп вниз / пробел</span></div>
-        <div class="result-row"><span>Запас</span><span>C или кнопка</span></div>
+        <div class="result-row"><span>Двигать</span><span>Свайп влево/вправо</span></div>
+        <div class="result-row"><span>Повернуть</span><span>Тап</span></div>
+        <div class="result-row"><span>Поворот назад</span><span>Двойной тап</span></div>
+        <div class="result-row"><span>Мягко вниз</span><span>Свайп вниз</span></div>
+        <div class="result-row"><span>Сброс</span><span>Быстрый свайп вниз</span></div>
+        <div class="result-row"><span>Запас</span><span>Долгое нажатие или кнопка</span></div>
         <div class="result-row"><span>Пауза</span><span>P / Esc</span></div>
       </div>
-      <p class="muted">Совет: используй призрачную фигуру и запас, чтобы заранее готовить место под длинную фигуру.</p>
+      <p class="muted">На клавиатуре также работают стрелки, пробел, C, Q и P.</p>
       <div class="modal-actions">
         <button class="button primary" id="closeHelpButton">Понятно</button>
       </div>

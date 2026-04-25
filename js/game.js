@@ -1,19 +1,22 @@
-import { SOUND_EVENTS, createWebAudioPlayer, makeAudioSettings } from "./audio.js";
+﻿import { SOUND_EVENTS, initAudio, makeAudioSettings, playSound as playAudioSound, setVolume, toggleMute } from "./audio.js";
 import { COLS, DEFAULT_TIMING, ROWS, SHAPES, SRS_KICKS } from "./config.js";
-import { classifySwipe, normalizeControls } from "./input.js";
+import { gestureProfile, normalizeControls, swipeThresholdForPreset } from "./input.js";
 import {
-  buildJoinMessage,
   buildRoomInviteUrl,
-  buildTournamentMessage,
-  buildUpdateMessage,
+  connectOnline as openOnlineSocket,
+  createOnlineClient,
   defaultServerUrl,
+  disconnectOnline as closeOnlineSocket,
   generateRoomCode,
   normalizeRoomId,
-  parseServerMessage,
-  roomFromLocation
+  onOnlineMessage,
+  roomFromLocation,
+  sendAttack,
+  sendOnlineMessage,
+  sendScoreUpdate
 } from "./online.js";
-import { loadJson, saveJson, removeItem } from "./storage.js";
-import { byId, escapeHtml } from "./ui.js";
+import { createGameStorage } from "./storage.js";
+import { createUi } from "./ui.js";
 import { createBag } from "./game-core.js";
 
 (() => {
@@ -27,7 +30,9 @@ import { createBag } from "./game-core.js";
     settings: "blockdrop-settings-v2",
     save: "blockdrop-save-v2",
     scores: "blockdrop-scoreboard-v2",
-    achievements: "blockdrop-achievements-v2"
+    achievements: "blockdrop-achievements-v2",
+    lastRoom: "tetris-last-room",
+    playerName: "blockdrop-player-name"
   };
 
   const COLORS = {
@@ -119,26 +124,9 @@ import { createBag } from "./game-core.js";
     ["relaxFan", "Спокойный ход", "Сыграть 5 партий в режиме Дзен", (s) => s.relaxGames >= 5]
   ];
 
-  const ui = {};
-  for (const id of [
-    "app","topbar","statusStrip","gameLayout","sidePanel","controls","nextPanel","holdPanel","statsPanel","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
-    "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
-    "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","startSettingsButton","installButton","openStatsButton","resumeButton",
-    "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
-    "holdButton","leftButton","rightButton","rotateButton","downButton","dropButton","startMode","themeSelect","controlModeSelect","ghostToggle",
-    "bigButtonsToggle","vibrationToggle",
-    "sensitivityRange","sensitivityValue","dasRange","dasValue","arrRange","arrValue","volumeRange","volumeValue","moveVolumeRange","moveVolumeValue","clearVolumeRange","clearVolumeValue","alertVolumeRange","alertVolumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
-    "leaderboard","serverLeaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
-    "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","startTournamentButton","closeOnlineButton",
-    "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
-    "finalRecord","gameOverTitle","gameOverText","gameOverInsight","gameOverCoachButton","serverRecordStatus","toast","fxLayer"
-  ]) {
-    ui[id] = byId(id);
-  }
-
-  const ctx = ui.board.getContext("2d");
-  const previews = [ui.next1.getContext("2d"), ui.next2.getContext("2d"), ui.next3.getContext("2d")];
-  const holdCtx = ui.hold.getContext("2d");
+  const storage = createGameStorage(STORAGE);
+  const ui = createUi();
+  const onlineClient = createOnlineClient();
   let deferredInstallPrompt = null;
 
   const state = {
@@ -180,11 +168,10 @@ import { createBag } from "./game-core.js";
     layoutObserver: null,
     settings: loadSettings(),
     stats: loadStats(),
-    scores: loadJson(STORAGE.scores, []),
+    scores: storage.loadScores([]),
     serverRecords: [],
-    unlocked: loadJson(STORAGE.achievements, {}),
+    unlocked: storage.loadAchievements({}),
     online: {
-      socket: null,
       id: "",
       connected: false,
       room: "",
@@ -195,10 +182,10 @@ import { createBag } from "./game-core.js";
     }
   };
 
-  const audioPlayer = createWebAudioPlayer(() => state.settings);
+  const audio = initAudio(() => state.settings);
 
   function ensureAudio() {
-    audioPlayer.resume();
+    audio.player.resume();
   }
 
   function makeBoard() {
@@ -223,7 +210,7 @@ import { createBag } from "./game-core.js";
       autoPause: true,
       reducedMotion: false,
       ...makeAudioSettings(),
-      ...loadJson(STORAGE.settings, {})
+      ...storage.loadSettings({})
     };
   }
 
@@ -234,7 +221,7 @@ import { createBag } from "./game-core.js";
       totalLines: 0,
       totalPieces: 0,
       totalTime: 0,
-      bestScore: Number(localStorage.getItem(STORAGE.high)) || 0,
+      bestScore: storage.loadBestScore(0),
       bestLevel: 1,
       bestCombo: 0,
       bestClear: 0,
@@ -248,94 +235,34 @@ import { createBag } from "./game-core.js";
       totalMoves: 0,
       totalSoftDrops: 0,
       pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
-      ...loadJson(STORAGE.stats, {})
+      ...storage.loadStats({})
     };
   }
 
   function applySettings() {
-    document.documentElement.dataset.theme = state.settings.theme === "ember" ? "" : state.settings.theme;
-    document.body.classList.toggle("big-buttons", state.settings.bigButtons);
     Object.assign(state.settings, normalizeControls(state.settings));
     state.settings.grid = true;
     state.settings.danger = true;
     state.settings.particles = true;
     state.settings.colorBlind = false;
+    state.settings.ghost = true;
+    state.settings.bigButtons = false;
     state.settings.autoPause = true;
     state.settings.reducedMotion = false;
     state.settings.volume = clamp(Number(state.settings.volume) || 0, 0, 100);
-    state.settings.moveVolume = clamp(Number(state.settings.moveVolume) || 0, 0, 140);
-    state.settings.clearVolume = clamp(Number(state.settings.clearVolume) || 0, 0, 140);
-    state.settings.alertVolume = clamp(Number(state.settings.alertVolume) || 0, 0, 140);
+    state.settings.moveVolume = state.settings.volume;
+    state.settings.clearVolume = state.settings.volume;
+    state.settings.alertVolume = state.settings.volume;
     state.settings.sound = state.settings.volume > 0;
-    ui.themeSelect.value = state.settings.theme;
-    ui.controlModeSelect.value = state.settings.controlMode;
-    ui.ghostToggle.checked = state.settings.ghost;
-    ui.bigButtonsToggle.checked = state.settings.bigButtons;
-    ui.vibrationToggle.checked = state.settings.vibration;
-    ui.sensitivityRange.value = state.settings.sensitivity;
-    ui.sensitivityValue.textContent = state.settings.sensitivity;
-    ui.dasRange.value = state.settings.dasMs;
-    ui.dasValue.textContent = state.settings.dasMs;
-    ui.arrRange.value = state.settings.arrMs;
-    ui.arrValue.textContent = state.settings.arrMs;
-    ui.volumeRange.value = state.settings.volume;
-    ui.volumeValue.textContent = state.settings.volume;
-    ui.moveVolumeRange.value = state.settings.moveVolume;
-    ui.moveVolumeValue.textContent = state.settings.moveVolume;
-    ui.clearVolumeRange.value = state.settings.clearVolume;
-    ui.clearVolumeValue.textContent = state.settings.clearVolume;
-    ui.alertVolumeRange.value = state.settings.alertVolume;
-    ui.alertVolumeValue.textContent = state.settings.alertVolume;
-    document.body.classList.toggle("reduced-motion", state.settings.reducedMotion);
-    document.body.classList.toggle("controls-hybrid", state.settings.controlMode === "hybrid");
-    document.body.classList.toggle("controls-buttons", state.settings.controlMode === "buttons");
-    saveJson(STORAGE.settings, state.settings);
+    setVolume(audio, state.settings.volume);
+    toggleMute(audio, !state.settings.sound);
+    ui.applySettings(state.settings);
+    storage.saveSettings(state.settings);
     updateLayoutMetrics();
   }
 
   function updateLayoutMetrics() {
-    const appRect = ui.app.getBoundingClientRect();
-    if (!appRect.width || !appRect.height) return;
-
-    const gap = appRect.width <= 420 ? 6 : appRect.width >= 760 ? 12 : 8;
-    const topbarHeight = ui.topbar.offsetHeight;
-    const statusHeight = ui.statusStrip.offsetHeight;
-    const controlsHeight = ui.controls.offsetHeight;
-    const availableHeight = Math.max(240, appRect.height - topbarHeight - statusHeight - controlsHeight - gap * 3);
-    const isLandscape = appRect.width / Math.max(1, appRect.height) > 1.15;
-    const stacked = appRect.width < 500 || (isLandscape && appRect.height < 620);
-    const wide = appRect.width >= 760;
-    const short = appRect.height < 700;
-
-    document.body.classList.toggle("layout-stacked", stacked);
-    document.body.classList.toggle("layout-wide", wide);
-    document.body.classList.toggle("layout-short", short);
-
-    const sideWidth = stacked ? Math.max(0, appRect.width - gap * 2) : clamp(Math.round(appRect.width * (wide ? 0.20 : 0.23)), 74, wide ? 156 : 108);
-    const boardAvailWidth = stacked ? appRect.width - gap * 2 - 14 : appRect.width - sideWidth - gap - 14;
-    const widthCell = boardAvailWidth / COLS;
-    const estimatedStackedAuxHeight = stacked
-      ? appRect.width <= 420
-        ? (state.online.connected ? 204 : 170)
-        : (state.online.connected ? 220 : 182)
-      : 0;
-    const boardAvailHeight = stacked ? availableHeight - estimatedStackedAuxHeight - gap - 14 : availableHeight - 14;
-    const cellFloor = stacked && appRect.width <= 420 ? 10 : 12;
-    const cell = Math.max(cellFloor, Math.floor(Math.min(widthCell, boardAvailHeight / ROWS)));
-    const boardWidth = cell * COLS;
-    const boardHeight = cell * ROWS;
-    const boardPad = cell <= 18 ? 5 : cell <= 26 ? 6 : 8;
-    const previewMain = clamp(Math.round((stacked ? boardWidth / 4.2 : sideWidth) - boardPad * 2), 36, wide ? 104 : 86);
-    const previewSmall = clamp(Math.round(previewMain * 0.76), 34, 72);
-
-    document.documentElement.style.setProperty("--layout-gap", `${gap}px`);
-    document.documentElement.style.setProperty("--side-width", `${sideWidth}px`);
-    document.documentElement.style.setProperty("--board-width", `${boardWidth}px`);
-    document.documentElement.style.setProperty("--board-height", `${boardHeight}px`);
-    document.documentElement.style.setProperty("--board-pad", `${boardPad}px`);
-    document.documentElement.style.setProperty("--preview-main", `${previewMain}px`);
-    document.documentElement.style.setProperty("--preview-small", `${previewSmall}px`);
-    document.documentElement.style.setProperty("--game-area-height", stacked ? "auto" : `${boardHeight + boardPad * 2}px`);
+    ui.updateLayoutMetrics({ cols: COLS, rows: ROWS, onlineConnected: state.online.connected });
   }
 
   function refillBag() {
@@ -371,7 +298,7 @@ import { createBag } from "./game-core.js";
     return true;
   }
 
-  function startGame(mode = ui.startMode.value, difficulty = "normal") {
+  function startGame(mode = ui.getStartMode(), difficulty = "normal") {
     difficulty = "normal";
     state.board = makeBoard();
     state.active = null;
@@ -489,10 +416,11 @@ import { createBag } from "./game-core.js";
     return true;
   }
 
-  function rotate() {
+  function rotate(direction = 1) {
     if (!canInput()) return;
     const from = state.active.rotation;
-    const to = (from + 1) % 4;
+    const normalizedDirection = direction < 0 ? -1 : 1;
+    const to = (from + normalizedDirection + 4) % 4;
     const rotated = { ...state.active, rotation: to };
     const kicks = state.active.kind === "O"
       ? [[0, 0]]
@@ -504,15 +432,30 @@ import { createBag } from "./game-core.js";
         resetLockDelayIfGrounded();
         state.rotations += 1;
         state.stats.totalRotations += 1;
-        playEvent("rotate");
+        playEvent("rotate", normalizedDirection < 0 ? { freq: SOUND_EVENTS.rotate.freq - 50 } : {});
         buzz(4);
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   function softDrop() {
     if (!move(0, 1, true)) updateLockDelay(80);
+  }
+
+  function stepHorizontal(direction) {
+    const moved = move(direction, 0);
+    if (moved) buzz(3);
+    return moved;
+  }
+
+  function rotateClockwise() {
+    return rotate(1);
+  }
+
+  function rotateCounterClockwise() {
+    return rotate(-1);
   }
 
   function hardDrop() {
@@ -587,6 +530,7 @@ import { createBag } from "./game-core.js";
         playEvent("levelUp");
         burst(26);
       }
+      buzz(count === 4 ? 9 : 6);
       const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
       if (count === 4) showToast("Четыре линии сразу!");
       else if (count >= 2) showToast(`${count} линии${comboText}`);
@@ -638,13 +582,9 @@ import { createBag } from "./game-core.js";
 
   function sendAttackForClear(count) {
     const lines = attackLinesForClear(count);
-    if (!lines || !state.online.connected || !state.online.socket || state.online.socket.readyState !== WebSocket.OPEN) return;
+    if (!lines || !state.online.connected) return;
     state.sentGarbage += lines;
-    state.online.socket.send(JSON.stringify({
-      type: "attack",
-      room: state.online.room,
-      lines
-    }));
+    sendAttack(onlineClient, state.online.room, lines);
     playEvent("attack", { duration: 0.09 });
     burst(12);
     showToast(`Атака соперникам: +${lines}`);
@@ -653,7 +593,7 @@ import { createBag } from "./game-core.js";
   function addScore(value) {
     state.score += value;
     state.stats.bestScore = Math.max(state.stats.bestScore, state.score);
-    localStorage.setItem(STORAGE.high, String(state.stats.bestScore));
+    storage.saveBestScore(state.stats.bestScore);
   }
 
   function finish(won, text) {
@@ -680,22 +620,24 @@ import { createBag } from "./game-core.js";
       date: new Date().toLocaleDateString("ru-RU")
     });
     state.scores = state.scores.sort((a, b) => b.score - a.score).slice(0, 10);
-    saveJson(STORAGE.stats, state.stats);
-    saveJson(STORAGE.scores, state.scores);
-    removeItem(STORAGE.save);
+    storage.saveStats(state.stats);
+    storage.saveScores(state.scores);
+    storage.clearSave();
     checkAchievements();
-    ui.gameOverTitle.textContent = won ? "Победа!" : "Игра окончена";
-    ui.gameOverText.textContent = text;
-    ui.finalScore.textContent = state.score;
-    ui.finalLevel.textContent = state.level;
-    ui.finalLines.textContent = state.lines;
-    ui.finalCombo.textContent = state.bestComboRun;
-    ui.finalRecord.textContent = state.stats.bestScore;
-    ui.gameOverInsight.innerHTML = gameOverInsight();
-    ui.serverRecordStatus.textContent = "Серверный рекорд отправляется...";
-    ui.gameOverOverlay.hidden = false;
+    ui.showGameOver({
+      title: won ? "Победа!" : "Игра окончена",
+      text,
+      score: state.score,
+      level: state.level,
+      lines: state.lines,
+      combo: state.bestComboRun,
+      record: state.stats.bestScore,
+      insight: gameOverInsight(),
+      serverStatus: "Серверный рекорд отправляется..."
+    });
     renderCoachTips();
     playEvent(won ? "win" : "gameOver");
+    buzz(won ? 8 : 12);
     if (won) burst(50);
     sendOnlineUpdate(true);
     submitServerRecord();
@@ -705,14 +647,14 @@ import { createBag } from "./game-core.js";
     if (!state.running || state.gameOver) return;
     state.paused = true;
     saveCurrentGame();
-    ui.pauseOverlay.hidden = false;
+    ui.setPauseVisible(true);
   }
 
   function resume() {
     if (!state.running || state.gameOver) return;
     state.paused = false;
     state.lastTime = 0;
-    ui.pauseOverlay.hidden = true;
+    ui.setPauseVisible(false);
   }
 
   function returnToMainMenu() {
@@ -723,7 +665,7 @@ import { createBag } from "./game-core.js";
       saved = true;
     }
     hideOverlays();
-    ui.startOverlay.hidden = false;
+    ui.showOverlay("startOverlay");
     showToast(saved ? "Партия сохранена" : "Главное меню");
   }
 
@@ -773,165 +715,43 @@ import { createBag } from "./game-core.js";
   }
 
   function draw() {
-    resize(ui.board, ui.board.clientWidth, ui.board.clientHeight);
-    for (const canvas of [ui.next1, ui.next2, ui.next3, ui.hold]) resize(canvas, canvas.clientWidth, canvas.clientHeight);
-
-    const width = ui.board.clientWidth;
-    const height = ui.board.clientHeight;
-    const cell = Math.min(width / COLS, height / ROWS);
-    const boardW = cell * COLS;
-    const x0 = (width - boardW) / 2;
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(255,255,255,0.035)";
-    round(ctx, x0, 0, boardW, cell * ROWS, 8, true, false);
-
-    drawOpponentGhost(x0, boardW, cell);
-
-    for (let y = 0; y < ROWS; y += 1) {
-      for (let x = 0; x < COLS; x += 1) drawCell(ctx, x0 + x * cell, y * cell, cell, state.board[y][x], 1);
-    }
-
-    if (state.settings.ghost && state.active) {
-      for (const c of cells(ghostPiece())) drawCell(ctx, x0 + c.x * cell, c.y * cell, cell, state.active.kind, 0.22);
-    }
-
-    if (state.active) {
-      for (const c of cells(state.active)) drawCell(ctx, x0 + c.x * cell, c.y * cell, cell, state.active.kind, 1);
-    }
-
-    if (state.settings.grid) {
-      ctx.strokeStyle = "rgba(255,255,255,0.055)";
-      ctx.lineWidth = 1;
-      for (let x = 0; x <= COLS; x += 1) line(ctx, x0 + x * cell, 0, x0 + x * cell, ROWS * cell);
-      for (let y = 0; y <= ROWS; y += 1) line(ctx, x0, y * cell, x0 + boardW, y * cell);
-    }
-
-    for (const f of state.flashes) {
-      const stripW = boardW * f.width;
-      const stripX = x0 + (boardW - stripW) / 2;
-      const gradient = ctx.createLinearGradient(stripX, 0, stripX + stripW, 0);
-      gradient.addColorStop(0, "rgba(255,255,255,0)");
-      gradient.addColorStop(0.5, `rgba(255,255,255,${0.62 * f.life})`);
-      gradient.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(stripX, f.row * cell, stripW, cell);
-      ctx.fillStyle = `rgba(86,223,186,${0.22 * f.life})`;
-      ctx.fillRect(x0, f.row * cell + cell * 0.42, boardW, Math.max(2, cell * 0.16));
-    }
-
-    drawPreview(previews[0], ui.next1, state.queue[0]);
-    drawPreview(previews[1], ui.next2, state.queue[1]);
-    drawPreview(previews[2], ui.next3, state.queue[2]);
-    drawPreview(holdCtx, ui.hold, state.hold);
-  }
-
-  function resize(canvas, width, height) {
-    const ratio = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    canvas.width = Math.max(1, Math.floor(width * ratio));
-    canvas.height = Math.max(1, Math.floor(height * ratio));
-    const context = canvas.getContext("2d");
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.imageSmoothingEnabled = true;
-  }
-
-  function drawPreview(context, canvas, kind) {
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    context.clearRect(0, 0, width, height);
-    const size = Math.min(width, height) / 4;
-    for (let y = 0; y < 4; y += 1) {
-      for (let x = 0; x < 4; x += 1) {
-        const filled = kind && SHAPES[kind][0].some(([sx, sy]) => sx === x && sy === y);
-        drawCell(context, x * size + 2, y * size + 2, size - 2, filled ? kind : null, filled ? 1 : 0.5);
+    ui.renderGame({
+      cols: COLS,
+      rows: ROWS,
+      board: state.board,
+      active: state.active ? { kind: state.active.kind, cells: cells(state.active) } : null,
+      ghost: state.settings.ghost && state.active ? cells(ghostPiece()) : null,
+      queue: state.queue,
+      hold: state.hold,
+      flashes: state.flashes,
+      opponentHeight: opponentHeight()
+    }, {
+      settings: state.settings,
+      shapes: SHAPES,
+      palettes: {
+        base: COLORS,
+        safe: SAFE_COLORS,
+        themes: THEME_COLORS
       }
-    }
-  }
-
-  function drawOpponentGhost(x0, boardW, cell) {
-    const height = opponentHeight();
-    if (!height) return;
-    const ghostHeight = Math.min(ROWS, height) * cell;
-    const y = ROWS * cell - ghostHeight;
-    ctx.fillStyle = "rgba(255, 178, 74, 0.13)";
-    ctx.fillRect(x0, y, boardW, ghostHeight);
-    ctx.strokeStyle = "rgba(255, 178, 74, 0.45)";
-    ctx.lineWidth = 2;
-    line(ctx, x0, y, x0 + boardW, y);
-  }
-
-  function drawCell(context, x, y, size, kind, alpha) {
-    const theme = state.settings.theme;
-    const pad = Math.max(1, size * (theme === "mono" ? 0.10 : theme === "candy" ? 0.04 : 0.06));
-    const s = size - pad * 2;
-    const radius = theme === "mono" ? Math.max(2, size * 0.04) : theme === "candy" ? Math.max(5, size * 0.22) : Math.max(3, size * 0.15);
-    context.globalAlpha = alpha;
-    if (!kind) {
-      context.fillStyle = "rgba(255,255,255,0.035)";
-      round(context, x + pad, y + pad, s, s, radius, true, false);
-      context.globalAlpha = 1;
-      return;
-    }
-    const gradient = context.createLinearGradient(x, y, x + size, y + size);
-    gradient.addColorStop(0, colorFor(kind));
-    gradient.addColorStop(1, shade(colorFor(kind), theme === "day" ? -12 : -22));
-    context.fillStyle = gradient;
-    round(context, x + pad, y + pad, s, s, radius, true, false);
-    if (theme !== "mono") {
-      context.fillStyle = theme === "candy" ? "rgba(255,255,255,0.26)" : "rgba(255,255,255,0.16)";
-      round(context, x + pad + 3, y + pad + 3, Math.max(2, s - 6), Math.max(5, s * 0.22), Math.max(2, size * 0.08), true, false);
-    }
-    context.strokeStyle = theme === "mono" ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.18)";
-    round(context, x + pad, y + pad, s, s, radius, false, true);
-    context.globalAlpha = 1;
-  }
-
-  function round(context, x, y, w, h, r, fill, stroke) {
-    context.beginPath();
-    context.moveTo(x + r, y);
-    context.arcTo(x + w, y, x + w, y + h, r);
-    context.arcTo(x + w, y + h, x, y + h, r);
-    context.arcTo(x, y + h, x, y, r);
-    context.arcTo(x, y, x + w, y, r);
-    context.closePath();
-    if (fill) context.fill();
-    if (stroke) context.stroke();
-  }
-
-  function line(context, x1, y1, x2, y2) {
-    context.beginPath();
-    context.moveTo(x1, y1);
-    context.lineTo(x2, y2);
-    context.stroke();
-  }
-
-  function shade(hex, percent) {
-    const num = parseInt(hex.slice(1), 16);
-    const amount = Math.round(2.55 * percent);
-    const r = Math.max(0, Math.min(255, (num >> 16) + amount));
-    const g = Math.max(0, Math.min(255, ((num >> 8) & 255) + amount));
-    const b = Math.max(0, Math.min(255, (num & 255) + amount));
-    return `rgb(${r},${g},${b})`;
-  }
-
-  function colorFor(kind) {
-    const palette = state.settings.colorBlind ? SAFE_COLORS : (THEME_COLORS[state.settings.theme] || COLORS);
-    return palette[kind] || palette.X || COLORS.X;
+    });
   }
 
   function syncUi() {
-    ui.scoreValue.textContent = state.score;
-    ui.levelValue.textContent = state.level;
-    ui.linesValue.textContent = MODES[state.mode].goal ? `${state.lines}/${MODES[state.mode].goal}` : state.lines;
-    ui.recordValue.textContent = state.stats.bestScore;
-    ui.comboValue.textContent = state.combo;
-    ui.piecesValue.textContent = state.pieces;
-    ui.timeValue.textContent = formatTime(state.elapsedMs);
-    ui.apmValue.textContent = actionsPerMinute();
-    ui.heightValue.textContent = currentHeight();
-    ui.goalValue.textContent = goalText();
-    ui.progressFill.style.width = `${progressPercent()}%`;
-    ui.rankValue.textContent = rankText();
-    ui.boardShell.classList.toggle("danger", state.settings.danger && topDanger());
+    ui.syncHud({
+      score: state.score,
+      level: state.level,
+      lines: MODES[state.mode].goal ? `${state.lines}/${MODES[state.mode].goal}` : state.lines,
+      record: state.stats.bestScore,
+      combo: state.combo,
+      pieces: state.pieces,
+      time: formatTime(state.elapsedMs),
+      apm: actionsPerMinute(),
+      height: currentHeight(),
+      goal: goalText(),
+      progress: progressPercent(),
+      rank: rankText(),
+      danger: state.settings.danger && topDanger()
+    });
     renderOnlinePanel();
     sendOnlineUpdateThrottled();
   }
@@ -993,19 +813,22 @@ import { createBag } from "./game-core.js";
   }
 
   function openOnline() {
-    ui.onlineServerInput.value = ui.onlineServerInput.value || defaultServerUrl();
-    ui.onlineRoomInput.value = ui.onlineRoomInput.value || localStorage.getItem("tetris-last-room") || generateRoomCode();
-    ui.onlineNameInput.value = ui.onlineNameInput.value || localStorage.getItem("blockdrop-player-name") || "Игрок";
-    ui.onlineOverlay.hidden = false;
+    const form = ui.getOnlineForm();
+    ui.setOnlineDefaults({
+      server: form.server || defaultServerUrl(),
+      room: form.room || storage.loadRoomCode("") || generateRoomCode(),
+      name: form.name || storage.loadPlayerName("Игрок")
+    });
+    ui.showOverlay("onlineOverlay");
     renderOnlinePlayers();
     updateOnlineControls();
     updateLayoutMetrics();
   }
 
   function ensureRoomCode() {
-    const room = normalizeRoomId(ui.onlineRoomInput.value || state.online.room) || generateRoomCode();
-    ui.onlineRoomInput.value = room;
-    localStorage.setItem("tetris-last-room", room);
+    const room = normalizeRoomId(ui.getOnlineForm().room || state.online.room) || generateRoomCode();
+    ui.setOnlineRoom(room);
+    storage.saveRoomCode(room);
     return room;
   }
 
@@ -1019,88 +842,83 @@ import { createBag } from "./game-core.js";
   }
 
   function connectOnline() {
-    const server = ui.onlineServerInput.value.trim();
+    const { server, name: rawName, maxPlayers, durationSec } = ui.getOnlineForm();
     const room = ensureRoomCode();
-    const name = (ui.onlineNameInput.value.trim() || "Игрок").slice(0, 18);
-    localStorage.setItem("blockdrop-player-name", name);
-    localStorage.setItem("tetris-last-room", room);
-    ui.onlineRoomInput.value = room;
-
+    const name = (rawName || "Игрок").slice(0, 18);
+    storage.savePlayerName(name);
+    storage.saveRoomCode(room);
+    ui.setOnlineRoom(room);
     disconnectOnline(false);
     try {
-      const socket = new WebSocket(server);
-      state.online.socket = socket;
       state.online.room = room;
       state.online.name = name;
-      ui.onlineStatus.textContent = "Подключение...";
-
-      socket.addEventListener("open", () => {
-        state.online.connected = true;
-        socket.send(JSON.stringify(buildJoinMessage({
-          room,
-          name,
-          maxPlayers: Number(ui.onlineMaxPlayersSelect.value),
-          durationSec: Number(ui.onlineDurationSelect.value)
-        })));
-        sendOnlineUpdate(true);
-        ui.onlineStatus.textContent = `Комната ${room}`;
-        if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(room));
-        updateOnlineControls();
-        updateLayoutMetrics();
-        showToast(`Онлайн: ${room}`);
-      });
-
-      socket.addEventListener("message", (event) => {
-        let data;
-        try {
-          data = parseServerMessage(event.data);
-        } catch {
-          ui.onlineStatus.textContent = "Некорректный ответ сервера";
-          return;
-        }
-        if (data.type === "hello") {
-          state.online.id = data.id;
-        }
-        if (data.type === "error") {
-          ui.onlineStatus.textContent = data.message || "Ошибка комнаты";
-          showToast(data.message || "Ошибка комнаты");
-        }
-        if (data.type === "state") {
-          state.online.peers = data.players || {};
-          state.online.tournament = data.tournament || null;
-          renderOnlinePlayers();
-          renderOnlinePanel();
-        }
-        if (data.type === "attack") {
-          receiveGarbage(Number(data.lines) || 0, data.from || "соперника");
-        }
-        if (data.type === "tournamentEnd") {
-          state.online.tournament = data.tournament || state.online.tournament;
-          showTournamentResults(data.players || state.online.peers || {});
-        }
-      });
-
-      socket.addEventListener("close", () => {
-        state.online.connected = false;
-        state.online.socket = null;
-        ui.onlineStatus.textContent = "Отключено";
-        renderOnlinePanel();
-        updateOnlineControls();
-        updateLayoutMetrics();
-      });
-
-      socket.addEventListener("error", () => {
-        ui.onlineStatus.textContent = "Ошибка подключения";
-        showToast("Сервер недоступен");
-      });
+      ui.setOnlineStatus("Подключение...");
+      openOnlineSocket(onlineClient, { server, room, name, maxPlayers, durationSec });
+      state.online.connected = false;
     } catch {
       showToast("Неверный адрес сервера");
     }
   }
 
+  onOnlineMessage(onlineClient, (data) => {
+    if (data.type === "open") {
+      state.online.connected = true;
+      sendOnlineUpdate(true);
+      ui.setOnlineStatus(`Комната ${data.room}`);
+      if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(data.room));
+      updateOnlineControls();
+      updateLayoutMetrics();
+      showToast(`Онлайн: ${data.room}`);
+      return;
+    }
+
+    if (data.type === "hello") {
+      state.online.id = data.id;
+      return;
+    }
+
+    if (data.type === "close") {
+      state.online.connected = false;
+      ui.setOnlineStatus("Отключено");
+      renderOnlinePanel();
+      updateOnlineControls();
+      updateLayoutMetrics();
+      return;
+    }
+
+    if (data.type === "socketError") {
+      ui.setOnlineStatus("Ошибка подключения");
+      showToast("Сервер недоступен");
+      return;
+    }
+
+    if (data.type === "error") {
+      ui.setOnlineStatus(data.message || "Ошибка комнаты");
+      showToast(data.message || "Ошибка комнаты");
+      return;
+    }
+
+    if (data.type === "state") {
+      state.online.peers = data.players || {};
+      state.online.tournament = data.tournament || null;
+      renderOnlinePlayers();
+      renderOnlinePanel();
+      return;
+    }
+
+    if (data.type === "attack") {
+      receiveGarbage(Number(data.lines) || 0, data.from || "соперника");
+      return;
+    }
+
+    if (data.type === "tournamentEnd") {
+      state.online.tournament = data.tournament || state.online.tournament;
+      showTournamentResults(data.players || state.online.peers || {});
+    }
+  });
+
   function disconnectOnline(show = true) {
-    if (state.online.socket) state.online.socket.close();
-    state.online.socket = null;
+    closeOnlineSocket(onlineClient);
     state.online.connected = false;
     state.online.peers = {};
     state.online.tournament = null;
@@ -1117,15 +935,13 @@ import { createBag } from "./game-core.js";
   }
 
   function updateOnlineControls() {
-    ui.connectOnlineButton.textContent = state.online.connected ? "Отключиться" : "Подключиться";
-    ui.connectOnlineButton.classList.toggle("primary", !state.online.connected);
+    ui.setOnlineButtonState(state.online.connected);
   }
 
   function sendOnlineUpdate(force = false) {
-    const socket = state.online.socket;
-    if (!state.online.connected || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!state.online.connected) return;
     state.online.lastSent = performance.now();
-    socket.send(JSON.stringify(buildUpdateMessage({
+    sendScoreUpdate(onlineClient, {
       room: state.online.room,
       name: state.online.name,
       score: state.score,
@@ -1138,7 +954,7 @@ import { createBag } from "./game-core.js";
       time: formatTime(state.elapsedMs),
       status: state.gameOver ? (state.won ? "Победа" : "Финиш") : state.paused ? "Пауза" : "Играет",
       force
-    })));
+    });
   }
 
   function sendOnlineUpdateThrottled() {
@@ -1146,53 +962,39 @@ import { createBag } from "./game-core.js";
   }
 
   function startTournament() {
-    if (!state.online.connected || !state.online.socket || state.online.socket.readyState !== WebSocket.OPEN) {
+    if (!state.online.connected) {
       showToast("Сначала подключись к комнате");
       return;
     }
-    state.online.socket.send(JSON.stringify(buildTournamentMessage({
-      room: state.online.room,
-      maxPlayers: Number(ui.onlineMaxPlayersSelect.value),
-      durationSec: Number(ui.onlineDurationSelect.value)
-    })));
+    const { maxPlayers, durationSec } = ui.getOnlineForm();
+    sendOnlineMessage(onlineClient, { type: "startTournament", room: state.online.room, maxPlayers, durationSec });
     showToast("Турнир запускается");
     startGame(state.mode, state.difficulty);
   }
 
   function renderOnlinePlayers() {
     const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score);
-    ui.onlinePlayers.innerHTML = players.length
-      ? players.map((p) => `<div class="result-row"><span>${escapeHtml(p.name)} · ${escapeHtml(p.status)}</span><span>${p.score}</span></div>`).join("")
-      : `<div class="result-row"><span>Игроков пока нет</span><span>0</span></div>`;
-    if (state.online.tournament?.active) {
-      ui.onlineStatus.textContent = `Турнир: ${formatTime(state.online.tournament.timeLeftMs)} · ${players.length}/${state.online.tournament.maxPlayers}`;
-    }
+    ui.renderOnlinePlayers(players, state.online.tournament, formatTime);
   }
 
   function renderOnlinePanel() {
-    if (!state.online.connected) {
-      ui.onlinePanel.classList.remove("active");
-      ui.onlinePanel.innerHTML = "";
-      return;
-    }
     const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score).slice(0, 4);
-    ui.onlinePanel.classList.add("active");
-    const timer = state.online.tournament?.active ? `<div class="online-timer">Турнир: ${formatTime(state.online.tournament.timeLeftMs)}</div>` : "";
-    ui.onlinePanel.innerHTML = timer + `<div class="mission done"><span>Онлайн ${escapeHtml(state.online.room)}</span><b>${players.length}</b></div>` +
-      players.map((p) => `<div class="online-player"><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join("");
+    ui.renderOnlinePanel({
+      connected: state.online.connected,
+      room: state.online.room,
+      tournament: state.online.tournament,
+      players,
+      formatTime
+    });
   }
 
   function showTournamentResults(playersObject) {
     const players = Object.values(playersObject || {}).sort((a, b) => b.score - a.score);
-    ui.tournamentResults.innerHTML = players.length
-      ? players.map((p, i) => `<div class="result-row"><span>${i + 1}. ${escapeHtml(p.name)} · ${escapeHtml(p.status)}</span><span>${p.score}</span></div>`).join("")
-      : `<div class="result-row"><span>Нет результатов</span><span>0</span></div>`;
-    if (state.running && !state.gameOver) {
+    if (ui.renderTournamentResults(players, state.running && !state.gameOver)) {
       state.running = false;
       state.gameOver = true;
-      removeItem(STORAGE.save);
+      storage.clearSave();
     }
-    ui.tournamentOverlay.hidden = false;
   }
 
   function opponentHeight() {
@@ -1214,7 +1016,7 @@ import { createBag } from "./game-core.js";
 
   function saveCurrentGame() {
     if (!state.running || state.gameOver) return;
-    saveJson(STORAGE.save, {
+    storage.saveGame({
       board: state.board,
       active: state.active,
       queue: state.queue,
@@ -1241,7 +1043,7 @@ import { createBag } from "./game-core.js";
   }
 
   function loadCurrentGame() {
-    const save = loadJson(STORAGE.save, null);
+    const save = storage.loadSave(null);
     if (!save) {
       showToast("Сохранения пока нет");
       return;
@@ -1258,7 +1060,7 @@ import { createBag } from "./game-core.js";
 
   function renderStats() {
     const average = state.stats.games ? Math.round(state.stats.totalScore / state.stats.games) : 0;
-    ui.statsGrid.innerHTML = [
+    const statsRows = [
       ["Игр сыграно", state.stats.games],
       ["Лучший счёт", state.stats.bestScore],
       ["Средний счёт", average],
@@ -1271,24 +1073,27 @@ import { createBag } from "./game-core.js";
       ["Поворотов", state.stats.totalRotations],
       ["Движений", state.stats.totalMoves],
       ["Время в игре", formatTime(state.stats.totalTime * 1000)]
-    ].filter((_, index) => index !== 8).map(([k, v]) => `<div class="result-row"><span>${k}</span><span>${v}</span></div>`).join("");
+    ].filter((_, index) => index !== 8);
 
-    ui.leaderboard.innerHTML = state.scores.length
-      ? state.scores.map((s, i) => `<div class="score-row"><span>${i + 1}. ${s.mode}, ${s.date}</span><span>${s.score}</span></div>`).join("")
-      : `<div class="score-row"><span>Пока пусто</span><span>0</span></div>`;
-
-    renderServerRecords();
-
-    ui.achievementsList.innerHTML = ACHIEVEMENTS.map(([id, title, desc]) => {
-      const open = state.unlocked[id];
-      return `<div class="achievement"><b>${open ? "✓ " : ""}${title}</b><small>${desc}</small></div>`;
-    }).join("");
+    ui.renderStats({
+      statsRows,
+      scores: state.scores,
+      serverRecords: serverRecordsForUi(),
+      achievements: ACHIEVEMENTS.map(([id, title, description]) => ({
+        title,
+        description,
+        unlocked: Boolean(state.unlocked[id])
+      }))
+    });
   }
 
-  function renderServerRecords() {
-    ui.serverLeaderboard.innerHTML = state.serverRecords.length
-      ? state.serverRecords.slice(0, 10).map((s, i) => `<div class="score-row"><span>${i + 1}. ${escapeHtml(s.name)} · ${escapeHtml(s.mode)} · ${escapeHtml(new Date(s.date).toLocaleDateString("ru-RU"))}</span><span>${s.score}</span></div>`).join("")
-      : `<div class="score-row"><span>Пока нет связи с сервером</span><span>—</span></div>`;
+  function serverRecordsForUi() {
+    return state.serverRecords.slice(0, 10).map((record) => ({
+      name: record.name,
+      mode: record.mode,
+      date: new Date(record.date).toLocaleDateString("ru-RU"),
+      score: record.score
+    }));
   }
 
   async function loadServerRecords() {
@@ -1297,19 +1102,19 @@ import { createBag } from "./game-core.js";
       const response = await fetch("/api/records", { cache: "no-store" });
       const data = await response.json();
       state.serverRecords = Array.isArray(data.records) ? data.records : [];
-      renderServerRecords();
+      if (ui.isOverlayVisible("statsOverlay")) renderStats();
     } catch {
-      renderServerRecords();
+      if (ui.isOverlayVisible("statsOverlay")) renderStats();
     }
   }
 
   async function submitServerRecord() {
     if (!location.protocol.startsWith("http") || state.score <= 0) {
-      ui.serverRecordStatus.textContent = location.protocol.startsWith("http") ? "" : "Серверные рекорды доступны на онлайн-версии.";
+      ui.setServerRecordStatus(location.protocol.startsWith("http") ? "" : "Серверные рекорды доступны на онлайн-версии.");
       return;
     }
     try {
-      const name = localStorage.getItem("blockdrop-player-name") || state.online.name || "Игрок";
+      const name = storage.loadPlayerName("Игрок") || state.online.name || "Игрок";
       const response = await fetch("/api/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1325,9 +1130,9 @@ import { createBag } from "./game-core.js";
       const data = await response.json();
       state.serverRecords = Array.isArray(data.records) ? data.records : [];
       const place = state.serverRecords.findIndex((record) => record.score === state.score && record.lines === state.lines && record.time === formatTime(state.elapsedMs));
-      ui.serverRecordStatus.textContent = place >= 0 && place < 10 ? `Серверный топ: место ${place + 1}` : "Результат сохранён на сервере";
+      ui.setServerRecordStatus(place >= 0 && place < 10 ? `Серверный топ: место ${place + 1}` : "Результат сохранён на сервере");
     } catch {
-      ui.serverRecordStatus.textContent = "Офлайн: результат сохранён только на устройстве";
+      ui.setServerRecordStatus("Офлайн: результат сохранён только на устройстве");
     }
   }
 
@@ -1338,11 +1143,11 @@ import { createBag } from "./game-core.js";
       .filter((step) => step.clear === 0)
       .sort((a, b) => (b.holesDelta * 4 + b.heightDelta * 2 + b.bumpinessDelta) - (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta))[0];
     if (worstPlacement && worstPlacement.holesDelta >= 2) {
-      return `<b>Ключевая ошибка: ${worstPlacement.kind}-фигура</b><small>Именно после неё добавилось дыр: +${worstPlacement.holesDelta}. В похожей ситуации лучше играть в край или убрать фигуру в запас.</small>`;
+      return `<b>Ключевая ошибка: ${worstPlacement.kind}-фигура</b><small>После неё добавилось дыр: +${worstPlacement.holesDelta}. В похожей ситуации лучше играть в край или убрать фигуру в запас.</small>`;
     }
     if (holes >= 7) return `<b>Главная проблема: дыры</b><small>На поле осталось ${holes}. Играй ровнее и не закрывай пустые клетки, особенно S/Z фигурами.</small>`;
-    if (height >= 13) return `<b>Главная проблема: высота</b><small>Башня поднялась до ${height}. Держи рабочую зону ниже середины поля и чисти 2+ линии чаще.</small>`;
-    if (state.holds < 1 && state.pieces > 10) return `<b>Не использован запас</b><small>Кнопка “Запас” помогает пережить неудобную фигуру и подготовить место под I.</small>`;
+    if (height >= 13) return `<b>Главная проблема: высота</b><small>Башня поднялась до ${height}. Держи рабочую зону ниже середины поля и чаще чисти 2+ линии.</small>`;
+    if (state.holds < 1 && state.pieces > 10) return `<b>Не использован запас</b><small>Кнопка "Запас" помогает пережить неудобную фигуру и подготовить место под I.</small>`;
     if (state.bestClearInGame < 2 && state.lines >= 4) return `<b>Мало сильных очисток</b><small>Попробуй строить под 2-4 линии. В онлайне это ещё и отправляет мусор сопернику.</small>`;
     return `<b>Хорошая база</b><small>Следующий шаг: заранее смотреть 2-3 фигуры вперёд и держать один ровный колодец сбоку.</small>`;
   }
@@ -1382,35 +1187,19 @@ import { createBag } from "./game-core.js";
       const parts = [];
       if (step.holesDelta > 0) parts.push(`дыр стало больше на ${step.holesDelta}`);
       if (step.heightDelta > 0) parts.push(`высота выросла на ${step.heightDelta}`);
-      if (step.bumpinessDelta > 0) parts.push(`поверхность стала неровнее`);
+      if (step.bumpinessDelta > 0) parts.push("поверхность стала неровнее");
       tips.push([`Неудачная ${step.kind}-фигура`, `После этой постановки ${parts.join(", ")}. В похожей ситуации лучше играть в край, в колодец или увести фигуру в запас.`]);
     }
-    if (holes >= 6) {
-      tips.push(["Слишком много дыр", `Под блоками осталось ${holes} пустых клеток. Сначала закрывай низ ровными фигурами, а неудобные S/Z убирай в запас или на край.`]);
-    }
-    if (bumpiness >= 18) {
-      tips.push(["Неровная поверхность", "Поле стало зубчатым. Старайся ставить фигуры так, чтобы соседние столбцы отличались на 1-2 клетки, тогда меньше придётся крутить в панике."]);
-    }
-    if (state.receivedGarbage > 0) {
-      tips.push(["Онлайн-давление", `Ты получил ${state.receivedGarbage} мусорных линий. В PvP старайся отвечать очисткой 2+ линий, а не просто выживать.`]);
-    }
-    if (currentHeight() >= 12) {
-      tips.push(["Высокая башня", "Поле стало слишком высоким. Оставляй один ровный колодец сбоку и не закрывай его S/Z фигурами."]);
-    }
-    if (state.holds < 2 && state.pieces > 12) {
-      tips.push(["Запас почти не использовался", "Запас нужен не только для I-фигуры. Убирай туда неудобную фигуру, если она ломает поверхность поля."]);
-    }
-    if (state.bestComboRun < 2 && state.lines > 3) {
-      tips.push(["Мало серий", "После очистки линии попробуй сразу готовить следующую. Даже комбо x2 уже заметно ускоряет набор очков."]);
-    }
-    if (state.hardDrops < 5 && state.elapsedMs > 60000) {
-      tips.push(["Слишком осторожно", "Резкий сброс экономит время. Используй призрачную фигуру, чтобы быстрее принимать решения."]);
-    }
-    if (state.rotations > state.pieces * 4 && state.pieces > 8) {
-      tips.push(["Много лишних поворотов", "Если фигура крутится 4+ раза, ты поздно решил, куда её ставить. Смотри на следующую фигуру заранее."]);
-    }
+    if (holes >= 6) tips.push(["Слишком много дыр", `Под блоками осталось ${holes} пустых клеток. Сначала закрывай низ ровными фигурами, а неудобные S/Z убирай в запас или на край.`]);
+    if (bumpiness >= 18) tips.push(["Неровная поверхность", "Поле стало зубчатым. Старайся ставить фигуры так, чтобы соседние столбцы отличались на 1-2 клетки."]);
+    if (state.receivedGarbage > 0) tips.push(["Онлайн-давление", `Ты получил ${state.receivedGarbage} мусорных линий. В PvP старайся отвечать очисткой 2+ линий, а не просто выживать.`]);
+    if (currentHeight() >= 12) tips.push(["Высокая башня", "Поле стало слишком высоким. Оставляй один ровный колодец сбоку и не закрывай его S/Z фигурами."]);
+    if (state.holds < 2 && state.pieces > 12) tips.push(["Запас почти не использовался", "Запас нужен не только для I-фигуры. Убирай туда неудобную фигуру, если она ломает поверхность поля."]);
+    if (state.bestComboRun < 2 && state.lines > 3) tips.push(["Мало серий", "После очистки линии попробуй сразу готовить следующую. Даже комбо x2 уже заметно ускоряет набор очков."]);
+    if (state.hardDrops < 5 && state.elapsedMs > 60000) tips.push(["Слишком осторожно", "Резкий сброс экономит время. Используй призрачную фигуру, чтобы быстрее принимать решения."]);
+    if (state.rotations > state.pieces * 4 && state.pieces > 8) tips.push(["Много лишних поворотов", "Если фигура крутится 4+ раз, ты поздно решил, куда её ставить. Смотри на следующую фигуру заранее."]);
     tips.push(["Следующая цель", state.mode === "sprint" ? "В режиме 40 линий цель не рекорд, а чистое поле и скорость. Не копи слишком высокую башню." : "Попробуй играть через 2-3 линии за раз: это уже включает PvP-атаки и тренирует контроль поля."]);
-    ui.coachTips.innerHTML = tips.slice(0, 3).map(([title, body]) => `<div class="achievement"><b>${title}</b><small>${body}</small></div>`).join("");
+    ui.renderCoachTips(tips.slice(0, 3));
   }
 
   function checkAchievements() {
@@ -1423,13 +1212,14 @@ import { createBag } from "./game-core.js";
         playEvent("levelUp", { duration: 0.10 });
       }
     }
-    if (changed) saveJson(STORAGE.achievements, state.unlocked);
+    if (changed) storage.saveAchievements(state.unlocked);
   }
 
   function playEvent(name, overrides = {}) {
     const event = SOUND_EVENTS[name];
     if (!event) return;
-    playSound(
+    playAudioSound(
+      audio,
       overrides.freq ?? event.freq,
       overrides.duration ?? event.duration,
       overrides.type ?? event.type,
@@ -1437,63 +1227,37 @@ import { createBag } from "./game-core.js";
     );
   }
 
-  function playSound(freq, duration, type, category = "ui") {
-    audioPlayer.playTone({ freq, duration, type, category });
-  }
-
   function buzz(ms) {
     if (state.settings.vibration && navigator.vibrate) navigator.vibrate(Math.min(ms, 12));
   }
 
-  let toastTimer = 0;
   function showToast(text) {
-    ui.toast.textContent = text;
-    ui.toast.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => ui.toast.classList.remove("show"), 1800);
+    ui.showToast(text);
   }
 
   function shakeBoard() {
-    if (state.settings.reducedMotion) return;
-    ui.boardShell.classList.remove("shake");
-    void ui.boardShell.offsetWidth;
-    ui.boardShell.classList.add("shake");
+    ui.shakeBoard(state.settings.reducedMotion);
   }
 
   function burst(count) {
-    if (!state.settings.particles || state.settings.reducedMotion) return;
-    const rect = ui.boardShell.getBoundingClientRect();
-    for (let i = 0; i < count; i += 1) {
-      const p = document.createElement("i");
-      p.className = "particle";
-      p.style.left = `${rect.left + rect.width / 2}px`;
-      p.style.top = `${rect.top + rect.height * 0.42}px`;
-      p.style.background = Object.values(state.settings.colorBlind ? SAFE_COLORS : COLORS)[i % 7];
-      p.style.setProperty("--dx", `${Math.cos(i * 1.7) * (60 + Math.random() * 110)}px`);
-      p.style.setProperty("--dy", `${Math.sin(i * 1.7) * (60 + Math.random() * 110)}px`);
-      ui.fxLayer.appendChild(p);
-      setTimeout(() => p.remove(), 760);
-    }
+    ui.burst({
+      count,
+      reducedMotion: state.settings.reducedMotion,
+      particles: state.settings.particles,
+      colors: Object.values(state.settings.colorBlind ? SAFE_COLORS : COLORS)
+    });
   }
 
   function hideOverlays() {
-    ui.startOverlay.hidden = true;
-    ui.pauseOverlay.hidden = true;
-    ui.settingsOverlay.hidden = true;
-    ui.statsOverlay.hidden = true;
-    ui.helpOverlay.hidden = true;
-    ui.coachOverlay.hidden = true;
-    ui.onlineOverlay.hidden = true;
-    ui.tournamentOverlay.hidden = true;
-    ui.gameOverOverlay.hidden = true;
+    ui.hideOverlays();
   }
 
   function openSettings() {
-    ui.settingsOverlay.hidden = false;
+    ui.openSettings();
   }
 
   function updateInstallButton() {
-    ui.installButton.classList.toggle("hidden", !deferredInstallPrompt);
+    ui.updateInstallButton(Boolean(deferredInstallPrompt));
   }
 
   async function installApp() {
@@ -1504,243 +1268,331 @@ import { createBag } from "./game-core.js";
     deferredInstallPrompt.prompt();
     try {
       await deferredInstallPrompt.userChoice;
-    } catch {}
+    } catch {
+      return;
+    }
     deferredInstallPrompt = null;
     updateInstallButton();
   }
 
   let statsReturnOverlay = null;
+  const horizontalKeys = new Map();
+  const touchState = {
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    startTime: 0,
+    lastTapAt: 0,
+    tapTimer: 0,
+    softSteps: 0,
+    holdTimer: 0,
+    moved: false,
+    hardDropped: false,
+    softDropped: false,
+    holdTriggered: false
+  };
+
   function openStats() {
-    statsReturnOverlay =
-      !ui.gameOverOverlay.hidden ? ui.gameOverOverlay :
-      !ui.startOverlay.hidden ? ui.startOverlay :
-      !ui.pauseOverlay.hidden ? ui.pauseOverlay :
-      null;
-    if (statsReturnOverlay) statsReturnOverlay.hidden = true;
+    statsReturnOverlay = ui.getVisiblePrimaryOverlay();
+    if (statsReturnOverlay) ui.hideOverlay(statsReturnOverlay);
     renderStats();
-    ui.statsOverlay.hidden = false;
+    ui.showOverlay("statsOverlay");
     loadServerRecords();
   }
 
   function closeStats() {
-    ui.statsOverlay.hidden = true;
-    if (statsReturnOverlay) statsReturnOverlay.hidden = false;
+    ui.hideOverlay("statsOverlay");
+    if (statsReturnOverlay) ui.showOverlay(statsReturnOverlay);
     statsReturnOverlay = null;
   }
 
-  function bindPress(element, handler) {
-    let ignoreClickUntil = 0;
-    const run = (event) => {
-      event.preventDefault();
-      handler();
-      syncUi();
-    };
-    element.addEventListener("pointerdown", (event) => {
-      ignoreClickUntil = performance.now() + 450;
-      run(event);
-    });
-    element.addEventListener("click", (event) => {
-      if (performance.now() < ignoreClickUntil) {
-        event.preventDefault();
+  function changeSetting(key, value) {
+    state.settings[key] = value;
+    if (key === "volume") {
+      state.settings.moveVolume = value;
+      state.settings.clearVolume = value;
+      state.settings.alertVolume = value;
+    }
+    applySettings();
+    syncUi();
+  }
+
+  function clearTouchHold() {
+    clearTimeout(touchState.holdTimer);
+    touchState.holdTimer = 0;
+  }
+
+  function clearPendingTap() {
+    clearTimeout(touchState.tapTimer);
+    touchState.tapTimer = 0;
+  }
+
+  function stopHorizontal(key) {
+    const timers = horizontalKeys.get(key);
+    if (!timers) return;
+    clearTimeout(timers.das);
+    clearInterval(timers.arr);
+    horizontalKeys.delete(key);
+  }
+
+  function clearHorizontalInputs() {
+    for (const key of [...horizontalKeys.keys()]) stopHorizontal(key);
+  }
+
+  function startHorizontal(key, direction) {
+    if (horizontalKeys.has(key)) return;
+    stepHorizontal(direction);
+    syncUi();
+    const timers = { das: 0, arr: 0 };
+    timers.das = setTimeout(() => {
+      const repeat = () => {
+        stepHorizontal(direction);
+        syncUi();
+      };
+      repeat();
+      if (state.settings.arrMs === 0) {
+        while (stepHorizontal(direction)) {
+          continue;
+        }
+        syncUi();
         return;
       }
-      run(event);
-    });
+      timers.arr = setInterval(repeat, state.settings.arrMs);
+    }, state.settings.dasMs);
+    horizontalKeys.set(key, timers);
   }
 
-  function bindRepeat(element, handler, interval = 82) {
-    let timer = 0;
-    const stop = () => {
-      clearInterval(timer);
-      timer = 0;
-    };
-    element.addEventListener("pointerdown", (event) => {
+  function handleKeyDown(event) {
+    const key = event.key.toLowerCase();
+    if (key === "arrowleft" || key === "a") {
       event.preventDefault();
-      handler();
+      startHorizontal(key, -1);
+    } else if (key === "arrowright" || key === "d") {
+      event.preventDefault();
+      startHorizontal(key, 1);
+    } else if (key === "arrowdown" || key === "s") {
+      event.preventDefault();
+      softDrop();
       syncUi();
-      stop();
-      timer = setInterval(() => {
-        handler();
-        syncUi();
-      }, interval);
-    });
-    element.addEventListener("pointerup", stop);
-    element.addEventListener("pointercancel", stop);
-    element.addEventListener("pointerleave", stop);
-  }
-
-  function bind() {
-    bindPress(ui.startButton, () => startGame());
-    bindPress(ui.continueButton, loadCurrentGame);
-    bindPress(ui.startSettingsButton, openSettings);
-    bindPress(ui.installButton, installApp);
-    bindPress(ui.openStatsButton, openStats);
-    bindPress(ui.helpButton, () => ui.helpOverlay.hidden = false);
-    bindPress(ui.closeHelpButton, () => ui.helpOverlay.hidden = true);
-    bindPress(ui.closeCoachButton, () => ui.coachOverlay.hidden = true);
-    bindPress(ui.onlineButton, openOnline);
-    bindPress(ui.connectOnlineButton, toggleOnlineConnection);
-    bindPress(ui.shareRoomButton, shareRoomLink);
-    bindPress(ui.startTournamentButton, startTournament);
-    bindPress(ui.closeOnlineButton, () => ui.onlineOverlay.hidden = true);
-    bindPress(ui.closeTournamentButton, () => ui.tournamentOverlay.hidden = true);
-    bindPress(ui.rematchButton, startTournament);
-    bindPress(ui.resumeButton, resume);
-    bindPress(ui.playAgainButton, () => startGame(state.mode, state.difficulty));
-    bindPress(ui.pauseButton, togglePause);
-    bindPress(ui.mainMenuButton, returnToMainMenu);
-    bindPress(ui.pauseMenuButton, returnToMainMenu);
-    bindPress(ui.gameOverMenuButton, returnToMainMenu);
-    bindPress(ui.pauseRestartButton, () => startGame(state.mode, state.difficulty));
-    bindPress(ui.pauseSettingsButton, openSettings);
-    bindPress(ui.closeSettingsButton, () => ui.settingsOverlay.hidden = true);
-    bindPress(ui.closeStatsButton, closeStats);
-    bindPress(ui.shareStatsButton, () => shareText(statsText()));
-    bindPress(ui.gameOverStatsButton, openStats);
-    bindPress(ui.gameOverCoachButton, () => ui.coachOverlay.hidden = false);
-    bindPress(ui.shareResultButton, () => shareText(resultText()));
-    bindPress(ui.holdButton, holdPiece);
-    bindRepeat(ui.leftButton, () => move(-1, 0));
-    bindRepeat(ui.rightButton, () => move(1, 0));
-    bindRepeat(ui.downButton, softDrop, 58);
-    bindPress(ui.rotateButton, rotate);
-    bindPress(ui.dropButton, hardDrop);
-    ui.themeSelect.addEventListener("change", () => { state.settings.theme = ui.themeSelect.value; applySettings(); });
-    ui.controlModeSelect.addEventListener("change", () => { state.settings.controlMode = ui.controlModeSelect.value; applySettings(); });
-    ui.sensitivityRange.addEventListener("input", () => { state.settings.sensitivity = Number(ui.sensitivityRange.value); applySettings(); });
-    ui.dasRange.addEventListener("input", () => { state.settings.dasMs = Number(ui.dasRange.value); applySettings(); });
-    ui.arrRange.addEventListener("input", () => { state.settings.arrMs = Number(ui.arrRange.value); applySettings(); });
-    ui.ghostToggle.addEventListener("change", () => { state.settings.ghost = ui.ghostToggle.checked; applySettings(); });
-    ui.bigButtonsToggle.addEventListener("change", () => { state.settings.bigButtons = ui.bigButtonsToggle.checked; applySettings(); });
-    ui.vibrationToggle.addEventListener("change", () => { state.settings.vibration = ui.vibrationToggle.checked; applySettings(); });
-    ui.volumeRange.addEventListener("input", () => { state.settings.volume = Number(ui.volumeRange.value); applySettings(); });
-    ui.moveVolumeRange.addEventListener("input", () => { state.settings.moveVolume = Number(ui.moveVolumeRange.value); applySettings(); });
-    ui.clearVolumeRange.addEventListener("input", () => { state.settings.clearVolume = Number(ui.clearVolumeRange.value); applySettings(); });
-    ui.alertVolumeRange.addEventListener("input", () => { state.settings.alertVolume = Number(ui.alertVolumeRange.value); applySettings(); });
-
-    const horizontalKeys = new Map();
-    const stopHorizontal = (key) => {
-      const timers = horizontalKeys.get(key);
-      if (!timers) return;
-      clearTimeout(timers.das);
-      clearInterval(timers.arr);
-      horizontalKeys.delete(key);
-    };
-    const startHorizontal = (key, direction) => {
-      if (horizontalKeys.has(key)) return;
-      move(direction, 0);
-      const timers = { das: 0, arr: 0 };
-      timers.das = setTimeout(() => {
-        const repeat = () => {
-          move(direction, 0);
-          syncUi();
-        };
-        repeat();
-        if (state.settings.arrMs === 0) {
-          while (move(direction, 0)) {}
-          syncUi();
-          return;
-        }
-        timers.arr = setInterval(repeat, state.settings.arrMs);
-      }, state.settings.dasMs);
-      horizontalKeys.set(key, timers);
-    };
-
-    window.addEventListener("keydown", (event) => {
-      const key = event.key.toLowerCase();
-      if (key === "arrowleft" || key === "a") { event.preventDefault(); startHorizontal(key, -1); }
-      else if (key === "arrowright" || key === "d") { event.preventDefault(); startHorizontal(key, 1); }
-      else if (key === "arrowdown" || key === "s") { event.preventDefault(); softDrop(); }
-      else if (key === "arrowup" || key === "w" || key === "x") { event.preventDefault(); rotate(); }
-      else if (key === " " || key === "z") { event.preventDefault(); hardDrop(); }
-      else if (key === "c") { event.preventDefault(); holdPiece(); }
-      else if (key === "p" || key === "escape") { event.preventDefault(); togglePause(); }
+    } else if (key === "arrowup" || key === "w" || key === "x") {
+      event.preventDefault();
+      rotateClockwise();
       syncUi();
-    });
-    window.addEventListener("keyup", (event) => stopHorizontal(event.key.toLowerCase()));
-    window.addEventListener("blur", () => {
-      for (const key of [...horizontalKeys.keys()]) stopHorizontal(key);
-    });
-
-    let sx = 0;
-    let sy = 0;
-    let lastX = 0;
-    let gestureMoved = false;
-    let gestureHardDropped = false;
-    let gestureSoftDropped = false;
-    ui.board.addEventListener("touchstart", (event) => {
-      if (state.settings.controlMode === "buttons") return;
+    } else if (key === " " || key === "z") {
       event.preventDefault();
-      sx = event.changedTouches[0].clientX;
-      sy = event.changedTouches[0].clientY;
-      lastX = sx;
-      gestureMoved = false;
-      gestureHardDropped = false;
-      gestureSoftDropped = false;
-    }, { passive: false });
-    ui.board.addEventListener("touchmove", (event) => {
-      if (state.settings.controlMode === "buttons") return;
-      event.preventDefault();
-      const touch = event.changedTouches[0];
-      const threshold = state.settings.sensitivity;
-      const dx = touch.clientX - lastX;
-      const totalDy = touch.clientY - sy;
-      if (Math.abs(dx) >= threshold * 0.85 && Math.abs(dx) > Math.abs(totalDy) * 0.42) {
-        const steps = Math.max(1, Math.min(3, Math.floor(Math.abs(dx) / threshold)));
-        for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
-        lastX = touch.clientX;
-        gestureMoved = true;
-        syncUi();
-      } else if (totalDy > threshold * 1.1 && !gestureMoved && !gestureSoftDropped) {
-        const steps = Math.max(1, Math.min(5, Math.round(totalDy / threshold)));
-        for (let i = 0; i < steps; i += 1) softDrop();
-        gestureSoftDropped = true;
-        syncUi();
-      }
-    }, { passive: false });
-    ui.board.addEventListener("touchend", (event) => {
-      if (state.settings.controlMode === "buttons") return;
-      event.preventDefault();
-      const touch = event.changedTouches[0];
-      const dx = touch.clientX - sx;
-      const dy = touch.clientY - sy;
-      const threshold = state.settings.sensitivity;
-      const gesture = classifySwipe(dx, dy, threshold);
-      if (gesture === "tap" && !gestureMoved) rotate();
-      else if ((gesture === "left" || gesture === "right") && !gestureMoved) {
-        const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
-        for (let i = 0; i < steps; i += 1) move(gesture === "left" ? -1 : 1, 0);
-      }
-      else if (gesture === "rotate") rotate();
-      else if (gesture === "hardDrop" && !gestureHardDropped) hardDrop();
-      else if (gesture === "softDrop" && !gestureSoftDropped) {
-        const steps = Math.max(1, Math.min(4, Math.round(dy / threshold)));
-        for (let i = 0; i < steps; i += 1) softDrop();
-      }
+      hardDrop();
       syncUi();
-    }, { passive: false });
-
-    document.addEventListener("visibilitychange", () => {
-      if (state.settings.autoPause && document.hidden && state.running && !state.paused) pause();
-    });
-    window.addEventListener("offline", () => showToast("Офлайн: одиночная игра доступна"));
-    window.addEventListener("online", () => {
-      showToast("Сеть вернулась");
-      loadServerRecords();
-    });
-    window.addEventListener("beforeunload", saveCurrentGame);
-    window.addEventListener("resize", () => {
-      updateLayoutMetrics();
-      draw();
-    });
-
-    if ("ResizeObserver" in window) {
-      state.layoutObserver = new ResizeObserver(() => updateLayoutMetrics());
-      state.layoutObserver.observe(ui.app);
-      state.layoutObserver.observe(ui.controls);
-      state.layoutObserver.observe(ui.statusStrip);
-      state.layoutObserver.observe(ui.topbar);
+    } else if (key === "c") {
+      event.preventDefault();
+      holdPiece();
+      syncUi();
+    } else if (key === "q") {
+      event.preventDefault();
+      rotateCounterClockwise();
+      syncUi();
+    } else if (key === "p" || key === "escape") {
+      event.preventDefault();
+      togglePause();
+      syncUi();
     }
+  }
+
+  function handleKeyUp(event) {
+    stopHorizontal(event.key.toLowerCase());
+  }
+
+  function handleTouchStart(event) {
+    if (state.settings.controlMode === "buttons") return;
+    event.preventDefault();
+    const touch = event.changedTouches[0];
+    touchState.startX = touch.clientX;
+    touchState.startY = touch.clientY;
+    touchState.lastX = touchState.startX;
+    touchState.lastY = touchState.startY;
+    touchState.startTime = performance.now();
+    touchState.softSteps = 0;
+    touchState.moved = false;
+    touchState.hardDropped = false;
+    touchState.softDropped = false;
+    touchState.holdTriggered = false;
+    clearTouchHold();
+    touchState.holdTimer = setTimeout(() => {
+      if (touchState.moved || touchState.softDropped || touchState.hardDropped || touchState.holdTriggered) return;
+      if (!canInput()) return;
+      holdPiece();
+      touchState.holdTriggered = true;
+      buzz(6);
+      syncUi();
+    }, 240);
+  }
+
+  function handleTouchMove(event) {
+    if (state.settings.controlMode === "buttons") return;
+    event.preventDefault();
+    const touch = event.changedTouches[0];
+    const threshold = swipeThresholdForPreset(state.settings.sensitivityPreset);
+    const dx = touch.clientX - touchState.lastX;
+    const totalDy = touch.clientY - touchState.startY;
+    const totalDx = touch.clientX - touchState.startX;
+    if (Math.abs(totalDx) > threshold * 0.4 || Math.abs(totalDy) > threshold * 0.4) {
+      touchState.moved = true;
+      clearTouchHold();
+      clearPendingTap();
+    }
+
+    if (Math.abs(dx) >= threshold * 0.88 && Math.abs(totalDx) > Math.abs(totalDy) * 0.7) {
+      const steps = Math.max(1, Math.min(3, Math.floor(Math.abs(dx) / threshold)));
+      let moved = false;
+      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(dx < 0 ? -1 : 1) || moved;
+      touchState.lastX = touch.clientX;
+      if (moved) syncUi();
+      return;
+    }
+
+    if (totalDy > threshold && totalDy > Math.abs(totalDx) * 1.04) {
+      const targetSteps = Math.max(1, Math.min(6, Math.floor(totalDy / threshold)));
+      const pendingSteps = targetSteps - touchState.softSteps;
+      if (pendingSteps > 0) {
+        for (let i = 0; i < pendingSteps; i += 1) softDrop();
+        touchState.softSteps = targetSteps;
+        touchState.softDropped = true;
+        syncUi();
+      }
+    }
+    touchState.lastY = touch.clientY;
+  }
+
+  function handleTouchEnd(event) {
+    if (state.settings.controlMode === "buttons") return;
+    event.preventDefault();
+    clearTouchHold();
+    if (touchState.holdTriggered) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - touchState.startX;
+    const dy = touch.clientY - touchState.startY;
+    const threshold = swipeThresholdForPreset(state.settings.sensitivityPreset);
+    const elapsedMs = performance.now() - touchState.startTime;
+    const gesture = gestureProfile({ dx, dy, elapsedMs, threshold });
+
+    if (gesture.shouldHardDrop && !touchState.hardDropped) {
+      hardDrop();
+      touchState.hardDropped = true;
+      clearPendingTap();
+      syncUi();
+      return;
+    }
+
+    if (gesture.direction && !touchState.softDropped) {
+      const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
+      let moved = false;
+      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(gesture.direction === "left" ? -1 : 1) || moved;
+      clearPendingTap();
+      if (moved) syncUi();
+      return;
+    }
+
+    if (gesture.isTap && !touchState.moved && !touchState.softDropped) {
+      const now = performance.now();
+      if (now - touchState.lastTapAt <= 260) {
+        clearPendingTap();
+        rotateCounterClockwise();
+        touchState.lastTapAt = 0;
+      } else {
+        clearPendingTap();
+        touchState.tapTimer = setTimeout(() => {
+          rotateClockwise();
+          syncUi();
+          touchState.lastTapAt = 0;
+          touchState.tapTimer = 0;
+        }, 165);
+        touchState.lastTapAt = now;
+      }
+      return;
+    }
+
+    if (gesture.shouldSoftDrop && !touchState.softDropped) {
+      const steps = Math.max(1, Math.min(4, Math.round(dy / threshold)));
+      for (let i = 0; i < steps; i += 1) softDrop();
+      touchState.softDropped = true;
+      clearPendingTap();
+      syncUi();
+    }
+  }
+
+  function handleTouchCancel(event) {
+    if (state.settings.controlMode === "buttons") return;
+    event.preventDefault();
+    clearTouchHold();
+    clearPendingTap();
+  }
+
+  function bindUi() {
+    ui.bindControls({
+      startGame: () => startGame(),
+      loadCurrentGame: () => { loadCurrentGame(); syncUi(); },
+      openSettings: () => { openSettings(); syncUi(); },
+      installApp,
+      openStats: () => { openStats(); syncUi(); },
+      openHelp: () => { ui.showOverlay("helpOverlay"); syncUi(); },
+      closeHelp: () => { ui.hideOverlay("helpOverlay"); syncUi(); },
+      closeCoach: () => { ui.hideOverlay("coachOverlay"); syncUi(); },
+      openOnline: () => { openOnline(); syncUi(); },
+      toggleOnlineConnection: () => { toggleOnlineConnection(); syncUi(); },
+      shareRoomLink,
+      startTournament: () => { startTournament(); syncUi(); },
+      closeOnline: () => { ui.hideOverlay("onlineOverlay"); syncUi(); },
+      closeTournament: () => { ui.hideOverlay("tournamentOverlay"); syncUi(); },
+      rematch: () => { startTournament(); syncUi(); },
+      resume: () => { resume(); syncUi(); },
+      playAgain: () => startGame(state.mode, state.difficulty),
+      togglePause: () => { togglePause(); syncUi(); },
+      returnToMainMenu,
+      restartGame: () => startGame(state.mode, state.difficulty),
+      closeSettings: () => { ui.hideOverlay("settingsOverlay"); syncUi(); },
+      closeStats: () => { closeStats(); syncUi(); },
+      shareStats: () => shareText(statsText()),
+      openCoach: () => { ui.showOverlay("coachOverlay"); syncUi(); },
+      shareResult: () => shareText(resultText()),
+      holdPiece: () => { holdPiece(); syncUi(); },
+      moveLeft: () => { stepHorizontal(-1); syncUi(); },
+      moveRight: () => { stepHorizontal(1); syncUi(); },
+      softDrop: () => { softDrop(); syncUi(); },
+      rotate: () => { rotateClockwise(); syncUi(); },
+      hardDrop: () => { hardDrop(); syncUi(); },
+      changeSetting
+    });
+
+    state.layoutObserver = ui.bindWindowEvents({
+      visibilityChange: () => {
+        if (state.settings.autoPause && document.hidden && state.running && !state.paused) pause();
+      },
+      offline: () => showToast("Офлайн: одиночная игра доступна"),
+      online: () => {
+        showToast("Сеть вернулась");
+        loadServerRecords();
+      },
+      beforeUnload: saveCurrentGame,
+      resize: () => {
+        updateLayoutMetrics();
+        draw();
+      },
+      resizeObserver: () => updateLayoutMetrics(),
+      keydown: handleKeyDown,
+      keyup: handleKeyUp,
+      blur: () => {
+        clearHorizontalInputs();
+        clearTouchHold();
+        clearPendingTap();
+      }
+    });
+
+    ui.bindBoardTouch({
+      touchstart: handleTouchStart,
+      touchmove: handleTouchMove,
+      touchend: handleTouchEnd,
+      touchcancel: handleTouchCancel
+    });
   }
 
   function bootPwa() {
@@ -1748,7 +1600,7 @@ import { createBag } from "./game-core.js";
     if (canUsePwa) {
       navigator.serviceWorker.register("sw.js").then(() => {
         showToast("Офлайн-кэш готовится");
-      }).catch(() => {});
+      }).catch(() => undefined);
     }
     window.addEventListener("beforeinstallprompt", (event) => {
       event.preventDefault();
@@ -1765,16 +1617,16 @@ import { createBag } from "./game-core.js";
   function applyUrlParams() {
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
-    if (mode && MODES[mode]) ui.startMode.value = mode;
+    if (mode && MODES[mode]) ui.setStartMode(mode);
     const room = roomFromLocation(location);
     if (room) {
-      ui.onlineRoomInput.value = room;
-      localStorage.setItem("tetris-last-room", room);
+      ui.setOnlineRoom(room);
+      storage.saveRoomCode(room);
       setTimeout(openOnline, 0);
     }
   }
 
-  bind();
+  bindUi();
   applyUrlParams();
   applySettings();
   syncUi();

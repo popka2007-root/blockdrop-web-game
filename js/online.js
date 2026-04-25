@@ -93,3 +93,88 @@ export function parseServerMessage(raw) {
   }
   return data;
 }
+
+export function createOnlineClient() {
+  return {
+    socket: null,
+    connected: false,
+    room: "",
+    name: "",
+    lastSentAt: 0,
+    listeners: new Set()
+  };
+}
+
+export function onOnlineMessage(client, handler) {
+  client.listeners.add(handler);
+  return () => client.listeners.delete(handler);
+}
+
+function emitOnlineMessage(client, payload) {
+  for (const listener of client.listeners) listener(payload);
+}
+
+export function sendOnlineMessage(client, payload) {
+  if (!client?.socket || client.socket.readyState !== WebSocket.OPEN) return false;
+  client.socket.send(JSON.stringify(payload));
+  return true;
+}
+
+export function sendAttack(client, room, lines) {
+  return sendOnlineMessage(client, {
+    type: "attack",
+    room: normalizeRoomId(room),
+    lines: Math.max(1, Math.min(6, Math.floor(Number(lines) || 0)))
+  });
+}
+
+export function sendScoreUpdate(client, state) {
+  client.lastSentAt = performance.now();
+  return sendOnlineMessage(client, buildUpdateMessage(state));
+}
+
+export function disconnectOnline(client) {
+  if (client?.socket) client.socket.close();
+  if (!client) return;
+  client.socket = null;
+  client.connected = false;
+}
+
+export function connectOnline(client, { server, room, name, maxPlayers, durationSec }) {
+  disconnectOnline(client);
+  const socket = new WebSocket(server);
+  client.socket = socket;
+  client.room = normalizeRoomId(room);
+  client.name = normalizePlayerName(name);
+
+  socket.addEventListener("open", () => {
+    client.connected = true;
+    sendOnlineMessage(client, buildJoinMessage({
+      room: client.room,
+      name: client.name,
+      maxPlayers,
+      durationSec
+    }));
+    emitOnlineMessage(client, { type: "open", room: client.room, name: client.name });
+  });
+
+  socket.addEventListener("message", (event) => {
+    try {
+      emitOnlineMessage(client, parseServerMessage(event.data));
+    } catch (error) {
+      emitOnlineMessage(client, { type: "error", message: error.message });
+    }
+  });
+
+  socket.addEventListener("close", () => {
+    client.connected = false;
+    client.socket = null;
+    emitOnlineMessage(client, { type: "close" });
+  });
+
+  socket.addEventListener("error", () => {
+    emitOnlineMessage(client, { type: "socketError" });
+  });
+
+  return socket;
+}

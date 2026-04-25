@@ -85,3 +85,49 @@ export function createWebAudioPlayer(settingsProvider, audioContextFactory = nul
 
   return { playTone, resume };
 }
+
+export function initAudio(settingsProvider, audioContextFactory = null) {
+  const player = createWebAudioPlayer(settingsProvider, audioContextFactory);
+  const controller = {
+    muted: false,
+    settingsProvider,
+    player
+  };
+  return controller;
+}
+
+export function playSound(controller, eventOrFreq, duration, type, category = "ui") {
+  if (!controller || controller.muted) return;
+
+  if (typeof eventOrFreq === "string") {
+    const event = SOUND_EVENTS[eventOrFreq];
+    if (!event) return;
+    controller.player.playTone({
+      freq: event.freq,
+      duration: event.duration,
+      type: event.type,
+      category: event.category
+    });
+    return;
+  }
+
+  controller.player.playTone({
+    freq: eventOrFreq,
+    duration,
+    type,
+    category
+  });
+}
+
+export function setVolume(controller, nextVolume) {
+  if (!controller) return;
+  const settings = controller.settingsProvider();
+  settings.volume = Math.max(0, Math.min(100, Number(nextVolume) || 0));
+  settings.sound = settings.volume > 0;
+}
+
+export function toggleMute(controller, muted = !controller?.muted) {
+  if (!controller) return false;
+  controller.muted = Boolean(muted);
+  return controller.muted;
+}
