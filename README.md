@@ -56,10 +56,13 @@ js/input.js
 js/audio.js
 js/online.js
 js/storage.js
+screenshots/
 server.js
 tests/
 e2e/
 ```
+
+`js/game.js` is still the browser coordinator, but core data, config, storage helpers, input normalization, Web Audio playback, and online message builders now live in imported modules instead of being duplicated in the runtime.
 
 Useful scripts:
 
@@ -121,15 +124,17 @@ Known limitation: GitHub Pages cannot run `server.js`, so online rooms and serve
 
 ## Screenshots / GIF
 
-Add screenshots or gameplay GIFs here:
+Current mobile screenshots:
 
-```text
-docs/screenshots/
-```
+![Mobile menu](screenshots/menu-mobile.png)
+![Mobile gameplay](screenshots/game-mobile.png)
+
+Good next media task: add a short gameplay GIF after visual polish stabilizes.
 
 ## Roadmap
 
 - Move more runtime code from `js/game.js` into smaller imported modules.
+- Split the browser coordinator into scene, rendering, HUD, and online controller modules.
 - Add HTTPS/domain deployment so PWA install works on the public server IP replacement.
 - Add stricter server-side scoring validation for competitive rooms.
 - Add mobile-first HUD variants for very small screens.
@@ -138,5 +143,6 @@ docs/screenshots/
 ## Known Issues
 
 - The current public URL is plain HTTP, so full PWA install is limited by browser security rules.
-- `js/game.js` still contains the browser runtime; `js/game-core.js` is the testable gameplay core used for new tests.
+- `js/game.js` still contains the browser runtime, but it now delegates shared mechanics and helpers to real modules.
+- The WebSocket server validates message shape and rate-limits traffic, but competitive anti-cheat is not authoritative yet.
 - Playwright requires browser binaries. In CI this is handled by `npx playwright install --with-deps chromium`.

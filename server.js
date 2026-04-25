@@ -15,6 +15,7 @@ const rooms = new Map();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".webmanifest": "application/manifest+json; charset=utf-8",
@@ -97,11 +98,11 @@ function handleRecordsApi(req, res) {
 
 function sanitizeRecord(data) {
   return {
-    name: cleanName(data.name || "Игрок"),
+    name: cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
     score: clamp(safeNumber(data.score), 0, 99999999),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
-    mode: String(data.mode || "Классика").replace(/[<>]/g, "").slice(0, 24),
+    mode: String(data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430").replace(/[<>]/g, "").slice(0, 24),
     time: String(data.time || "0:00").replace(/[<>]/g, "").slice(0, 12),
     date: new Date().toISOString()
   };
