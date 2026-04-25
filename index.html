@@ -404,14 +404,14 @@
 
     .panel {
       border-radius: 8px;
-      padding: 10px;
+      padding: 8px;
       background: var(--panel);
     }
 
     .panel-title {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       color: var(--muted);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 900;
       text-transform: uppercase;
       text-align: center;
@@ -434,31 +434,31 @@
     .tiny-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 5px;
+      gap: 4px;
     }
 
     .mini-stat {
-      min-height: 28px;
+      min-height: 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 6px;
+      gap: 5px;
       text-align: left;
-      padding: 6px 7px;
+      padding: 4px 6px;
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.07);
     }
 
     .mini-stat b {
       display: block;
-      font-size: 14px;
+      font-size: 12px;
       line-height: 1;
       text-align: right;
     }
 
     .mini-stat span {
       color: var(--muted);
-      font-size: 9px;
+      font-size: 8px;
       font-weight: 900;
       text-transform: uppercase;
     }
@@ -533,7 +533,8 @@
     }
 
     body.layout-stacked .tiny-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
     }
 
     body.layout-short .status-card b {
@@ -955,16 +956,16 @@
       }
 
       .mini-stat {
-        min-height: 25px;
-        padding: 4px 5px;
+        min-height: 22px;
+        padding: 3px 4px;
       }
 
       .mini-stat b {
-        font-size: 12px;
+        font-size: 11px;
       }
 
       .mini-stat span {
-        font-size: 8px;
+        font-size: 7px;
       }
     }
   </style>
@@ -1059,6 +1060,7 @@
       <div class="modal-actions">
         <button class="button primary" id="startButton">Начать игру</button>
         <button class="button" id="continueButton">Продолжить сохранение</button>
+        <button class="button" id="startSettingsButton">Настройки</button>
         <button class="button hidden" id="installButton">Установить офлайн</button>
         <button class="button" id="onlineButton">Онлайн-комната</button>
         <button class="button" id="openStatsButton">Статистика</button>
@@ -1165,7 +1167,8 @@
       <div class="result-grid">
         <div class="result-row"><span>Двигать</span><span>← → или свайп</span></div>
         <div class="result-row"><span>Повернуть</span><span>↑ / W / тап</span></div>
-        <div class="result-row"><span>Сбросить</span><span>Пробел / свайп вниз</span></div>
+        <div class="result-row"><span>Мягко вниз</span><span>Короткий свайп вниз</span></div>
+        <div class="result-row"><span>Жёстко вниз</span><span>Длинный свайп вниз / пробел</span></div>
         <div class="result-row"><span>Запас</span><span>C или кнопка</span></div>
         <div class="result-row"><span>Пауза</span><span>P / Esc</span></div>
       </div>
@@ -1388,7 +1391,7 @@
       for (const id of [
         "app","topbar","statusStrip","gameLayout","sidePanel","controls","nextPanel","holdPanel","statsPanel","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
         "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
-        "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","installButton","openStatsButton","resumeButton",
+        "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","startSettingsButton","installButton","openStatsButton","resumeButton",
         "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
         "holdButton","leftButton","rightButton","rotateButton","downButton","dropButton","startMode","themeSelect","controlModeSelect","ghostToggle",
         "bigButtonsToggle","vibrationToggle",
@@ -1577,7 +1580,7 @@
         const controlsHeight = ui.controls.offsetHeight;
         const availableHeight = Math.max(240, appRect.height - topbarHeight - statusHeight - controlsHeight - gap * 3);
         const isLandscape = appRect.width / Math.max(1, appRect.height) > 1.15;
-        const stacked = appRect.width < 360 || (isLandscape && appRect.height < 620);
+        const stacked = appRect.width < 500 || (isLandscape && appRect.height < 620);
         const wide = appRect.width >= 760;
         const short = appRect.height < 700;
 
@@ -1586,7 +1589,7 @@
         document.body.classList.toggle("layout-short", short);
 
         const sideWidth = stacked ? Math.max(0, appRect.width - gap * 2) : clamp(Math.round(appRect.width * (wide ? 0.20 : 0.23)), 74, wide ? 156 : 108);
-        const stackedSideHeight = stacked ? (state.online.connected ? 160 : 132) : 0;
+        const stackedSideHeight = stacked ? (state.online.connected ? 126 : 94) : 0;
         const boardAvailWidth = stacked ? appRect.width - gap * 2 - 14 : appRect.width - sideWidth - gap - 14;
         const boardAvailHeight = stacked ? availableHeight - stackedSideHeight - gap - 14 : availableHeight - 14;
         const cell = Math.max(12, Math.floor(Math.min(boardAvailWidth / COLS, boardAvailHeight / ROWS)));
@@ -2098,10 +2101,12 @@
       }
 
       function resize(canvas, width, height) {
-        const ratio = window.devicePixelRatio || 1;
+        const ratio = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
         canvas.width = Math.max(1, Math.floor(width * ratio));
         canvas.height = Math.max(1, Math.floor(height * ratio));
-        canvas.getContext("2d").setTransform(ratio, 0, 0, ratio, 0, 0);
+        const context = canvas.getContext("2d");
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.imageSmoothingEnabled = true;
       }
 
       function drawPreview(context, canvas, kind) {
@@ -2749,20 +2754,20 @@
         const gain = state.audio.createGain();
         const softType = type === "sawtooth" || type === "square" ? "triangle" : type;
         const categoryGain = {
-          move: 0.35,
-          rotate: 0.42,
-          drop: 0.55,
-          clear: 0.88,
-          alert: 0.65,
-          ui: 0.45
-        }[category] || 0.45;
+          move: 0.55,
+          rotate: 0.62,
+          drop: 0.78,
+          clear: 1.05,
+          alert: 0.9,
+          ui: 0.68
+        }[category] || 0.68;
         oscillator.type = softType;
         oscillator.frequency.setValueAtTime(Math.max(110, freq * 0.82), now);
         filter.type = "lowpass";
         filter.frequency.setValueAtTime(category === "clear" ? 1900 : 1320, now);
         filter.Q.setValueAtTime(0.35, now);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.036 * categoryGain * soundLevelFor(category) * (state.settings.volume / 100), now + 0.014);
+        gain.gain.exponentialRampToValueAtTime(0.052 * categoryGain * soundLevelFor(category) * (state.settings.volume / 100), now + 0.014);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, duration * 0.9));
         oscillator.connect(filter);
         filter.connect(gain);
@@ -2902,6 +2907,7 @@
       function bind() {
         bindPress(ui.startButton, () => startGame());
         bindPress(ui.continueButton, loadCurrentGame);
+        bindPress(ui.startSettingsButton, openSettings);
         bindPress(ui.installButton, installApp);
         bindPress(ui.openStatsButton, openStats);
         bindPress(ui.helpButton, () => ui.helpOverlay.hidden = false);
@@ -2962,6 +2968,7 @@
         let lastX = 0;
         let gestureMoved = false;
         let gestureHardDropped = false;
+        let gestureSoftDropped = false;
         ui.board.addEventListener("touchstart", (event) => {
           if (state.settings.controlMode === "buttons") return;
           event.preventDefault();
@@ -2970,6 +2977,7 @@
           lastX = sx;
           gestureMoved = false;
           gestureHardDropped = false;
+          gestureSoftDropped = false;
         }, { passive: false });
         ui.board.addEventListener("touchmove", (event) => {
           if (state.settings.controlMode === "buttons") return;
@@ -2983,6 +2991,11 @@
             for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
             lastX = touch.clientX;
             gestureMoved = true;
+            syncUi();
+          } else if (totalDy > threshold * 1.1 && !gestureMoved && !gestureSoftDropped) {
+            const steps = Math.max(1, Math.min(5, Math.round(totalDy / threshold)));
+            for (let i = 0; i < steps; i += 1) softDrop();
+            gestureSoftDropped = true;
             syncUi();
           }
         }, { passive: false });
@@ -2998,8 +3011,12 @@
             const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
             for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
           }
-          else if (dy < 0) rotate();
-          else if (!gestureHardDropped) hardDrop();
+          else if (dy < -threshold * 1.1) rotate();
+          else if (dy > threshold * 2.6 && !gestureHardDropped) hardDrop();
+          else if (dy > threshold && !gestureSoftDropped) {
+            const steps = Math.max(1, Math.min(4, Math.round(dy / threshold)));
+            for (let i = 0; i < steps; i += 1) softDrop();
+          }
           syncUi();
         }, { passive: false });
 
