@@ -21,10 +21,10 @@ const UI_IDS = [
   "board", "boardShell", "next1", "next2", "next3", "hold", "scoreValue", "levelValue", "linesValue", "recordValue",
   "comboValue", "piecesValue", "timeValue", "goalValue", "progressFill", "rankValue", "apmValue", "heightValue",
   "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "startButton",
-  "continueButton", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
+  "continueButton", "aiButton", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
   "pauseButton", "mainMenuButton", "pauseMenuButton", "gameOverMenuButton", "pauseRestartButton", "pauseSettingsButton",
   "holdButton", "leftButton", "rightButton", "rotateButton", "downButton", "dropButton", "startMode", "themeSelect",
-  "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect",
+  "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
   "volumeRange", "volumeValue", "closeSettingsButton", "closeStatsButton",
   "shareStatsButton", "gameOverStatsButton", "statsGrid", "leaderboard", "serverLeaderboard", "achievementsList",
   "helpButton", "onlineButton", "helpOverlay", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
@@ -32,8 +32,54 @@ const UI_IDS = [
   "onlinePlayers", "onlineStatus", "connectOnlineButton", "shareRoomButton", "startTournamentButton", "closeOnlineButton",
   "tournamentOverlay", "tournamentResults", "closeTournamentButton", "rematchButton", "closeHelpButton", "shareResultButton",
   "finalScore", "finalLevel", "finalLines", "finalCombo", "finalRecord", "gameOverTitle", "gameOverText",
-  "gameOverInsight", "gameOverCoachButton", "serverRecordStatus", "toast", "fxLayer"
+  "gameOverInsight", "gameOverCoachButton", "serverRecordStatus", "tutorialButton", "tutorialOverlay", "tutorialText",
+  "tutorialSteps", "tutorialNextButton", "tutorialPlayButton", "closeTutorialButton", "toast", "fxLayer"
 ];
+
+const UI_TEXT = {
+  ru: {
+    score: "Счёт", level: "Уровень", lines: "Линии", pause: "Пауза", goal: "Цель", rank: "Ранг",
+    next: "Дальше", hold: "Запас", record: "Рекорд", pieces: "Фигур", time: "Время", height: "Высота",
+    title: "Тетрис",
+    intro: "Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы, рекорды, офлайн-режим и онлайн-комнаты.",
+    start: "Начать игру", continue: "Продолжить", ai: "AI соперник", settings: "Настройки", install: "Установить офлайн",
+    online: "Онлайн-комната", stats: "Статистика", help: "Как играть", done: "Готово", close: "Закрыть",
+    language: "Язык", theme: "Тема", controls: "Управление", sensitivity: "Чувствительность", hand: "Рука",
+    performance: "Производительность", vibration: "Вибрация", sound: "Звук", tutorial: "Обучение",
+    tutorialNext: "Дальше", tutorialPlay: "Попробовать", understood: "Понятно", pauseTitle: "Пауза",
+    pauseText: "Партия сохранена автоматически. Можно закрыть вкладку и вернуться позже.",
+    restart: "Рестарт", mainMenu: "Главное меню", bestGames: "Лучшие игры", serverRecords: "Серверные рекорды",
+    achievements: "Достижения", shareStats: "Поделиться статистикой", coach: "Бот-тренер",
+    coachText: "Короткий разбор партии и 2-3 совета для следующей попытки.",
+    room: "Комната", name: "Имя", notConnected: "Не подключено", tournamentServer: "Турнир и сервер",
+    server: "Сервер", players: "Игроков", timer: "Таймер", startTournament: "Старт турнира",
+    connect: "Подключиться", roomLink: "Ссылка другу", tournamentDone: "Турнир завершён",
+    tournamentText: "Финальная таблица комнаты.", rematch: "Реванш", gameOver: "Игра окончена",
+    gameOverText: "Башня дошла до верхней границы.", playAgain: "Играть снова", coachTips: "Советы тренера",
+    shareResult: "Поделиться результатом"
+  },
+  en: {
+    score: "Score", level: "Level", lines: "Lines", pause: "Pause", goal: "Goal", rank: "Rank",
+    next: "Next", hold: "Hold", record: "Best", pieces: "Pieces", time: "Time", height: "Height",
+    title: "Tetris",
+    intro: "A fast web version with saves, themes, records, offline mode, online rooms, and AI practice.",
+    start: "Start game", continue: "Continue", ai: "AI opponent", settings: "Settings", install: "Install offline",
+    online: "Online room", stats: "Stats", help: "How to play", done: "Done", close: "Close",
+    language: "Language", theme: "Theme", controls: "Controls", sensitivity: "Sensitivity", hand: "Hand",
+    performance: "Performance", vibration: "Vibration", sound: "Sound", tutorial: "Tutorial",
+    tutorialNext: "Next", tutorialPlay: "Try it", understood: "Got it", pauseTitle: "Paused",
+    pauseText: "The game is saved automatically. You can close the tab and return later.",
+    restart: "Restart", mainMenu: "Main menu", bestGames: "Best games", serverRecords: "Server records",
+    achievements: "Achievements", shareStats: "Share stats", coach: "Coach bot",
+    coachText: "A short review and 2-3 tips for your next attempt.",
+    room: "Room", name: "Name", notConnected: "Not connected", tournamentServer: "Tournament and server",
+    server: "Server", players: "Players", timer: "Timer", startTournament: "Start tournament",
+    connect: "Connect", roomLink: "Invite link", tournamentDone: "Tournament finished",
+    tournamentText: "Final room leaderboard.", rematch: "Rematch", gameOver: "Game over",
+    gameOverText: "The stack reached the top.", playAgain: "Play again", coachTips: "Coach tips",
+    shareResult: "Share result"
+  }
+};
 
 export function createUi(options = {}) {
   const root = options.root || document;
@@ -45,6 +91,8 @@ export function createUi(options = {}) {
   const previews = [refs.next1.getContext("2d"), refs.next2.getContext("2d"), refs.next3.getContext("2d")];
   const holdCtx = refs.hold.getContext("2d");
   let toastTimer = 0;
+  let tutorialIndex = 0;
+  const canvasSizes = new WeakMap();
 
   function applySettings(settings) {
     documentRef.documentElement.dataset.theme = settings.theme === "ember" ? "" : settings.theme;
@@ -55,12 +103,170 @@ export function createUi(options = {}) {
     documentRef.body.classList.toggle("handed-left", settings.handedness === "left");
 
     refs.themeSelect.value = settings.theme;
+    refs.languageSelect.value = settings.language;
     refs.controlModeSelect.value = settings.controlMode;
     refs.vibrationToggle.checked = settings.vibration;
     refs.sensitivitySelect.value = settings.sensitivityPreset;
     refs.handednessSelect.value = settings.handedness;
+    refs.performanceSelect.value = settings.performanceMode;
     refs.volumeRange.value = settings.volume;
     refs.volumeValue.textContent = settings.volume;
+    applyLanguage(settings.language);
+  }
+
+  function textFor(language) {
+    return UI_TEXT[language] || UI_TEXT.ru;
+  }
+
+  function setText(element, value) {
+    if (element) element.textContent = value;
+  }
+
+  function setLabel(selector, value) {
+    const element = documentRef.querySelector(selector);
+    if (element) element.textContent = value;
+  }
+
+  function applyLanguage(language = "ru") {
+    const text = textFor(language);
+    documentRef.documentElement.lang = language;
+    documentRef.title = text.title;
+    const titleMeta = documentRef.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (titleMeta) titleMeta.setAttribute("content", text.title);
+
+    setText(documentRef.querySelector(".stat:nth-child(1) .stat-label"), text.score);
+    setText(documentRef.querySelector(".stat:nth-child(2) .stat-label"), text.level);
+    setText(documentRef.querySelector(".stat:nth-child(3) .stat-label"), text.lines);
+    refs.pauseButton.setAttribute("aria-label", text.pause);
+    setText(documentRef.querySelector(".status-card:nth-child(1) > span"), text.goal);
+    setText(documentRef.querySelector(".status-card:nth-child(2) > span"), text.rank);
+    setText(documentRef.querySelector("#nextPanel .panel-title"), text.next);
+    setText(documentRef.querySelector("#holdPanel .panel-title"), text.hold);
+    setText(documentRef.querySelector("#recordValue + span"), text.record);
+    setText(documentRef.querySelector("#piecesValue + span"), text.pieces);
+    setText(documentRef.querySelector("#timeValue + span"), text.time);
+    setText(documentRef.querySelector("#heightValue + span"), text.height);
+    setText(refs.holdButton, text.hold);
+    setText(refs.mainMenuButton, text.mainMenu);
+    setText(refs.rotateButton, language === "en" ? "Rotate" : "Поворот");
+    setText(refs.downButton, language === "en" ? "Down" : "Вниз");
+    setText(refs.dropButton, language === "en" ? "Drop" : "Сброс");
+
+    setText(documentRef.querySelector("#startOverlay h1"), text.title);
+    setText(documentRef.querySelector("#startOverlay .muted"), text.intro);
+    setLabel('label[for="startMode"]', language === "en" ? "Mode" : "Режим");
+    setText(refs.startButton, text.start);
+    setText(refs.continueButton, text.continue);
+    setText(refs.aiButton, text.ai);
+    setText(refs.startSettingsButton, text.settings);
+    setText(refs.installButton, text.install);
+    setText(refs.onlineButton, text.online);
+    setText(refs.openStatsButton, text.stats);
+    setText(refs.helpButton, text.help);
+
+    setText(documentRef.querySelector("#settingsOverlay h2"), text.settings);
+    setLabel('label[for="themeSelect"]', text.theme);
+    setLabel('label[for="languageSelect"]', text.language);
+    setLabel('label[for="controlModeSelect"]', text.controls);
+    setLabel('label[for="sensitivitySelect"]', text.sensitivity);
+    setLabel('label[for="handednessSelect"]', text.hand);
+    setLabel('label[for="performanceSelect"]', text.performance);
+    const vibrationRow = documentRef.querySelector("#settingsOverlay .check-row");
+    if (vibrationRow) {
+      vibrationRow.textContent = `${text.vibration} `;
+      vibrationRow.appendChild(refs.vibrationToggle);
+    }
+    setLabel('label[for="volumeRange"]', text.sound);
+    setText(refs.closeSettingsButton, text.done);
+
+    setText(documentRef.querySelector("#pauseOverlay h2"), text.pauseTitle);
+    setText(documentRef.querySelector("#pauseOverlay .muted"), text.pauseText);
+    setText(refs.resumeButton, text.continue);
+    setText(refs.pauseSettingsButton, text.settings);
+    setText(refs.pauseRestartButton, text.restart);
+    setText(refs.pauseMenuButton, text.mainMenu);
+
+    setText(documentRef.querySelector("#statsOverlay h2"), text.stats);
+    setText(documentRef.querySelector("#statsOverlay h3:nth-of-type(1)"), text.bestGames);
+    setText(documentRef.querySelector("#statsOverlay h3:nth-of-type(2)"), text.serverRecords);
+    setText(documentRef.querySelector("#statsOverlay h3:nth-of-type(3)"), text.achievements);
+    setText(refs.closeStatsButton, text.close);
+    setText(refs.shareStatsButton, text.shareStats);
+
+    setText(documentRef.querySelector("#helpOverlay h2"), text.help);
+    setText(refs.tutorialButton, text.tutorial);
+    setText(refs.closeHelpButton, text.understood);
+    setText(documentRef.querySelector("#tutorialOverlay h2"), text.tutorial);
+    setText(refs.tutorialNextButton, text.tutorialNext);
+    setText(refs.tutorialPlayButton, text.tutorialPlay);
+    setText(refs.closeTutorialButton, text.close);
+    renderTutorial(language, tutorialIndex);
+
+    setText(documentRef.querySelector("#coachOverlay h2"), text.coach);
+    setText(documentRef.querySelector("#coachOverlay .muted"), text.coachText);
+    setText(refs.closeCoachButton, text.understood);
+    setText(documentRef.querySelector("#onlineOverlay h2"), text.online);
+    setLabel('label[for="onlineRoomInput"]', text.room);
+    setLabel('label[for="onlineNameInput"]', text.name);
+    setText(documentRef.querySelector(".advanced-online summary"), text.tournamentServer);
+    setLabel('label[for="onlineServerInput"]', text.server);
+    setLabel('label[for="onlineMaxPlayersSelect"]', text.players);
+    setLabel('label[for="onlineDurationSelect"]', text.timer);
+    setText(refs.startTournamentButton, text.startTournament);
+    setText(refs.connectOnlineButton, text.connect);
+    setText(refs.shareRoomButton, text.roomLink);
+    setText(refs.closeOnlineButton, text.close);
+    if (refs.onlineStatus.textContent === UI_TEXT.ru.notConnected || refs.onlineStatus.textContent === UI_TEXT.en.notConnected) {
+      setText(refs.onlineStatus, text.notConnected);
+    }
+
+    setText(documentRef.querySelector("#tournamentOverlay h2"), text.tournamentDone);
+    setText(documentRef.querySelector("#tournamentOverlay .muted"), text.tournamentText);
+    setText(refs.closeTournamentButton, text.close);
+    setText(refs.rematchButton, text.rematch);
+    setText(refs.gameOverTitle, text.gameOver);
+    setText(refs.gameOverText, text.gameOverText);
+    setText(refs.playAgainButton, text.playAgain);
+    setText(refs.gameOverMenuButton, text.mainMenu);
+    setText(refs.gameOverCoachButton, text.coachTips);
+    setText(refs.shareResultButton, text.shareResult);
+    setText(refs.gameOverStatsButton, text.stats);
+  }
+
+  function tutorialItems(language = "ru") {
+    if (language === "en") {
+      return [
+        ["Move", "Swipe left/right or use arrow keys to place the piece."],
+        ["Rotate", "Tap to rotate clockwise. Double tap rotates back."],
+        ["Drop", "Swipe down to speed up. Fast swipe down hard drops."],
+        ["Hold", "Long press or press Hold to save a useful piece."],
+        ["Plan", "Keep one side well open for the long I piece and clear 2+ lines for attacks."]
+      ];
+    }
+    return [
+      ["Движение", "Свайп влево/вправо или стрелки двигают фигуру."],
+      ["Поворот", "Тап поворачивает по часовой стрелке. Двойной тап крутит назад."],
+      ["Падение", "Свайп вниз ускоряет, быстрый свайп вниз делает резкий сброс."],
+      ["Запас", "Долгое нажатие или кнопка Запас сохраняет полезную фигуру."],
+      ["План", "Держи один край открытым под I-фигуру и чисти 2+ линии для атак."]
+    ];
+  }
+
+  function renderTutorial(language = "ru", index = 0) {
+    const items = tutorialItems(language);
+    const safeIndex = Math.max(0, Math.min(items.length - 1, index));
+    tutorialIndex = safeIndex;
+    const [, body] = items[safeIndex];
+    refs.tutorialText.textContent = language === "en"
+      ? `Step ${safeIndex + 1} of ${items.length}: ${body}`
+      : `Шаг ${safeIndex + 1} из ${items.length}: ${body}`;
+    refs.tutorialSteps.innerHTML = items.map(([itemTitle], itemIndex) => {
+      const active = itemIndex === safeIndex ? " active" : "";
+      return `<div class="tutorial-step${active}"><b>${itemIndex + 1}</b><span>${escapeHtml(itemTitle)}</span></div>`;
+    }).join("");
+    refs.tutorialNextButton.textContent = safeIndex === items.length - 1
+      ? (language === "en" ? "Again" : "Сначала")
+      : textFor(language).tutorialNext;
   }
 
   function updateLayoutMetrics({ cols, rows, onlineConnected }) {
@@ -110,11 +316,19 @@ export function createUi(options = {}) {
 
   function resizeCanvas(canvas, width, height) {
     const ratio = Math.max(1, Math.min(3, windowRef.devicePixelRatio || 1));
-    canvas.width = Math.max(1, Math.floor(width * ratio));
-    canvas.height = Math.max(1, Math.floor(height * ratio));
+    const targetWidth = Math.max(1, Math.floor(width * ratio));
+    const targetHeight = Math.max(1, Math.floor(height * ratio));
+    const cached = canvasSizes.get(canvas);
+    if (cached?.width === targetWidth && cached?.height === targetHeight && cached?.ratio === ratio) {
+      return canvas.getContext("2d");
+    }
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    canvasSizes.set(canvas, { width: targetWidth, height: targetHeight, ratio });
     const context = canvas.getContext("2d");
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.imageSmoothingEnabled = true;
+    return context;
   }
 
   function round(context, x, y, w, h, r, fill, stroke) {
@@ -347,8 +561,9 @@ export function createUi(options = {}) {
     }
     refs.onlinePanel.classList.add("active");
     const timer = tournament?.active ? `<div class="online-timer">Турнир: ${formatTime(tournament.timeLeftMs)}</div>` : "";
+    const label = room === "AI" ? textFor(refs.languageSelect.value).ai : `Онлайн ${escapeHtml(room)}`;
     refs.onlinePanel.innerHTML = timer +
-      `<div class="mission done"><span>Онлайн ${escapeHtml(room)}</span><b>${players.length}</b></div>` +
+      `<div class="mission done"><span>${label}</span><b>${players.length}</b></div>` +
       players.map((player) => `<div class="online-player"><span>${escapeHtml(player.name)}</span><b>${player.score}</b></div>`).join("");
   }
 
@@ -484,11 +699,20 @@ export function createUi(options = {}) {
   function bindControls(callbacks) {
     bindPress(refs.startButton, callbacks.startGame);
     bindPress(refs.continueButton, callbacks.loadCurrentGame);
+    bindPress(refs.aiButton, callbacks.startAiGame);
     bindPress(refs.startSettingsButton, callbacks.openSettings);
     bindPress(refs.installButton, callbacks.installApp);
     bindPress(refs.openStatsButton, callbacks.openStats);
     bindPress(refs.helpButton, callbacks.openHelp);
     bindPress(refs.closeHelpButton, callbacks.closeHelp);
+    bindPress(refs.tutorialButton, callbacks.openTutorial);
+    bindPress(refs.tutorialNextButton, () => {
+      const language = refs.languageSelect.value || "ru";
+      const nextIndex = (tutorialIndex + 1) % tutorialItems(language).length;
+      renderTutorial(language, nextIndex);
+    });
+    bindPress(refs.tutorialPlayButton, callbacks.startTutorialGame);
+    bindPress(refs.closeTutorialButton, callbacks.closeTutorial);
     bindPress(refs.closeCoachButton, callbacks.closeCoach);
     bindPress(refs.onlineButton, callbacks.openOnline);
     bindPress(refs.connectOnlineButton, callbacks.toggleOnlineConnection);
@@ -519,9 +743,11 @@ export function createUi(options = {}) {
     bindPress(refs.dropButton, callbacks.hardDrop);
 
     refs.themeSelect.addEventListener("change", () => callbacks.changeSetting("theme", refs.themeSelect.value));
+    refs.languageSelect.addEventListener("change", () => callbacks.changeSetting("language", refs.languageSelect.value));
     refs.controlModeSelect.addEventListener("change", () => callbacks.changeSetting("controlMode", refs.controlModeSelect.value));
     refs.sensitivitySelect.addEventListener("change", () => callbacks.changeSetting("sensitivityPreset", refs.sensitivitySelect.value));
     refs.handednessSelect.addEventListener("change", () => callbacks.changeSetting("handedness", refs.handednessSelect.value));
+    refs.performanceSelect.addEventListener("change", () => callbacks.changeSetting("performanceMode", refs.performanceSelect.value));
     refs.vibrationToggle.addEventListener("change", () => callbacks.changeSetting("vibration", refs.vibrationToggle.checked));
     refs.volumeRange.addEventListener("input", () => callbacks.changeSetting("volume", Number(refs.volumeRange.value)));
   }

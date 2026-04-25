@@ -1,6 +1,6 @@
 # BlockDrop Web Game
 
-Browser Tetris-style game with Russian UI, solo modes, local saves, server records, and online PvP rooms.
+Browser Tetris-style game with multilingual UI, solo modes, AI practice, local saves, server records, and online PvP rooms.
 
 Live demo: [http://45.148.117.119/](http://45.148.117.119/)
 
@@ -11,6 +11,10 @@ Live demo: [http://45.148.117.119/](http://45.148.117.119/)
 - Local stats, best score, autosave, achievements, and server leaderboard.
 - Web Audio API sound effects for move, rotate, hard drop, line clear, Tetris, combo, level up, game over, and PvP attacks.
 - Online rooms with garbage attacks, tournament timer, and opponent progress silhouette.
+- AI opponent for offline practice when online PvP is inconvenient.
+- Russian and English UI from the settings menu.
+- Interactive beginner tutorial in the How to Play section.
+- Mobile rendering optimization: canvas resize caching plus a battery performance mode.
 - Offline-friendly assets plus PWA files for secure hosts.
 
 Current mobile screenshots:
@@ -21,8 +25,9 @@ Current mobile screenshots:
 ## Controls
 
 - Keyboard: arrows or WASD to move, Up/W/X to rotate, Space/Z for hard drop, C for hold, P/Esc for pause.
-- Touch: tap to rotate, swipe left or right to move, short swipe down for soft drop, long swipe down for hard drop.
-- Settings include swipe sensitivity, DAS, ARR, theme, large buttons, vibration, ghost piece, and sound volumes.
+- Touch: tap to rotate, double tap to rotate back, swipe left or right to move, swipe down for soft drop, fast swipe down for hard drop, long press for hold.
+- Main menu includes quick access to Stats and How to Play.
+- Settings include language, performance mode, swipe sensitivity, handedness, theme, vibration, and one volume slider.
 
 ## Installation
 
@@ -71,6 +76,7 @@ Refactor status:
 - `js/audio.js` owns sound setup and playback helpers.
 - `js/online.js` owns WebSocket/PvP helpers and message handling utilities.
 - `js/storage.js` owns local persistence helpers.
+- `js/ui.js` also applies lightweight runtime translations for Russian and English.
 
 Useful scripts:
 
@@ -97,6 +103,7 @@ Current automated coverage:
 
 - Vitest: piece generation, 7-bag randomizer, collisions, SRS kicks, line clears, scoring, hold, game over, garbage and attack logic.
 - Playwright: app loads, game starts, piece input works, pause works, game over overlay can be shown.
+- Screenshot smoke checks are used before releases to refresh `screenshots/menu-mobile.png` and `screenshots/game-mobile.png`.
 
 ## Online
 
@@ -117,7 +124,7 @@ Server notes:
 - Split `js/game.js` further into smaller runtime modules such as scene, HUD state, coach logic, and PWA bootstrap.
 - Expand Playwright coverage for mobile layouts and online flows.
 - Add stricter server-side score authority for ranked rooms.
-- Add richer tournament views and replay/training tools.
+- Add richer tournament views, replay tools, and a deeper AI difficulty selector.
 - Add more media such as a short gameplay GIF.
 
 ## Known Issues
