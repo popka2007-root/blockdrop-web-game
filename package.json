@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "lint": "node scripts/lint.js",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""
@@ -16,6 +16,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.53.0",
+    "eslint": "^9.25.1",
+    "globals": "^15.15.0",
     "prettier": "^3.3.3",
     "vitest": "^2.1.9"
   }

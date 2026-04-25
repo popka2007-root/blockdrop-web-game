@@ -2,29 +2,27 @@
 
 Browser Tetris-style game with Russian UI, solo modes, local saves, server records, and online PvP rooms.
 
-Live demo:
-
-```text
-http://45.148.117.119/
-```
-
-GitHub Pages can host the offline solo version. The Node.js server is still required for WebSocket rooms and server records.
+Live demo: [http://45.148.117.119/](http://45.148.117.119/)
 
 ## Features
 
-- 10x20 playfield, ghost piece, hold, next queue, 7-bag randomizer.
-- SRS-style wall kicks, lock delay, DAS/ARR settings, soft drop and hard drop.
-- Classic, 40 lines, Zen, and Chaos modes.
-- Score, levels, local records, server records, achievements, and autosave.
+- 10x20 playfield with ghost piece, hold, next queue, 7-bag randomizer, SRS wall kicks, DAS/ARR, and lock delay.
+- Classic, 40 Lines, Zen, and Chaos modes.
+- Local stats, best score, autosave, achievements, and server leaderboard.
 - Web Audio API sound effects for move, rotate, hard drop, line clear, Tetris, combo, level up, game over, and PvP attacks.
-- Online PvP rooms with 1v1, tournament timer, garbage attacks, and opponent progress silhouette.
-- PWA manifest and service worker for offline solo play on secure hosts.
+- Online rooms with garbage attacks, tournament timer, and opponent progress silhouette.
+- Offline-friendly assets plus PWA files for secure hosts.
+
+Current mobile screenshots:
+
+![Mobile menu](screenshots/menu-mobile.png)
+![Mobile gameplay](screenshots/game-mobile.png)
 
 ## Controls
 
 - Keyboard: arrows or WASD to move, Up/W/X to rotate, Space/Z for hard drop, C for hold, P/Esc for pause.
-- Touch: tap to rotate, swipe left/right to move, short swipe down for soft drop, long swipe down for hard drop.
-- Settings include swipe sensitivity, DAS, ARR, sound categories, vibration, theme, large buttons, and ghost piece.
+- Touch: tap to rotate, swipe left or right to move, short swipe down for soft drop, long swipe down for hard drop.
+- Settings include swipe sensitivity, DAS, ARR, theme, large buttons, vibration, ghost piece, and sound volumes.
 
 ## Installation
 
@@ -33,13 +31,17 @@ npm install
 npm start
 ```
 
-Open:
+Open [http://localhost:8787](http://localhost:8787).
 
-```text
-http://localhost:8787
-```
+`index.html` still works for static solo play. Online rooms and server records require `server.js`.
 
-The static game can still be opened through `index.html`, but online rooms and server records require `server.js`.
+For a static live demo on GitHub Pages:
+
+1. Push the repository to GitHub.
+2. Enable Pages from the `master` branch.
+3. Open the generated Pages URL.
+
+GitHub Pages cannot run `server.js`, so multiplayer and server records need a VPS or another Node host.
 
 ## Development
 
@@ -56,17 +58,24 @@ js/input.js
 js/audio.js
 js/online.js
 js/storage.js
-screenshots/
 server.js
 tests/
 e2e/
+screenshots/
 ```
 
-`js/game.js` is still the browser coordinator, but core data, config, storage helpers, input normalization, Web Audio playback, and online message builders now live in imported modules instead of being duplicated in the runtime.
+Refactor status:
+
+- `js/game.js` now coordinates state, loop, and module orchestration.
+- `js/ui.js` owns DOM rendering, overlays, HUD, and control bindings.
+- `js/audio.js` owns sound setup and playback helpers.
+- `js/online.js` owns WebSocket/PvP helpers and message handling utilities.
+- `js/storage.js` owns local persistence helpers.
 
 Useful scripts:
 
 ```bash
+npm start
 npm run dev
 npm run lint
 npm test
@@ -76,73 +85,44 @@ npm run format
 
 ## Testing
 
-Unit tests use Vitest and cover:
+Run checks locally:
 
-- piece generation and 7-bag randomizer;
-- collision checks;
-- SRS wall kicks;
-- line clears;
-- scoring;
-- hold;
-- game over;
-- garbage and attack logic.
-
-E2E tests use Playwright and cover:
-
-- page loads;
-- game starts;
-- piece movement input is accepted;
-- pause overlay opens;
-- game over overlay is visible when triggered.
-
-## Online Multiplayer
-
-Run the Node server and share a room URL:
-
-```text
-http://localhost:8787/room/DUEL
+```bash
+npm run lint
+npm test
+npm run test:e2e
 ```
 
-On the public server:
+Current automated coverage:
 
-```text
-http://45.148.117.119/room/DUEL
-```
+- Vitest: piece generation, 7-bag randomizer, collisions, SRS kicks, line clears, scoring, hold, game over, garbage and attack logic.
+- Playwright: app loads, game starts, piece input works, pause works, game over overlay can be shown.
 
-WebSocket messages are validated and rate-limited. Suspicious or oversized messages are closed without crashing existing rooms.
+## Online
 
-## GitHub Pages
+Example room URL:
 
-GitHub Pages can serve the static files for solo play:
+- Local: [http://localhost:8787/room/DUEL](http://localhost:8787/room/DUEL)
+- Public: [http://45.148.117.119/room/DUEL](http://45.148.117.119/room/DUEL)
 
-1. Push the repository to GitHub.
-2. Open repository settings.
-3. Enable Pages from the `master` branch.
-4. Open the generated Pages URL.
+Server notes:
 
-Known limitation: GitHub Pages cannot run `server.js`, so online rooms and server records need a VPS/Node host.
-
-## Screenshots / GIF
-
-Current mobile screenshots:
-
-![Mobile menu](screenshots/menu-mobile.png)
-![Mobile gameplay](screenshots/game-mobile.png)
-
-Good next media task: add a short gameplay GIF after visual polish stabilizes.
+- WebSocket messages are validated.
+- Oversized and suspicious payloads are closed.
+- Update and attack messages are rate-limited.
+- The current system is room-safe, but not fully server-authoritative for competitive anti-cheat yet.
 
 ## Roadmap
 
-- Move more runtime code from `js/game.js` into smaller imported modules.
-- Split the browser coordinator into scene, rendering, HUD, and online controller modules.
-- Add HTTPS/domain deployment so PWA install works on the public server IP replacement.
-- Add stricter server-side scoring validation for competitive rooms.
-- Add mobile-first HUD variants for very small screens.
-- Add persistent server leaderboard UI filters.
+- Split `js/game.js` further into smaller runtime modules such as scene, HUD state, coach logic, and PWA bootstrap.
+- Expand Playwright coverage for mobile layouts and online flows.
+- Add stricter server-side score authority for ranked rooms.
+- Add richer tournament views and replay/training tools.
+- Add more media such as a short gameplay GIF.
 
 ## Known Issues
 
-- The current public URL is plain HTTP, so full PWA install is limited by browser security rules.
-- `js/game.js` still contains the browser runtime, but it now delegates shared mechanics and helpers to real modules.
-- The WebSocket server validates message shape and rate-limits traffic, but competitive anti-cheat is not authoritative yet.
-- Playwright requires browser binaries. In CI this is handled by `npx playwright install --with-deps chromium`.
+- The public IP URL is plain HTTP, so full install/PWA behavior is limited by browser security rules.
+- Competitive multiplayer still trusts some client-reported values; this is fine for casual rooms, but not ideal for ranked play.
+- Playwright needs browser binaries available in the environment.
+- Vite shows a deprecation warning for the CJS Node API in the current test config; tests still pass.

@@ -354,10 +354,14 @@ function safeClose(client, reason = "Policy violation") {
   removeClient(client);
   try {
     sendFrame(client.socket, JSON.stringify({ type: "error", message: reason }));
-  } catch {}
+  } catch {
+    client.socket = null;
+  }
   try {
     client.socket.end();
-  } catch {}
+  } catch {
+    return;
+  }
 }
 
 function scheduleTournamentEnd(roomId, delay) {
