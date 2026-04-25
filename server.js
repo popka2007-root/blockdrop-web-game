@@ -33,7 +33,14 @@ const server = http.createServer((req, res) => {
   }
 
   const pathname = requestUrl.pathname === "/" || /^\/room\/[A-Z0-9]+$/i.test(requestUrl.pathname) ? "/index.html" : requestUrl.pathname;
-  const safePath = path.normalize(decodeURIComponent(pathname)).replace(/^([/\\])/, "").replace(/^(\.\.[/\\])+/, "");
+  const decodedPathname = safeDecodePath(pathname);
+  if (!decodedPathname) {
+    res.writeHead(400);
+    res.end("Bad request");
+    return;
+  }
+
+  const safePath = path.normalize(decodedPathname).replace(/^([/\\])/, "").replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(ROOT, safePath);
 
   if (!filePath.startsWith(ROOT)) {
@@ -55,6 +62,14 @@ const server = http.createServer((req, res) => {
     res.end(data);
   });
 });
+
+function safeDecodePath(pathname) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return "";
+  }
+}
 
 function handleRecordsApi(req, res) {
   if (req.method === "GET") {
