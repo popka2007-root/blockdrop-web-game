@@ -49,12 +49,12 @@
         </div>
 
         <div class="panel tiny-grid" id="statsPanel">
-          <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
-          <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
-          <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
-          <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
-          <div class="mini-stat"><b id="apmValue">0</b><span>APM</span></div>
-          <div class="mini-stat"><b id="heightValue">0</b><span>Высота</span></div>
+        <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
+        <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
+        <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
+        <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
+        <div class="mini-stat hidden"><b id="apmValue">0</b><span>APM</span></div>
+        <div class="mini-stat hidden"><b id="heightValue">0</b><span>Высота</span></div>
         </div>
 
         <div class="online-panel" id="onlinePanel"></div>
@@ -101,9 +101,12 @@
       <div class="modal-actions">
         <button class="button primary" id="startButton">Начать игру</button>
         <button class="button" id="continueButton">Продолжить</button>
+        <button class="button" id="aiButton">AI соперник</button>
         <button class="button" id="startSettingsButton">Настройки</button>
         <button class="button hidden" id="installButton">Установить офлайн</button>
         <button class="button" id="onlineButton">Онлайн-комната</button>
+        <button class="button" id="openStatsButton">Статистика</button>
+        <button class="button" id="helpButton">Как играть</button>
       </div>
     </div>
   </section>
@@ -135,6 +138,13 @@
           </select>
         </div>
         <div class="setting">
+          <label for="languageSelect">Язык</label>
+          <select class="select" id="languageSelect">
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <div class="setting">
           <label for="controlModeSelect">Управление</label>
           <select class="select" id="controlModeSelect">
             <option value="gestures">Свайпы</option>
@@ -157,6 +167,14 @@
             <option value="left">Левая</option>
           </select>
         </div>
+        <div class="setting">
+          <label for="performanceSelect">Производительность</label>
+          <select class="select" id="performanceSelect">
+            <option value="auto">Авто</option>
+            <option value="battery">Экономия</option>
+            <option value="quality">Качество</option>
+          </select>
+        </div>
         <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
         <div class="setting">
           <label for="volumeRange">Звук</label>
@@ -164,8 +182,6 @@
         </div>
       </div>
       <div class="modal-actions">
-        <button class="button" id="openStatsButton">Статистика</button>
-        <button class="button" id="helpButton">Как играть</button>
         <button class="button primary" id="closeSettingsButton">Готово</button>
       </div>
     </div>
@@ -213,7 +229,21 @@
       </div>
       <p class="muted">На клавиатуре также работают стрелки, пробел, C, Q и P.</p>
       <div class="modal-actions">
+        <button class="button" id="tutorialButton">Обучение</button>
         <button class="button primary" id="closeHelpButton">Понятно</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="overlay" id="tutorialOverlay" hidden>
+    <div class="modal tutorial-modal">
+      <h2>Обучение</h2>
+      <p class="muted" id="tutorialText">Шаг 1 из 5: двигай фигуру свайпом влево или вправо. На клавиатуре работают стрелки.</p>
+      <div class="result-grid tutorial-steps" id="tutorialSteps"></div>
+      <div class="modal-actions">
+        <button class="button" id="tutorialNextButton">Дальше</button>
+        <button class="button primary" id="tutorialPlayButton">Попробовать</button>
+        <button class="button" id="closeTutorialButton">Закрыть</button>
       </div>
     </div>
   </section>

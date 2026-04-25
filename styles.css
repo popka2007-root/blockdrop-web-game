@@ -819,6 +819,42 @@ input[type="checkbox"] {
   font-weight: 700;
 }
 
+.tutorial-steps {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.tutorial-step {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 7px 4px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.tutorial-step b {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text);
+}
+
+.tutorial-step.active {
+  color: #061318;
+  background: var(--accent);
+}
+
+.tutorial-step.active b {
+  background: rgba(6, 19, 24, 0.16);
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -1011,6 +1047,17 @@ body.reduced-motion *::after {
 
   .mini-stat span {
     font-size: 7px;
+  }
+
+  .tutorial-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-step {
+    min-height: 38px;
+    grid-template-columns: 28px 1fr;
+    justify-items: start;
+    text-align: left;
   }
 
   .toast {

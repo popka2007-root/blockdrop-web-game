@@ -179,6 +179,14 @@ import { createBag } from "./game-core.js";
       peers: {},
       tournament: null,
       lastSent: 0
+    },
+    ai: {
+      enabled: false,
+      score: 0,
+      height: 0,
+      elapsedMs: 0,
+      attackMs: 0,
+      name: "AI"
     }
   };
 
@@ -209,6 +217,8 @@ import { createBag } from "./game-core.js";
       colorBlind: false,
       autoPause: true,
       reducedMotion: false,
+      language: "ru",
+      performanceMode: "auto",
       ...makeAudioSettings(),
       ...storage.loadSettings({})
     };
@@ -243,12 +253,14 @@ import { createBag } from "./game-core.js";
     Object.assign(state.settings, normalizeControls(state.settings));
     state.settings.grid = true;
     state.settings.danger = true;
-    state.settings.particles = true;
+    state.settings.performanceMode = ["auto", "battery", "quality"].includes(state.settings.performanceMode) ? state.settings.performanceMode : "auto";
+    state.settings.particles = state.settings.performanceMode !== "battery";
     state.settings.colorBlind = false;
     state.settings.ghost = true;
     state.settings.bigButtons = false;
     state.settings.autoPause = true;
-    state.settings.reducedMotion = false;
+    state.settings.reducedMotion = state.settings.performanceMode === "battery";
+    state.settings.language = ["ru", "en"].includes(state.settings.language) ? state.settings.language : "ru";
     state.settings.volume = clamp(Number(state.settings.volume) || 0, 0, 100);
     state.settings.moveVolume = state.settings.volume;
     state.settings.clearVolume = state.settings.volume;
@@ -298,7 +310,7 @@ import { createBag } from "./game-core.js";
     return true;
   }
 
-  function startGame(mode = ui.getStartMode(), difficulty = "normal") {
+  function startGame(mode = ui.getStartMode(), difficulty = "normal", options = {}) {
     difficulty = "normal";
     state.board = makeBoard();
     state.active = null;
@@ -335,6 +347,12 @@ import { createBag } from "./game-core.js";
     state.lockDelayMs = 0;
     state.lockResets = 0;
     state.flashes = [];
+    state.ai.enabled = Boolean(options.ai);
+    state.ai.score = 0;
+    state.ai.height = 0;
+    state.ai.elapsedMs = 0;
+    state.ai.attackMs = 0;
+    state.ai.name = state.settings.language === "en" ? "AI bot" : "Бот";
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
@@ -344,6 +362,11 @@ import { createBag } from "./game-core.js";
     buzz(8);
     syncUi();
     saveCurrentGame();
+  }
+
+  function startAiGame() {
+    startGame("classic", "normal", { ai: true });
+    showToast(state.settings.language === "en" ? "AI opponent joined" : "AI соперник подключён");
   }
 
   function spawn() {
@@ -582,12 +605,16 @@ import { createBag } from "./game-core.js";
 
   function sendAttackForClear(count) {
     const lines = attackLinesForClear(count);
-    if (!lines || !state.online.connected) return;
+    if (!lines || (!state.online.connected && !state.ai.enabled)) return;
     state.sentGarbage += lines;
-    sendAttack(onlineClient, state.online.room, lines);
+    if (state.online.connected) sendAttack(onlineClient, state.online.room, lines);
+    if (state.ai.enabled) {
+      state.ai.height = Math.max(0, state.ai.height - lines);
+      state.ai.attackMs = Math.max(0, state.ai.attackMs - lines * 1200);
+    }
     playEvent("attack", { duration: 0.09 });
     burst(12);
-    showToast(`Атака соперникам: +${lines}`);
+    showToast(state.ai.enabled && !state.online.connected ? `Атака AI: +${lines}` : `Атака соперникам: +${lines}`);
   }
 
   function addScore(value) {
@@ -697,6 +724,7 @@ import { createBag } from "./game-core.js";
         move(0, 1, false);
       }
       updateLockDelay(delta);
+      updateAiOpponent(delta);
     }
 
     state.flashes = state.flashes
@@ -705,6 +733,21 @@ import { createBag } from "./game-core.js";
     draw();
     syncUi();
     requestAnimationFrame(update);
+  }
+
+  function updateAiOpponent(delta) {
+    if (!state.ai.enabled) return;
+    state.ai.elapsedMs += delta;
+    state.ai.attackMs += delta;
+    state.ai.score += delta * (0.045 + state.level * 0.004);
+    const wave = Math.sin(state.ai.elapsedMs / 5200) * 2;
+    state.ai.height = Math.max(2, Math.min(16, Math.round(4 + state.level * 0.35 + state.ai.elapsedMs / 42000 + wave)));
+    const attackInterval = Math.max(9000, 21000 - state.level * 520);
+    if (state.ai.attackMs >= attackInterval) {
+      state.ai.attackMs = 0;
+      const lines = state.level >= 7 && Math.random() > 0.55 ? 2 : 1;
+      receiveGarbage(lines, state.ai.name);
+    }
   }
 
   function ghostPiece() {
@@ -978,6 +1021,20 @@ import { createBag } from "./game-core.js";
   }
 
   function renderOnlinePanel() {
+    if (state.ai.enabled) {
+      ui.renderOnlinePanel({
+        connected: true,
+        room: "AI",
+        tournament: null,
+        players: [{
+          name: state.ai.name,
+          score: Math.round(state.ai.score),
+          status: state.settings.language === "en" ? "Training" : "Тренировка"
+        }],
+        formatTime
+      });
+      return;
+    }
     const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score).slice(0, 4);
     ui.renderOnlinePanel({
       connected: state.online.connected,
@@ -998,6 +1055,7 @@ import { createBag } from "./game-core.js";
   }
 
   function opponentHeight() {
+    if (state.ai.enabled) return state.ai.height;
     return Object.values(state.online.peers || {})
       .filter((p) => p.id !== state.online.id && Number.isFinite(Number(p.height)))
       .sort((a, b) => b.score - a.score)[0]?.height || 0;
@@ -1049,6 +1107,7 @@ import { createBag } from "./game-core.js";
       return;
     }
     Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
+    state.ai.enabled = false;
     state.sessionHistory = Array.isArray(save.sessionHistory) ? save.sessionHistory : [];
     state.difficulty = "normal";
     state.rng = Math.random;
@@ -1059,21 +1118,14 @@ import { createBag } from "./game-core.js";
   }
 
   function renderStats() {
-    const average = state.stats.games ? Math.round(state.stats.totalScore / state.stats.games) : 0;
     const statsRows = [
       ["Игр сыграно", state.stats.games],
       ["Лучший счёт", state.stats.bestScore],
-      ["Средний счёт", average],
       ["Всего линий", state.stats.totalLines],
-      ["Всего фигур", state.stats.totalPieces],
       ["Лучший уровень", state.stats.bestLevel],
       ["Лучшее комбо", state.stats.bestCombo],
-      ["Резких сбросов", state.stats.totalHardDrops],
-      ["Запасов", state.stats.totalHolds],
-      ["Поворотов", state.stats.totalRotations],
-      ["Движений", state.stats.totalMoves],
       ["Время в игре", formatTime(state.stats.totalTime * 1000)]
-    ].filter((_, index) => index !== 8);
+    ];
 
     ui.renderStats({
       statsRows,
@@ -1530,12 +1582,16 @@ import { createBag } from "./game-core.js";
   function bindUi() {
     ui.bindControls({
       startGame: () => startGame(),
+      startAiGame: () => { startAiGame(); syncUi(); },
       loadCurrentGame: () => { loadCurrentGame(); syncUi(); },
       openSettings: () => { openSettings(); syncUi(); },
       installApp,
       openStats: () => { openStats(); syncUi(); },
       openHelp: () => { ui.showOverlay("helpOverlay"); syncUi(); },
       closeHelp: () => { ui.hideOverlay("helpOverlay"); syncUi(); },
+      openTutorial: () => { ui.hideOverlay("helpOverlay"); ui.showOverlay("tutorialOverlay"); syncUi(); },
+      closeTutorial: () => { ui.hideOverlay("tutorialOverlay"); syncUi(); },
+      startTutorialGame: () => { ui.hideOverlay("tutorialOverlay"); startGame("classic", "normal"); showToast("Тренировка началась"); syncUi(); },
       closeCoach: () => { ui.hideOverlay("coachOverlay"); syncUi(); },
       openOnline: () => { openOnline(); syncUi(); },
       toggleOnlineConnection: () => { toggleOnlineConnection(); syncUi(); },
