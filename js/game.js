@@ -197,6 +197,10 @@ import { createBag } from "./game-core.js";
 
   const audioPlayer = createWebAudioPlayer(() => state.settings);
 
+  function ensureAudio() {
+    audioPlayer.resume();
+  }
+
   function makeBoard() {
     return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   }
@@ -308,14 +312,20 @@ import { createBag } from "./game-core.js";
     document.body.classList.toggle("layout-short", short);
 
     const sideWidth = stacked ? Math.max(0, appRect.width - gap * 2) : clamp(Math.round(appRect.width * (wide ? 0.20 : 0.23)), 74, wide ? 156 : 108);
-    const stackedSideHeight = stacked ? (state.online.connected ? 126 : 94) : 0;
     const boardAvailWidth = stacked ? appRect.width - gap * 2 - 14 : appRect.width - sideWidth - gap - 14;
-    const boardAvailHeight = stacked ? availableHeight - stackedSideHeight - gap - 14 : availableHeight - 14;
-    const cell = Math.max(12, Math.floor(Math.min(boardAvailWidth / COLS, boardAvailHeight / ROWS)));
+    const widthCell = boardAvailWidth / COLS;
+    const estimatedStackedAuxHeight = stacked
+      ? appRect.width <= 420
+        ? (state.online.connected ? 204 : 170)
+        : (state.online.connected ? 220 : 182)
+      : 0;
+    const boardAvailHeight = stacked ? availableHeight - estimatedStackedAuxHeight - gap - 14 : availableHeight - 14;
+    const cellFloor = stacked && appRect.width <= 420 ? 10 : 12;
+    const cell = Math.max(cellFloor, Math.floor(Math.min(widthCell, boardAvailHeight / ROWS)));
     const boardWidth = cell * COLS;
     const boardHeight = cell * ROWS;
     const boardPad = cell <= 18 ? 5 : cell <= 26 ? 6 : 8;
-    const previewMain = clamp(Math.round((stacked ? boardWidth / 3 : sideWidth) - boardPad * 2), 44, wide ? 104 : 86);
+    const previewMain = clamp(Math.round((stacked ? boardWidth / 4.2 : sideWidth) - boardPad * 2), 36, wide ? 104 : 86);
     const previewSmall = clamp(Math.round(previewMain * 0.76), 34, 72);
 
     document.documentElement.style.setProperty("--layout-gap", `${gap}px`);

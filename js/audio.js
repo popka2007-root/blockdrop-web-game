@@ -79,5 +79,9 @@ export function createWebAudioPlayer(settingsProvider, audioContextFactory = nul
     oscillator.stop(now + duration + 0.03);
   }
 
-  return { playTone };
+  function resume() {
+    ensureAudio();
+  }
+
+  return { playTone, resume };
 }
