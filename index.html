@@ -25,6 +25,14 @@
       --shadow: rgba(0, 0, 0, 0.28);
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --layout-gap: 10px;
+      --side-width: 104px;
+      --board-width: 320px;
+      --board-height: 640px;
+      --game-area-height: 640px;
+      --board-pad: 8px;
+      --preview-main: 76px;
+      --preview-small: 58px;
     }
 
     [data-theme="day"] {
@@ -100,7 +108,7 @@
     }
 
     .app {
-      width: min(100%, 520px);
+      width: min(100%, 880px);
       height: calc(100vh - var(--safe-top) - var(--safe-bottom) - 16px);
       height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px);
       min-height: 0;
@@ -323,19 +331,21 @@
 
     .game-layout {
       min-height: 0;
-      height: min(100%, calc(100dvh - 252px));
+      height: var(--game-area-height);
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 104px;
-      gap: 10px;
-      align-items: stretch;
+      grid-template-columns: minmax(0, calc(var(--board-width) + var(--board-pad) * 2)) var(--side-width);
+      gap: var(--layout-gap);
+      align-items: start;
+      justify-content: center;
     }
 
     .board-shell {
       position: relative;
       min-height: 0;
-      height: 100%;
+      width: calc(var(--board-width) + var(--board-pad) * 2);
+      height: calc(var(--board-height) + var(--board-pad) * 2);
       border-radius: 10px;
-      padding: 8px;
+      padding: var(--board-pad);
       border: 1px solid var(--line);
       background: rgba(0, 0, 0, 0.26);
       box-shadow: 0 20px 50px var(--shadow);
@@ -354,9 +364,9 @@
       position: relative;
       z-index: 1;
       display: block;
-      width: auto;
+      width: var(--board-width);
       max-width: 100%;
-      height: 100%;
+      height: var(--board-height);
       margin: 0 auto;
       aspect-ratio: 1 / 2;
       border-radius: 8px;
@@ -366,9 +376,9 @@
     .danger-band {
       position: absolute;
       z-index: 2;
-      left: 8px;
-      right: 8px;
-      top: 8px;
+      left: var(--board-pad);
+      right: var(--board-pad);
+      top: var(--board-pad);
       height: 15%;
       pointer-events: none;
       background: linear-gradient(180deg, rgba(255, 95, 109, 0.20), transparent);
@@ -383,8 +393,13 @@
     .side {
       display: grid;
       align-content: start;
-      gap: 10px;
+      width: var(--side-width);
+      gap: var(--layout-gap);
       overflow: hidden;
+    }
+
+    .side > * {
+      min-width: 0;
     }
 
     .panel {
@@ -404,15 +419,15 @@
 
     canvas.preview {
       display: block;
-      width: 76px;
-      height: 76px;
+      width: var(--preview-main);
+      height: var(--preview-main);
       margin: 0 auto;
     }
 
     #next2,
     #next3 {
-      width: 58px;
-      height: 58px;
+      width: var(--preview-small);
+      height: var(--preview-small);
       opacity: 0.82;
     }
 
@@ -450,14 +465,14 @@
 
     .controls {
       display: grid;
-      gap: 8px;
+      gap: var(--layout-gap);
       min-height: 0;
     }
 
     .controls-row {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      gap: var(--layout-gap);
     }
 
     .controls-row.bottom {
@@ -479,6 +494,54 @@
     body.controls-hybrid .control-buttons,
     body.controls-buttons .control-buttons {
       display: grid;
+    }
+
+    body.layout-stacked .game-layout {
+      grid-template-columns: minmax(0, calc(var(--board-width) + var(--board-pad) * 2));
+      grid-template-rows: auto auto;
+      height: auto;
+    }
+
+    body.layout-stacked .side {
+      width: min(100%, calc(var(--board-width) + var(--board-pad) * 2));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-areas:
+        "next hold stats"
+        "online online online";
+      align-content: stretch;
+    }
+
+    body.layout-stacked #nextPanel {
+      grid-area: next;
+    }
+
+    body.layout-stacked #holdPanel {
+      grid-area: hold;
+    }
+
+    body.layout-stacked #statsPanel {
+      grid-area: stats;
+    }
+
+    body.layout-stacked #onlinePanel {
+      grid-area: online;
+    }
+
+    body.layout-stacked #onlinePanel.active {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+    }
+
+    body.layout-stacked .tiny-grid {
+      grid-template-columns: 1fr;
+    }
+
+    body.layout-short .status-card b {
+      font-size: 12px;
+    }
+
+    body.layout-wide .app {
+      width: min(100%, 980px);
     }
 
     .select {
@@ -844,17 +907,6 @@
         padding: 5px 7px;
       }
 
-      .game-layout {
-        grid-template-columns: minmax(0, 1fr) 76px;
-        gap: 6px;
-        height: min(100%, calc(100dvh - 178px));
-      }
-
-      body.controls-hybrid .game-layout,
-      body.controls-buttons .game-layout {
-        height: min(100%, calc(100dvh - 268px));
-      }
-
       .board-shell {
         padding: 5px;
       }
@@ -919,14 +971,14 @@
 </head>
 <body>
   <main class="app" id="app">
-    <section class="topbar">
+    <section class="topbar" id="topbar">
       <div class="stat"><div class="stat-label">Счёт</div><div class="stat-value" id="scoreValue">0</div></div>
       <div class="stat"><div class="stat-label">Уровень</div><div class="stat-value" id="levelValue">1</div></div>
       <div class="stat"><div class="stat-label">Линии</div><div class="stat-value" id="linesValue">0</div></div>
       <button class="icon-button" id="pauseButton" aria-label="Пауза">II</button>
     </section>
 
-    <section class="status-strip">
+    <section class="status-strip" id="statusStrip">
       <div class="status-card">
         <span>Цель</span>
         <b id="goalValue">Выжить</b>
@@ -935,26 +987,26 @@
       <div class="status-card"><span>Ранг</span><b id="rankValue">Новичок</b></div>
     </section>
 
-    <section class="game-layout">
+    <section class="game-layout" id="gameLayout">
       <div class="board-shell" id="boardShell">
         <div class="danger-band"></div>
         <canvas id="board" width="320" height="640"></canvas>
       </div>
 
-      <aside class="side">
-        <div class="panel">
+      <aside class="side" id="sidePanel">
+        <div class="panel" id="nextPanel">
           <div class="panel-title">Дальше</div>
           <canvas class="preview" id="next1" width="76" height="76"></canvas>
           <canvas class="preview" id="next2" width="58" height="58"></canvas>
           <canvas class="preview" id="next3" width="58" height="58"></canvas>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="holdPanel">
           <div class="panel-title">Запас</div>
           <canvas class="preview" id="hold" width="76" height="76"></canvas>
         </div>
 
-        <div class="panel tiny-grid">
+        <div class="panel tiny-grid" id="statsPanel">
           <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
           <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
           <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
@@ -967,7 +1019,7 @@
       </aside>
     </section>
 
-    <section class="controls">
+    <section class="controls" id="controls">
       <div class="controls-row control-buttons">
         <button class="button" id="leftButton">←</button>
         <button class="button" id="rotateButton">Поворот</button>
@@ -1007,6 +1059,7 @@
       <div class="modal-actions">
         <button class="button primary" id="startButton">Начать игру</button>
         <button class="button" id="continueButton">Продолжить сохранение</button>
+        <button class="button hidden" id="installButton">Установить офлайн</button>
         <button class="button" id="onlineButton">Онлайн-комната</button>
         <button class="button" id="openStatsButton">Статистика</button>
         <button class="button" id="helpButton">Как играть</button>
@@ -1048,12 +1101,28 @@
             <option value="buttons">Только кнопки</option>
           </select>
         </div>
+        <div class="setting">
+          <label for="sensitivityRange">Чувствительность свайпа</label>
+          <div class="range-row"><input id="sensitivityRange" type="range" min="12" max="42" value="24"><span id="sensitivityValue">24</span></div>
+        </div>
         <label class="check-row">Призрачная фигура <input id="ghostToggle" type="checkbox" checked></label>
         <label class="check-row">Крупные кнопки <input id="bigButtonsToggle" type="checkbox"></label>
         <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
         <div class="setting">
-          <label for="volumeRange">Громкость</label>
+          <label for="volumeRange">Общая громкость</label>
           <div class="range-row"><input id="volumeRange" type="range" min="0" max="100" value="70"><span id="volumeValue">70</span></div>
+        </div>
+        <div class="setting">
+          <label for="moveVolumeRange">Движение</label>
+          <div class="range-row"><input id="moveVolumeRange" type="range" min="0" max="140" value="55"><span id="moveVolumeValue">55</span></div>
+        </div>
+        <div class="setting">
+          <label for="clearVolumeRange">Очистка линий</label>
+          <div class="range-row"><input id="clearVolumeRange" type="range" min="0" max="140" value="100"><span id="clearVolumeValue">100</span></div>
+        </div>
+        <div class="setting">
+          <label for="alertVolumeRange">Атаки и финал</label>
+          <div class="range-row"><input id="alertVolumeRange" type="range" min="0" max="140" value="90"><span id="alertVolumeValue">90</span></div>
         </div>
       </div>
       <div class="modal-actions">
@@ -1317,13 +1386,13 @@
 
       const ui = {};
       for (const id of [
-        "app","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
+        "app","topbar","statusStrip","gameLayout","sidePanel","controls","nextPanel","holdPanel","statsPanel","board","boardShell","next1","next2","next3","hold","scoreValue","levelValue","linesValue","recordValue","comboValue","piecesValue","timeValue",
         "goalValue","progressFill","rankValue","apmValue","heightValue","onlinePanel",
-        "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","openStatsButton","resumeButton",
+        "startOverlay","pauseOverlay","settingsOverlay","statsOverlay","gameOverOverlay","startButton","continueButton","installButton","openStatsButton","resumeButton",
         "playAgainButton","pauseButton","mainMenuButton","pauseMenuButton","gameOverMenuButton","pauseRestartButton","pauseSettingsButton",
         "holdButton","leftButton","rightButton","rotateButton","downButton","dropButton","startMode","themeSelect","controlModeSelect","ghostToggle",
         "bigButtonsToggle","vibrationToggle",
-        "volumeRange","volumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
+        "sensitivityRange","sensitivityValue","volumeRange","volumeValue","moveVolumeRange","moveVolumeValue","clearVolumeRange","clearVolumeValue","alertVolumeRange","alertVolumeValue","closeSettingsButton","closeStatsButton","shareStatsButton","gameOverStatsButton","statsGrid",
         "leaderboard","serverLeaderboard","achievementsList","helpButton","onlineButton","helpOverlay","coachOverlay","coachTips","closeCoachButton","onlineOverlay","onlineServerInput","onlineRoomInput","onlineNameInput",
         "onlineMaxPlayersSelect","onlineDurationSelect","onlinePlayers","onlineStatus","connectOnlineButton","shareRoomButton","startTournamentButton","closeOnlineButton",
         "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
@@ -1335,6 +1404,7 @@
       const ctx = ui.board.getContext("2d");
       const previews = [ui.next1.getContext("2d"), ui.next2.getContext("2d"), ui.next3.getContext("2d")];
       const holdCtx = ui.hold.getContext("2d");
+      let deferredInstallPrompt = null;
 
       const state = {
         board: makeBoard(),
@@ -1361,6 +1431,7 @@
         moves: 0,
         softDrops: 0,
         bestClearInGame: 0,
+        sessionHistory: [],
         running: false,
         paused: false,
         gameOver: false,
@@ -1372,6 +1443,7 @@
         lockResets: 0,
         flashes: [],
         audio: null,
+        layoutObserver: null,
         settings: loadSettings(),
         stats: loadStats(),
         scores: loadJson(STORAGE.scores, []),
@@ -1406,6 +1478,10 @@
         localStorage.setItem(key, JSON.stringify(value));
       }
 
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
       function loadSettings() {
         return {
           theme: "ember",
@@ -1422,6 +1498,9 @@
           autoPause: true,
           reducedMotion: false,
           volume: 70,
+          moveVolume: 55,
+          clearVolume: 100,
+          alertVolume: 90,
           ...loadJson(STORAGE.settings, {})
         };
       }
@@ -1454,25 +1533,77 @@
       function applySettings() {
         document.documentElement.dataset.theme = state.settings.theme === "ember" ? "" : state.settings.theme;
         document.body.classList.toggle("big-buttons", state.settings.bigButtons);
-        state.settings.sensitivity = 24;
+        state.settings.sensitivity = Math.max(12, Math.min(42, Number(state.settings.sensitivity) || 24));
         state.settings.grid = true;
         state.settings.danger = true;
         state.settings.particles = true;
         state.settings.colorBlind = false;
         state.settings.autoPause = true;
         state.settings.reducedMotion = false;
+        state.settings.volume = clamp(Number(state.settings.volume) || 0, 0, 100);
+        state.settings.moveVolume = clamp(Number(state.settings.moveVolume) || 0, 0, 140);
+        state.settings.clearVolume = clamp(Number(state.settings.clearVolume) || 0, 0, 140);
+        state.settings.alertVolume = clamp(Number(state.settings.alertVolume) || 0, 0, 140);
         state.settings.sound = state.settings.volume > 0;
         ui.themeSelect.value = state.settings.theme;
         ui.controlModeSelect.value = state.settings.controlMode;
         ui.ghostToggle.checked = state.settings.ghost;
         ui.bigButtonsToggle.checked = state.settings.bigButtons;
         ui.vibrationToggle.checked = state.settings.vibration;
+        ui.sensitivityRange.value = state.settings.sensitivity;
+        ui.sensitivityValue.textContent = state.settings.sensitivity;
         ui.volumeRange.value = state.settings.volume;
         ui.volumeValue.textContent = state.settings.volume;
+        ui.moveVolumeRange.value = state.settings.moveVolume;
+        ui.moveVolumeValue.textContent = state.settings.moveVolume;
+        ui.clearVolumeRange.value = state.settings.clearVolume;
+        ui.clearVolumeValue.textContent = state.settings.clearVolume;
+        ui.alertVolumeRange.value = state.settings.alertVolume;
+        ui.alertVolumeValue.textContent = state.settings.alertVolume;
         document.body.classList.toggle("reduced-motion", state.settings.reducedMotion);
         document.body.classList.toggle("controls-hybrid", state.settings.controlMode === "hybrid");
         document.body.classList.toggle("controls-buttons", state.settings.controlMode === "buttons");
         saveJson(STORAGE.settings, state.settings);
+        updateLayoutMetrics();
+      }
+
+      function updateLayoutMetrics() {
+        const appRect = ui.app.getBoundingClientRect();
+        if (!appRect.width || !appRect.height) return;
+
+        const gap = appRect.width <= 420 ? 6 : appRect.width >= 760 ? 12 : 8;
+        const topbarHeight = ui.topbar.offsetHeight;
+        const statusHeight = ui.statusStrip.offsetHeight;
+        const controlsHeight = ui.controls.offsetHeight;
+        const availableHeight = Math.max(240, appRect.height - topbarHeight - statusHeight - controlsHeight - gap * 3);
+        const isLandscape = appRect.width / Math.max(1, appRect.height) > 1.15;
+        const stacked = appRect.width < 360 || (isLandscape && appRect.height < 620);
+        const wide = appRect.width >= 760;
+        const short = appRect.height < 700;
+
+        document.body.classList.toggle("layout-stacked", stacked);
+        document.body.classList.toggle("layout-wide", wide);
+        document.body.classList.toggle("layout-short", short);
+
+        const sideWidth = stacked ? Math.max(0, appRect.width - gap * 2) : clamp(Math.round(appRect.width * (wide ? 0.20 : 0.23)), 74, wide ? 156 : 108);
+        const stackedSideHeight = stacked ? (state.online.connected ? 160 : 132) : 0;
+        const boardAvailWidth = stacked ? appRect.width - gap * 2 - 14 : appRect.width - sideWidth - gap - 14;
+        const boardAvailHeight = stacked ? availableHeight - stackedSideHeight - gap - 14 : availableHeight - 14;
+        const cell = Math.max(12, Math.floor(Math.min(boardAvailWidth / COLS, boardAvailHeight / ROWS)));
+        const boardWidth = cell * COLS;
+        const boardHeight = cell * ROWS;
+        const boardPad = cell <= 18 ? 5 : cell <= 26 ? 6 : 8;
+        const previewMain = clamp(Math.round((stacked ? boardWidth / 3 : sideWidth) - boardPad * 2), 44, wide ? 104 : 86);
+        const previewSmall = clamp(Math.round(previewMain * 0.76), 34, 72);
+
+        document.documentElement.style.setProperty("--layout-gap", `${gap}px`);
+        document.documentElement.style.setProperty("--side-width", `${sideWidth}px`);
+        document.documentElement.style.setProperty("--board-width", `${boardWidth}px`);
+        document.documentElement.style.setProperty("--board-height", `${boardHeight}px`);
+        document.documentElement.style.setProperty("--board-pad", `${boardPad}px`);
+        document.documentElement.style.setProperty("--preview-main", `${previewMain}px`);
+        document.documentElement.style.setProperty("--preview-small", `${previewSmall}px`);
+        document.documentElement.style.setProperty("--game-area-height", stacked ? "auto" : `${boardHeight + boardPad * 2}px`);
       }
 
       function refillBag() {
@@ -1552,6 +1683,7 @@
         state.moves = 0;
         state.softDrops = 0;
         state.bestClearInGame = 0;
+        state.sessionHistory = [];
         state.running = true;
         state.paused = false;
         state.gameOver = false;
@@ -1696,12 +1828,31 @@
 
       function lock() {
         if (!state.active) return;
+        const lockedKind = state.active.kind;
+        const beforeMetrics = {
+          holes: countHoles(),
+          height: currentHeight(),
+          bumpiness: surfaceBumpiness()
+        };
         for (const c of cells(state.active)) state.board[c.y][c.x] = state.active.kind;
         state.stats.pieceCounts[state.active.kind] += 1;
         state.pieces += 1;
         state.stats.totalPieces += 1;
         state.active = null;
         const count = clearLines();
+        const afterMetrics = {
+          holes: countHoles(),
+          height: currentHeight(),
+          bumpiness: surfaceBumpiness()
+        };
+        state.sessionHistory.push({
+          kind: lockedKind,
+          clear: count,
+          holesDelta: afterMetrics.holes - beforeMetrics.holes,
+          heightDelta: afterMetrics.height - beforeMetrics.height,
+          bumpinessDelta: afterMetrics.bumpiness - beforeMetrics.bumpiness
+        });
+        if (state.sessionHistory.length > 60) state.sessionHistory.shift();
         if (count > 0) {
           state.combo += 1;
           state.bestComboRun = Math.max(state.bestComboRun, state.combo);
@@ -2124,6 +2275,7 @@
         ui.onlineOverlay.hidden = false;
         renderOnlinePlayers();
         updateOnlineControls();
+        updateLayoutMetrics();
       }
 
       function ensureRoomCode() {
@@ -2187,6 +2339,7 @@
             ui.onlineStatus.textContent = `Комната ${room}`;
             if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(room));
             updateOnlineControls();
+            updateLayoutMetrics();
             showToast(`Онлайн: ${room}`);
           });
 
@@ -2220,6 +2373,7 @@
             ui.onlineStatus.textContent = "Отключено";
             renderOnlinePanel();
             updateOnlineControls();
+            updateLayoutMetrics();
           });
 
           socket.addEventListener("error", () => {
@@ -2240,6 +2394,7 @@
         renderOnlinePanel();
         renderOnlinePlayers();
         updateOnlineControls();
+        updateLayoutMetrics();
         if (show) showToast("Онлайн отключён");
       }
 
@@ -2379,6 +2534,7 @@
           moves: state.moves,
           softDrops: state.softDrops,
           bestClearInGame: state.bestClearInGame,
+          sessionHistory: state.sessionHistory,
           elapsedMs: state.elapsedMs
         });
       }
@@ -2390,9 +2546,11 @@
           return;
         }
         Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
+        state.sessionHistory = Array.isArray(save.sessionHistory) ? save.sessionHistory : [];
         state.difficulty = "normal";
         state.rng = Math.random;
         hideOverlays();
+        updateLayoutMetrics();
         syncUi();
         showToast("Сохранение загружено");
       }
@@ -2475,6 +2633,12 @@
       function gameOverInsight() {
         const holes = countHoles();
         const height = currentHeight();
+        const worstPlacement = state.sessionHistory
+          .filter((step) => step.clear === 0)
+          .sort((a, b) => (b.holesDelta * 4 + b.heightDelta * 2 + b.bumpinessDelta) - (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta))[0];
+        if (worstPlacement && worstPlacement.holesDelta >= 2) {
+          return `<b>Ключевая ошибка: ${worstPlacement.kind}-фигура</b><small>Именно после неё добавилось дыр: +${worstPlacement.holesDelta}. В похожей ситуации лучше играть в край или убрать фигуру в запас.</small>`;
+        }
         if (holes >= 7) return `<b>Главная проблема: дыры</b><small>На поле осталось ${holes}. Играй ровнее и не закрывай пустые клетки, особенно S/Z фигурами.</small>`;
         if (height >= 13) return `<b>Главная проблема: высота</b><small>Башня поднялась до ${height}. Держи рабочую зону ниже середины поля и чисти 2+ линии чаще.</small>`;
         if (state.holds < 1 && state.pieces > 10) return `<b>Не использован запас</b><small>Кнопка “Запас” помогает пережить неудобную фигуру и подготовить место под I.</small>`;
@@ -2509,6 +2673,17 @@
         const tips = [];
         const holes = countHoles();
         const bumpiness = surfaceBumpiness();
+        const badPlacements = state.sessionHistory
+          .filter((step) => step.clear === 0 && (step.holesDelta > 1 || step.heightDelta > 1 || step.bumpinessDelta > 3))
+          .sort((a, b) => (b.holesDelta * 4 + b.heightDelta * 2 + b.bumpinessDelta) - (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta))
+          .slice(0, 2);
+        for (const step of badPlacements) {
+          const parts = [];
+          if (step.holesDelta > 0) parts.push(`дыр стало больше на ${step.holesDelta}`);
+          if (step.heightDelta > 0) parts.push(`высота выросла на ${step.heightDelta}`);
+          if (step.bumpinessDelta > 0) parts.push(`поверхность стала неровнее`);
+          tips.push([`Неудачная ${step.kind}-фигура`, `После этой постановки ${parts.join(", ")}. В похожей ситуации лучше играть в край, в колодец или увести фигуру в запас.`]);
+        }
         if (holes >= 6) {
           tips.push(["Слишком много дыр", `Под блоками осталось ${holes} пустых клеток. Сначала закрывай низ ровными фигурами, а неудобные S/Z убирай в запас или на край.`]);
         }
@@ -2557,6 +2732,13 @@
         if (state.audio && state.audio.state === "suspended") state.audio.resume();
       }
 
+      function soundLevelFor(category) {
+        if (category === "move" || category === "rotate" || category === "drop") return state.settings.moveVolume / 100;
+        if (category === "clear") return state.settings.clearVolume / 100;
+        if (category === "alert") return state.settings.alertVolume / 100;
+        return Math.min(1.4, (state.settings.moveVolume + state.settings.alertVolume) / 200);
+      }
+
       function playSound(freq, duration, type, category = "ui") {
         if (!state.settings.sound || state.settings.volume <= 0) return;
         ensureAudio();
@@ -2580,7 +2762,7 @@
         filter.frequency.setValueAtTime(category === "clear" ? 1900 : 1320, now);
         filter.Q.setValueAtTime(0.35, now);
         gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.036 * categoryGain * (state.settings.volume / 100), now + 0.014);
+        gain.gain.exponentialRampToValueAtTime(0.036 * categoryGain * soundLevelFor(category) * (state.settings.volume / 100), now + 0.014);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, duration * 0.9));
         oscillator.connect(filter);
         filter.connect(gain);
@@ -2638,6 +2820,23 @@
 
       function openSettings() {
         ui.settingsOverlay.hidden = false;
+      }
+
+      function updateInstallButton() {
+        ui.installButton.classList.toggle("hidden", !deferredInstallPrompt);
+      }
+
+      async function installApp() {
+        if (!deferredInstallPrompt) {
+          showToast("Установка доступна на HTTPS-версии");
+          return;
+        }
+        deferredInstallPrompt.prompt();
+        try {
+          await deferredInstallPrompt.userChoice;
+        } catch {}
+        deferredInstallPrompt = null;
+        updateInstallButton();
       }
 
       let statsReturnOverlay = null;
@@ -2703,6 +2902,7 @@
       function bind() {
         bindPress(ui.startButton, () => startGame());
         bindPress(ui.continueButton, loadCurrentGame);
+        bindPress(ui.installButton, installApp);
         bindPress(ui.openStatsButton, openStats);
         bindPress(ui.helpButton, () => ui.helpOverlay.hidden = false);
         bindPress(ui.closeHelpButton, () => ui.helpOverlay.hidden = true);
@@ -2736,10 +2936,14 @@
         bindPress(ui.dropButton, hardDrop);
         ui.themeSelect.addEventListener("change", () => { state.settings.theme = ui.themeSelect.value; applySettings(); });
         ui.controlModeSelect.addEventListener("change", () => { state.settings.controlMode = ui.controlModeSelect.value; applySettings(); });
+        ui.sensitivityRange.addEventListener("input", () => { state.settings.sensitivity = Number(ui.sensitivityRange.value); applySettings(); });
         ui.ghostToggle.addEventListener("change", () => { state.settings.ghost = ui.ghostToggle.checked; applySettings(); });
         ui.bigButtonsToggle.addEventListener("change", () => { state.settings.bigButtons = ui.bigButtonsToggle.checked; applySettings(); });
         ui.vibrationToggle.addEventListener("change", () => { state.settings.vibration = ui.vibrationToggle.checked; applySettings(); });
         ui.volumeRange.addEventListener("input", () => { state.settings.volume = Number(ui.volumeRange.value); applySettings(); });
+        ui.moveVolumeRange.addEventListener("input", () => { state.settings.moveVolume = Number(ui.moveVolumeRange.value); applySettings(); });
+        ui.clearVolumeRange.addEventListener("input", () => { state.settings.clearVolume = Number(ui.clearVolumeRange.value); applySettings(); });
+        ui.alertVolumeRange.addEventListener("input", () => { state.settings.alertVolume = Number(ui.alertVolumeRange.value); applySettings(); });
 
         window.addEventListener("keydown", (event) => {
           const key = event.key.toLowerCase();
@@ -2808,13 +3012,37 @@
           loadServerRecords();
         });
         window.addEventListener("beforeunload", saveCurrentGame);
-        window.addEventListener("resize", draw);
+        window.addEventListener("resize", () => {
+          updateLayoutMetrics();
+          draw();
+        });
+
+        if ("ResizeObserver" in window) {
+          state.layoutObserver = new ResizeObserver(() => updateLayoutMetrics());
+          state.layoutObserver.observe(ui.app);
+          state.layoutObserver.observe(ui.controls);
+          state.layoutObserver.observe(ui.statusStrip);
+          state.layoutObserver.observe(ui.topbar);
+        }
       }
 
       function bootPwa() {
-        if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-          navigator.serviceWorker.register("sw.js").catch(() => {});
+        const canUsePwa = "serviceWorker" in navigator && (window.isSecureContext || /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
+        if (canUsePwa) {
+          navigator.serviceWorker.register("sw.js").then(() => {
+            showToast("Офлайн-кэш готовится");
+          }).catch(() => {});
         }
+        window.addEventListener("beforeinstallprompt", (event) => {
+          event.preventDefault();
+          deferredInstallPrompt = event;
+          updateInstallButton();
+        });
+        window.addEventListener("appinstalled", () => {
+          deferredInstallPrompt = null;
+          updateInstallButton();
+          showToast("Офлайн-версия установлена");
+        });
       }
 
       function applyUrlParams() {
