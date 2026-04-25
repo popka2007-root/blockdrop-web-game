@@ -1,16 +1,25 @@
-import "./audio.js";
-import "./config.js";
-import "./input.js";
-import "./online.js";
-import "./storage.js";
-import "./ui.js";
+import { SOUND_EVENTS, createWebAudioPlayer, makeAudioSettings } from "./audio.js";
+import { COLS, DEFAULT_TIMING, ROWS, SHAPES, SRS_KICKS } from "./config.js";
+import { classifySwipe, normalizeControls } from "./input.js";
+import {
+  buildJoinMessage,
+  buildRoomInviteUrl,
+  buildTournamentMessage,
+  buildUpdateMessage,
+  defaultServerUrl,
+  generateRoomCode,
+  normalizeRoomId,
+  parseServerMessage,
+  roomFromLocation
+} from "./online.js";
+import { loadJson, saveJson, removeItem } from "./storage.js";
+import { byId, escapeHtml } from "./ui.js";
+import { createBag } from "./game-core.js";
 
 (() => {
   "use strict";
 
-  const COLS = 10;
-  const ROWS = 20;
-  const LOCK_DELAY_MS = 480;
+  const LOCK_DELAY_MS = DEFAULT_TIMING.lockDelayMs;
   const MAX_LOCK_RESETS = 12;
   const STORAGE = {
     high: "blockdrop-high-score",
@@ -77,39 +86,6 @@ import "./ui.js";
     X: "#dfe6ee"
   };
 
-  const SHAPES = {
-    I: [[[0,1],[1,1],[2,1],[3,1]], [[2,0],[2,1],[2,2],[2,3]], [[0,2],[1,2],[2,2],[3,2]], [[1,0],[1,1],[1,2],[1,3]]],
-    O: [[[1,0],[2,0],[1,1],[2,1]], [[1,0],[2,0],[1,1],[2,1]], [[1,0],[2,0],[1,1],[2,1]], [[1,0],[2,0],[1,1],[2,1]]],
-    T: [[[1,0],[0,1],[1,1],[2,1]], [[1,0],[1,1],[2,1],[1,2]], [[0,1],[1,1],[2,1],[1,2]], [[1,0],[0,1],[1,1],[1,2]]],
-    S: [[[1,0],[2,0],[0,1],[1,1]], [[1,0],[1,1],[2,1],[2,2]], [[1,1],[2,1],[0,2],[1,2]], [[0,0],[0,1],[1,1],[1,2]]],
-    Z: [[[0,0],[1,0],[1,1],[2,1]], [[2,0],[1,1],[2,1],[1,2]], [[0,1],[1,1],[1,2],[2,2]], [[1,0],[0,1],[1,1],[0,2]]],
-    J: [[[0,0],[0,1],[1,1],[2,1]], [[1,0],[2,0],[1,1],[1,2]], [[0,1],[1,1],[2,1],[2,2]], [[1,0],[1,1],[0,2],[1,2]]],
-    L: [[[2,0],[0,1],[1,1],[2,1]], [[1,0],[1,1],[1,2],[2,2]], [[0,1],[1,1],[2,1],[0,2]], [[0,0],[1,0],[1,1],[1,2]]]
-  };
-
-  const SRS_KICKS = {
-    normal: {
-      "0>1": [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
-      "1>0": [[0,0],[1,0],[1,-1],[0,2],[1,2]],
-      "1>2": [[0,0],[1,0],[1,-1],[0,2],[1,2]],
-      "2>1": [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
-      "2>3": [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
-      "3>2": [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
-      "3>0": [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
-      "0>3": [[0,0],[1,0],[1,1],[0,-2],[1,-2]]
-    },
-    I: {
-      "0>1": [[0,0],[-2,0],[1,0],[-2,-1],[1,2]],
-      "1>0": [[0,0],[2,0],[-1,0],[2,1],[-1,-2]],
-      "1>2": [[0,0],[-1,0],[2,0],[-1,2],[2,-1]],
-      "2>1": [[0,0],[1,0],[-2,0],[1,-2],[-2,1]],
-      "2>3": [[0,0],[2,0],[-1,0],[2,1],[-1,-2]],
-      "3>2": [[0,0],[-2,0],[1,0],[-2,-1],[1,2]],
-      "3>0": [[0,0],[1,0],[-2,0],[1,-2],[-2,1]],
-      "0>3": [[0,0],[-1,0],[2,0],[-1,2],[2,-1]]
-    }
-  };
-
   const MODES = {
     classic: { name: "Классика", goal: 0, relaxed: false, chaos: false },
     sprint: { name: "40 линий", goal: 40, relaxed: false, chaos: false },
@@ -157,7 +133,7 @@ import "./ui.js";
     "tournamentOverlay","tournamentResults","closeTournamentButton","rematchButton","closeHelpButton","shareResultButton","finalScore","finalLevel","finalLines","finalCombo",
     "finalRecord","gameOverTitle","gameOverText","gameOverInsight","gameOverCoachButton","serverRecordStatus","toast","fxLayer"
   ]) {
-    ui[id] = document.getElementById(id);
+    ui[id] = byId(id);
   }
 
   const ctx = ui.board.getContext("2d");
@@ -201,7 +177,6 @@ import "./ui.js";
     lockDelayMs: 0,
     lockResets: 0,
     flashes: [],
-    audio: null,
     layoutObserver: null,
     settings: loadSettings(),
     stats: loadStats(),
@@ -220,21 +195,10 @@ import "./ui.js";
     }
   };
 
+  const audioPlayer = createWebAudioPlayer(() => state.settings);
+
   function makeBoard() {
     return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-  }
-
-  function loadJson(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch {
-      return fallback;
-    }
-  }
-
-  function saveJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
   }
 
   function clamp(value, min, max) {
@@ -244,24 +208,17 @@ import "./ui.js";
   function loadSettings() {
     return {
       theme: "ember",
-      sensitivity: 24,
-      controlMode: "gestures",
+      ...normalizeControls(),
       ghost: true,
       bigButtons: false,
       vibration: true,
-      sound: true,
       grid: true,
       danger: true,
       particles: true,
       colorBlind: false,
       autoPause: true,
       reducedMotion: false,
-      volume: 70,
-      moveVolume: 55,
-      clearVolume: 100,
-      alertVolume: 90,
-      dasMs: 140,
-      arrMs: 36,
+      ...makeAudioSettings(),
       ...loadJson(STORAGE.settings, {})
     };
   }
@@ -294,7 +251,7 @@ import "./ui.js";
   function applySettings() {
     document.documentElement.dataset.theme = state.settings.theme === "ember" ? "" : state.settings.theme;
     document.body.classList.toggle("big-buttons", state.settings.bigButtons);
-    state.settings.sensitivity = Math.max(12, Math.min(42, Number(state.settings.sensitivity) || 24));
+    Object.assign(state.settings, normalizeControls(state.settings));
     state.settings.grid = true;
     state.settings.danger = true;
     state.settings.particles = true;
@@ -305,8 +262,6 @@ import "./ui.js";
     state.settings.moveVolume = clamp(Number(state.settings.moveVolume) || 0, 0, 140);
     state.settings.clearVolume = clamp(Number(state.settings.clearVolume) || 0, 0, 140);
     state.settings.alertVolume = clamp(Number(state.settings.alertVolume) || 0, 0, 140);
-    state.settings.dasMs = clamp(Number(state.settings.dasMs) || 140, 60, 260);
-    state.settings.arrMs = clamp(Number(state.settings.arrMs) || 36, 0, 100);
     state.settings.sound = state.settings.volume > 0;
     ui.themeSelect.value = state.settings.theme;
     ui.controlModeSelect.value = state.settings.controlMode;
@@ -374,29 +329,11 @@ import "./ui.js";
   }
 
   function refillBag() {
-    const kinds = Object.keys(SHAPES);
-    for (let i = kinds.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(random() * (i + 1));
-      [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
-    }
-    state.bag.push(...kinds);
+    state.bag.push(...createBag(random));
   }
 
   function random() {
     return state.rng ? state.rng() : Math.random();
-  }
-
-  function normalizeCode(value) {
-    return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
-  }
-
-  function generateRoomCode() {
-    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let code = "";
-    for (let i = 0; i < 8; i += 1) {
-      code += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
-    return code;
   }
 
   function takeKind() {
@@ -497,7 +434,7 @@ import "./ui.js";
     state.receivedGarbage += count;
     addGarbage(count);
     shakeBoard();
-    playSound(150, 0.12, "sawtooth", "alert");
+    playEvent("attack");
     showToast(`Атака от ${from}: +${count}`);
     sendOnlineUpdate(true);
   }
@@ -538,7 +475,7 @@ import "./ui.js";
       state.softDrops += 1;
       state.stats.totalSoftDrops += 1;
     }
-    if (dx !== 0) playSound(420, 0.025, "square", "move");
+    if (dx !== 0) playEvent("move");
     return true;
   }
 
@@ -557,7 +494,7 @@ import "./ui.js";
         resetLockDelayIfGrounded();
         state.rotations += 1;
         state.stats.totalRotations += 1;
-        playSound(560, 0.04, "sawtooth", "rotate");
+        playEvent("rotate");
         buzz(4);
         return;
       }
@@ -576,7 +513,7 @@ import "./ui.js";
     state.stats.totalHardDrops += 1;
     addScore(distance * 2);
     lock();
-    playSound(190, 0.055, "square", "drop");
+    playEvent("hardDrop");
     buzz(12);
     shakeBoard();
   }
@@ -594,7 +531,7 @@ import "./ui.js";
       spawn();
     }
     state.holdUsed = true;
-    playSound(330, 0.05, "triangle", "ui");
+    playEvent("hold");
   }
 
   function lock() {
@@ -632,12 +569,12 @@ import "./ui.js";
       state.lines += count;
       addScore(lineScore(count) + state.combo * 25);
       state.level = MODES[state.mode].relaxed ? 1 : Math.min(20, Math.floor(state.lines / 10) + DIFFICULTY[state.difficulty].startLevel);
-      playSound(count === 4 ? 880 : 720, count === 4 ? 0.14 : 0.08, "triangle", "clear");
+      playEvent(count === 4 ? "tetris" : "line");
       if (count === 4) burst(44);
-      if (state.combo >= 2) playSound(960 + state.combo * 18, 0.09, "triangle", "clear");
+      if (state.combo >= 2) playEvent("combo", { freq: SOUND_EVENTS.combo.freq + state.combo * 18 });
       if (state.level > previousLevel) {
         showToast(`Уровень ${state.level}`);
-        playSound(1040, 0.12, "triangle", "clear");
+        playEvent("levelUp");
         burst(26);
       }
       const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
@@ -698,7 +635,7 @@ import "./ui.js";
       room: state.online.room,
       lines
     }));
-    playSound(150, 0.09, "sawtooth", "alert");
+    playEvent("attack", { duration: 0.09 });
     burst(12);
     showToast(`Атака соперникам: +${lines}`);
   }
@@ -735,7 +672,7 @@ import "./ui.js";
     state.scores = state.scores.sort((a, b) => b.score - a.score).slice(0, 10);
     saveJson(STORAGE.stats, state.stats);
     saveJson(STORAGE.scores, state.scores);
-    localStorage.removeItem(STORAGE.save);
+    removeItem(STORAGE.save);
     checkAchievements();
     ui.gameOverTitle.textContent = won ? "Победа!" : "Игра окончена";
     ui.gameOverText.textContent = text;
@@ -748,7 +685,7 @@ import "./ui.js";
     ui.serverRecordStatus.textContent = "Серверный рекорд отправляется...";
     ui.gameOverOverlay.hidden = false;
     renderCoachTips();
-    playSound(won ? 980 : 170, 0.22, won ? "triangle" : "sawtooth", "alert");
+    playEvent(won ? "win" : "gameOver");
     if (won) burst(50);
     sendOnlineUpdate(true);
     submitServerRecord();
@@ -1045,12 +982,6 @@ import "./ui.js";
     return "Новичок";
   }
 
-  function defaultServerUrl() {
-    if (location.protocol === "https:") return `wss://${location.host}`;
-    if (location.protocol === "http:") return `ws://${location.host}`;
-    return "ws://localhost:8787";
-  }
-
   function openOnline() {
     ui.onlineServerInput.value = ui.onlineServerInput.value || defaultServerUrl();
     ui.onlineRoomInput.value = ui.onlineRoomInput.value || localStorage.getItem("tetris-last-room") || generateRoomCode();
@@ -1062,30 +993,14 @@ import "./ui.js";
   }
 
   function ensureRoomCode() {
-    const room = normalizeCode(ui.onlineRoomInput.value || state.online.room) || generateRoomCode();
+    const room = normalizeRoomId(ui.onlineRoomInput.value || state.online.room) || generateRoomCode();
     ui.onlineRoomInput.value = room;
     localStorage.setItem("tetris-last-room", room);
     return room;
   }
 
-  function roomFromUrl() {
-    const pathRoom = location.pathname.match(/\/room\/([A-Z0-9]+)/i)?.[1];
-    const queryRoom = new URLSearchParams(location.search).get("room");
-    return normalizeCode(pathRoom || queryRoom);
-  }
-
   function roomInviteUrl(room = ensureRoomCode()) {
-    const url = new URL(location.href);
-    const canUsePrettyRoom = location.protocol.startsWith("http") && !location.hostname.endsWith("github.io");
-    if (canUsePrettyRoom) {
-      const basePath = url.pathname.includes("/room/") ? url.pathname.split("/room/")[0] : url.pathname.replace(/\/[^/]*$/, "");
-      url.pathname = `${basePath.replace(/\/$/, "")}/room/${room}`;
-      url.search = "";
-    } else {
-      url.searchParams.set("room", room);
-    }
-    url.hash = "";
-    return url.toString();
+    return buildRoomInviteUrl(location, room);
   }
 
   function shareRoomLink() {
@@ -1111,13 +1026,12 @@ import "./ui.js";
 
       socket.addEventListener("open", () => {
         state.online.connected = true;
-        socket.send(JSON.stringify({
-          type: "join",
+        socket.send(JSON.stringify(buildJoinMessage({
           room,
           name,
           maxPlayers: Number(ui.onlineMaxPlayersSelect.value),
           durationSec: Number(ui.onlineDurationSelect.value)
-        }));
+        })));
         sendOnlineUpdate(true);
         ui.onlineStatus.textContent = `Комната ${room}`;
         if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(room));
@@ -1127,7 +1041,13 @@ import "./ui.js";
       });
 
       socket.addEventListener("message", (event) => {
-        const data = JSON.parse(event.data);
+        let data;
+        try {
+          data = parseServerMessage(event.data);
+        } catch {
+          ui.onlineStatus.textContent = "Некорректный ответ сервера";
+          return;
+        }
         if (data.type === "hello") {
           state.online.id = data.id;
         }
@@ -1195,8 +1115,7 @@ import "./ui.js";
     const socket = state.online.socket;
     if (!state.online.connected || !socket || socket.readyState !== WebSocket.OPEN) return;
     state.online.lastSent = performance.now();
-    socket.send(JSON.stringify({
-      type: "update",
+    socket.send(JSON.stringify(buildUpdateMessage({
       room: state.online.room,
       name: state.online.name,
       score: state.score,
@@ -1209,7 +1128,7 @@ import "./ui.js";
       time: formatTime(state.elapsedMs),
       status: state.gameOver ? (state.won ? "Победа" : "Финиш") : state.paused ? "Пауза" : "Играет",
       force
-    }));
+    })));
   }
 
   function sendOnlineUpdateThrottled() {
@@ -1221,12 +1140,11 @@ import "./ui.js";
       showToast("Сначала подключись к комнате");
       return;
     }
-    state.online.socket.send(JSON.stringify({
-      type: "startTournament",
+    state.online.socket.send(JSON.stringify(buildTournamentMessage({
       room: state.online.room,
       maxPlayers: Number(ui.onlineMaxPlayersSelect.value),
       durationSec: Number(ui.onlineDurationSelect.value)
-    }));
+    })));
     showToast("Турнир запускается");
     startGame(state.mode, state.difficulty);
   }
@@ -1262,7 +1180,7 @@ import "./ui.js";
     if (state.running && !state.gameOver) {
       state.running = false;
       state.gameOver = true;
-      localStorage.removeItem(STORAGE.save);
+      removeItem(STORAGE.save);
     }
     ui.tournamentOverlay.hidden = false;
   }
@@ -1271,16 +1189,6 @@ import "./ui.js";
     return Object.values(state.online.peers || {})
       .filter((p) => p.id !== state.online.id && Number.isFinite(Number(p.height)))
       .sort((a, b) => b.score - a.score)[0]?.height || 0;
-  }
-
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, (char) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      "\"": "&quot;",
-      "'": "&#39;"
-    }[char]));
   }
 
   function topDanger() {
@@ -1502,56 +1410,25 @@ import "./ui.js";
         state.unlocked[id] = true;
         changed = true;
         showToast(`Достижение: ${title}`);
-        playSound(1040, 0.10, "triangle", "clear");
+        playEvent("levelUp", { duration: 0.10 });
       }
     }
     if (changed) saveJson(STORAGE.achievements, state.unlocked);
   }
 
-  function ensureAudio() {
-    if (!state.settings.sound) return;
-    const AudioClass = window.AudioContext || window.webkitAudioContext;
-    if (!state.audio && AudioClass) state.audio = new AudioClass();
-    if (state.audio && state.audio.state === "suspended") state.audio.resume();
-  }
-
-  function soundLevelFor(category) {
-    if (category === "move" || category === "rotate" || category === "drop") return state.settings.moveVolume / 100;
-    if (category === "clear") return state.settings.clearVolume / 100;
-    if (category === "alert") return state.settings.alertVolume / 100;
-    return Math.min(1.4, (state.settings.moveVolume + state.settings.alertVolume) / 200);
+  function playEvent(name, overrides = {}) {
+    const event = SOUND_EVENTS[name];
+    if (!event) return;
+    playSound(
+      overrides.freq ?? event.freq,
+      overrides.duration ?? event.duration,
+      overrides.type ?? event.type,
+      overrides.category ?? event.category
+    );
   }
 
   function playSound(freq, duration, type, category = "ui") {
-    if (!state.settings.sound || state.settings.volume <= 0) return;
-    ensureAudio();
-    if (!state.audio) return;
-    const now = state.audio.currentTime;
-    const oscillator = state.audio.createOscillator();
-    const filter = state.audio.createBiquadFilter();
-    const gain = state.audio.createGain();
-    const softType = type === "sawtooth" || type === "square" ? "triangle" : type;
-    const categoryGain = {
-      move: 0.55,
-      rotate: 0.62,
-      drop: 0.78,
-      clear: 1.05,
-      alert: 0.9,
-      ui: 0.68
-    }[category] || 0.68;
-    oscillator.type = softType;
-    oscillator.frequency.setValueAtTime(Math.max(110, freq * 0.82), now);
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(category === "clear" ? 1900 : 1320, now);
-    filter.Q.setValueAtTime(0.35, now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.052 * categoryGain * soundLevelFor(category) * (state.settings.volume / 100), now + 0.014);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, duration * 0.9));
-    oscillator.connect(filter);
-    filter.connect(gain);
-    gain.connect(state.audio.destination);
-    oscillator.start(now);
-    oscillator.stop(now + duration + 0.03);
+    audioPlayer.playTone({ freq, duration, type, category });
   }
 
   function buzz(ms) {
@@ -1818,14 +1695,15 @@ import "./ui.js";
       const dx = touch.clientX - sx;
       const dy = touch.clientY - sy;
       const threshold = state.settings.sensitivity;
-      if (Math.abs(dx) < threshold && Math.abs(dy) < threshold && !gestureMoved) rotate();
-      else if (Math.abs(dx) > Math.abs(dy) && !gestureMoved) {
+      const gesture = classifySwipe(dx, dy, threshold);
+      if (gesture === "tap" && !gestureMoved) rotate();
+      else if ((gesture === "left" || gesture === "right") && !gestureMoved) {
         const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
-        for (let i = 0; i < steps; i += 1) move(dx < 0 ? -1 : 1, 0);
+        for (let i = 0; i < steps; i += 1) move(gesture === "left" ? -1 : 1, 0);
       }
-      else if (dy < -threshold * 1.1) rotate();
-      else if (dy > threshold * 2.6 && !gestureHardDropped) hardDrop();
-      else if (dy > threshold && !gestureSoftDropped) {
+      else if (gesture === "rotate") rotate();
+      else if (gesture === "hardDrop" && !gestureHardDropped) hardDrop();
+      else if (gesture === "softDrop" && !gestureSoftDropped) {
         const steps = Math.max(1, Math.min(4, Math.round(dy / threshold)));
         for (let i = 0; i < steps; i += 1) softDrop();
       }
@@ -1878,7 +1756,7 @@ import "./ui.js";
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
     if (mode && MODES[mode]) ui.startMode.value = mode;
-    const room = roomFromUrl();
+    const room = roomFromLocation(location);
     if (room) {
       ui.onlineRoomInput.value = room;
       localStorage.setItem("tetris-last-room", room);
