@@ -1899,6 +1899,7 @@ import { createBag } from "./game-core.js";
       installApp,
       openStats: () => { openStats(); syncUi(); },
       openHelp: () => { ui.showOverlay("helpOverlay"); syncUi(); },
+      openOnlineFromHelp: () => { ui.hideOverlay("helpOverlay"); openOnline(); syncUi(); },
       closeHelp: () => { ui.hideOverlay("helpOverlay"); syncUi(); },
       openTutorial: () => { ui.hideOverlay("helpOverlay"); ui.showOverlay("tutorialOverlay"); syncUi(); },
       closeTutorial: () => { ui.hideOverlay("tutorialOverlay"); syncUi(); },
