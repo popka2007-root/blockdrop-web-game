@@ -1,6 +1,17 @@
 ﻿import { SOUND_EVENTS, initAudio, makeAudioSettings, playSound as playAudioSound, setVolume, toggleMute } from "./audio.js";
-import { COLS, DEFAULT_TIMING, ROWS, SHAPES, SRS_KICKS } from "./config.js";
+import {
+  COLS,
+  PHYSICS,
+  ROWS,
+  SCORING_THRESHOLDS,
+  SCORE_TABLE,
+  SHAPES,
+  SRS_KICKS,
+  TIMING,
+  UI as UI_CONFIG
+} from "./config.js";
 import { gestureProfile, normalizeControls, swipeThresholdForPreset } from "./input.js";
+import { GAME_MODES, getModeConfig, normalizeModeKey } from "./modes.js";
 import {
   buildRoomInviteUrl,
   connectOnline as openOnlineSocket,
@@ -22,7 +33,7 @@ import { createBag } from "./game-core.js";
 (() => {
   "use strict";
 
-  const LOCK_DELAY_MS = DEFAULT_TIMING.lockDelayMs;
+  const LOCK_DELAY_MS = TIMING.LOCK_DELAY_MS;
   const MAX_LOCK_RESETS = 12;
   const STORAGE = {
     high: "blockdrop-high-score",
@@ -91,12 +102,7 @@ import { createBag } from "./game-core.js";
     X: "#dfe6ee"
   };
 
-  const MODES = {
-    classic: { name: "Классика", goal: 0, relaxed: false, chaos: false },
-    sprint: { name: "40 линий", goal: 40, relaxed: false, chaos: false },
-    relax: { name: "Дзен", goal: 0, relaxed: true, chaos: false },
-    chaos: { name: "Хаос", goal: 0, relaxed: false, chaos: true }
-  };
+  const MODES = GAME_MODES;
 
   const DIFFICULTY = {
     easy: { name: "Лёгкая", startLevel: 1, speedBonus: -80, garbage: 0 },
@@ -325,6 +331,8 @@ import { createBag } from "./game-core.js";
 
   function startGame(mode = ui.getStartMode(), difficulty = "normal", options = {}) {
     difficulty = "normal";
+    mode = normalizeModeKey(mode);
+    const modeConfig = getModeConfig(mode);
     state.board = makeBoard();
     state.active = null;
     state.queue = [];
@@ -336,7 +344,7 @@ import { createBag } from "./game-core.js";
     state.difficulty = difficulty;
     state.score = 0;
     state.lines = 0;
-    state.level = DIFFICULTY[difficulty].startLevel;
+    state.level = Math.max(modeConfig.startLevel, DIFFICULTY[difficulty].startLevel);
     state.combo = 0;
     state.bestComboRun = 0;
     state.pieces = 0;
@@ -369,7 +377,7 @@ import { createBag } from "./game-core.js";
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
-    if (MODES[mode].chaos) addGarbage(4);
+    if (modeConfig.garbageAttacks) addGarbage(4);
     spawn();
     ensureAudio();
     buzz("move");
@@ -478,7 +486,7 @@ import { createBag } from "./game-core.js";
   }
 
   function softDrop() {
-    if (!move(0, 1, true)) updateLockDelay(80);
+    if (!move(0, PHYSICS.SOFT_DROP_SPEED, true)) updateLockDelay(TIMING.SOFT_DROP_LOCK_MS);
   }
 
   function stepHorizontal(direction) {
@@ -501,7 +509,7 @@ import { createBag } from "./game-core.js";
     while (move(0, 1, false)) distance += 1;
     state.hardDrops += 1;
     state.stats.totalHardDrops += 1;
-    addScore(distance * 2);
+    addScore(distance * PHYSICS.HARD_DROP_SCORE_PER_CELL);
     lock();
     playEvent("hardDrop");
     buzz("drop");
@@ -526,6 +534,7 @@ import { createBag } from "./game-core.js";
 
   function lock() {
     if (!state.active) return;
+    const modeConfig = getModeConfig(state.mode);
     const lockedKind = state.active.kind;
     const beforeMetrics = {
       holes: countHoles(),
@@ -558,7 +567,7 @@ import { createBag } from "./game-core.js";
       state.bestClearInGame = Math.max(state.bestClearInGame, count);
       state.lines += count;
       addScore(lineScore(count) + state.combo * 25);
-      state.level = MODES[state.mode].relaxed ? 1 : Math.min(20, Math.floor(state.lines / 10) + DIFFICULTY[state.difficulty].startLevel);
+      state.level = modeConfig.relaxed ? modeConfig.startLevel : Math.min(20, Math.floor(state.lines / modeConfig.levelUp) + DIFFICULTY[state.difficulty].startLevel);
       playEvent(count === 4 ? "tetris" : "line");
       if (count === 4) burst(44);
       if (state.combo >= 2) playEvent("combo", { freq: SOUND_EVENTS.combo.freq + state.combo * 18 });
@@ -578,12 +587,12 @@ import { createBag } from "./game-core.js";
       state.combo = 0;
     }
 
-    if (MODES[state.mode].goal && state.lines >= MODES[state.mode].goal) {
+    if (modeConfig.targetLines && state.lines >= modeConfig.targetLines) {
       finish(true, "Цель выполнена. 40 линий очищены.");
       return;
     }
 
-    if (MODES[state.mode].chaos && state.pieces > 0 && state.pieces % 14 === 0) {
+    if (modeConfig.garbageAttacks && state.pieces > 0 && state.pieces % 14 === 0) {
       addGarbage(1);
       showToast("Хаос добавил линию снизу");
     }
@@ -607,7 +616,7 @@ import { createBag } from "./game-core.js";
   }
 
   function lineScore(count) {
-    return [0, 100, 300, 500, 800][Math.min(count, 4)] * state.level;
+    return SCORE_TABLE[Math.min(count, 4)] * state.level;
   }
 
   function attackLinesForClear(count) {
@@ -723,13 +732,14 @@ import { createBag } from "./game-core.js";
 
   function dropInterval() {
     const bonus = DIFFICULTY[state.difficulty].speedBonus;
-    const relaxed = MODES[state.mode].relaxed ? 180 : 0;
-    return Math.max(70, 760 + relaxed - (state.level - 1) * 42 - bonus);
+    const modeConfig = getModeConfig(state.mode);
+    const relaxed = modeConfig.relaxed ? PHYSICS.RELAXED_DROP_BONUS_MS : 0;
+    return Math.max(PHYSICS.MIN_DROP_INTERVAL_MS, PHYSICS.BASE_DROP_INTERVAL_MS + relaxed - (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS - bonus);
   }
 
   function update(time) {
     if (!state.lastTime) state.lastTime = time;
-    const delta = Math.min(80, time - state.lastTime);
+    const delta = Math.min(TIMING.MAX_FRAME_DELTA_MS, time - state.lastTime);
     state.lastTime = time;
 
     if (state.running && !state.paused && !state.gameOver) {
@@ -744,7 +754,7 @@ import { createBag } from "./game-core.js";
     }
 
     state.flashes = state.flashes
-      .map((f) => ({ ...f, life: f.life - delta / 320, width: Math.min(1, f.width + delta / 140) }))
+      .map((f) => ({ ...f, life: f.life - delta / UI_CONFIG.FLASH_DECAY_MS, width: Math.min(1, f.width + delta / UI_CONFIG.FLASH_GROW_MS) }))
       .filter((f) => f.life > 0);
     draw();
     syncUi();
@@ -796,10 +806,11 @@ import { createBag } from "./game-core.js";
   }
 
   function syncUi() {
+    const modeConfig = getModeConfig(state.mode);
     ui.syncHud({
       score: state.score,
       level: state.level,
-      lines: MODES[state.mode].goal ? `${state.lines}/${MODES[state.mode].goal}` : state.lines,
+      lines: modeConfig.targetLines ? `${state.lines}/${modeConfig.targetLines}` : state.lines,
       record: state.stats.bestScore,
       combo: state.combo,
       pieces: state.pieces,
@@ -852,22 +863,24 @@ import { createBag } from "./game-core.js";
   }
 
   function goalText() {
-    if (MODES[state.mode].goal) return `${state.lines}/${MODES[state.mode].goal} линий`;
-    if (state.mode === "relax") return "Без давления";
-    if (state.mode === "chaos") return "Выжить";
+    const modeConfig = getModeConfig(state.mode);
+    if (modeConfig.targetLines) return `${state.lines}/${modeConfig.targetLines} линий`;
+    if (modeConfig.relaxed) return modeConfig.goalText;
+    if (modeConfig.garbageAttacks) return "Выжить";
     return "Рекорд";
   }
 
   function progressPercent() {
-    if (MODES[state.mode].goal) return Math.min(100, Math.round(state.lines / MODES[state.mode].goal * 100));
+    const modeConfig = getModeConfig(state.mode);
+    if (modeConfig.targetLines) return Math.min(100, Math.round(state.lines / modeConfig.targetLines * 100));
     return Math.min(100, Math.round(state.level / 20 * 100));
   }
 
   function rankText() {
-    if (state.score >= 12000) return "Легенда";
-    if (state.score >= 7000) return "Мастер";
-    if (state.score >= 3500) return "Профи";
-    if (state.score >= 1200) return "Игрок";
+    if (state.score >= SCORING_THRESHOLDS.LEGEND) return "Легенда";
+    if (state.score >= SCORING_THRESHOLDS.MASTER) return "Мастер";
+    if (state.score >= SCORING_THRESHOLDS.PRO) return "Профи";
+    if (state.score >= SCORING_THRESHOLDS.PLAYER) return "Игрок";
     return "Новичок";
   }
 
@@ -1135,6 +1148,7 @@ import { createBag } from "./game-core.js";
       return;
     }
     Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
+    state.mode = normalizeModeKey(state.mode);
     state.ai.enabled = false;
     state.sessionHistory = Array.isArray(save.sessionHistory) ? save.sessionHistory : [];
     state.difficulty = "normal";
@@ -1153,7 +1167,7 @@ import { createBag } from "./game-core.js";
     const statsRows = [
       { label: "Лучший счёт", value: state.stats.bestScore, note: rank.current },
       { label: "Всего игр", value: state.stats.games, note: `${state.stats.totalLines} линий` },
-      { label: "Любимый режим", value: favoriteMode?.[1] ? MODES[favoriteMode[0]].name : "-", note: favoriteMode?.[1] ? `${favoriteMode[1]} игр` : "сыграй первую партию" },
+      { label: "Любимый режим", value: favoriteMode?.[1] ? getModeConfig(favoriteMode[0]).name : "-", note: favoriteMode?.[1] ? `${favoriteMode[1]} игр` : "сыграй первую партию" },
       { label: "Средняя длительность", value: averageDuration, note: "за партию" },
       { label: "Прогресс ранга", value: rank.next ? `${rank.progress}%` : "100%", note: rank.next ? `до ${rank.next}` : "максимальный ранг", progress: rank.progress }
     ];
@@ -1878,7 +1892,7 @@ import { createBag } from "./game-core.js";
   function applyUrlParams() {
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
-    if (mode && MODES[mode]) ui.setStartMode(mode);
+    if (mode && MODES[normalizeModeKey(mode)]) ui.setStartMode(normalizeModeKey(mode));
     const room = roomFromLocation(location);
     if (room) {
       ui.setOnlineRoom(room);

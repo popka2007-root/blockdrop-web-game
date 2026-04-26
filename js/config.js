@@ -46,8 +46,45 @@ export const SRS_KICKS = {
   }
 };
 
-export const DEFAULT_TIMING = {
+export const TIMING = {
+  FRAME_MS: 16.67,
+  GRAVITY_BASE: 1,
   dasMs: 140,
   arrMs: 36,
-  lockDelayMs: 480
+  lockDelayMs: 480,
+  LOCK_DELAY_MS: 480,
+  DAS_MS: 140,
+  ARR_MS: 36,
+  SOFT_DROP_LOCK_MS: 80,
+  MAX_FRAME_DELTA_MS: 80
+};
+
+export const PHYSICS = {
+  SOFT_DROP_SPEED: 1,
+  HARD_DROP_SCORE_PER_CELL: 2,
+  MIN_DROP_INTERVAL_MS: 70,
+  BASE_DROP_INTERVAL_MS: 760,
+  RELAXED_DROP_BONUS_MS: 180,
+  LEVEL_DROP_STEP_MS: 42
+};
+
+export const UI = {
+  TOAST_DURATION_MS: 1800,
+  ANIMATION_DURATION_MS: 300,
+  COMBO_DECAY_MS: 1000,
+  FLASH_DECAY_MS: 320,
+  FLASH_GROW_MS: 140
+};
+
+export const SCORING_THRESHOLDS = {
+  PLAYER: 1200,
+  PRO: 3500,
+  MASTER: 7000,
+  LEGEND: 12000
+};
+
+export const DEFAULT_TIMING = {
+  dasMs: TIMING.DAS_MS,
+  arrMs: TIMING.ARR_MS,
+  lockDelayMs: TIMING.LOCK_DELAY_MS
 };

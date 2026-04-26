@@ -1,3 +1,5 @@
+import { getModeOptions, normalizeModeKey } from "./modes.js";
+
 export function byId(id, root = document) {
   return root.getElementById(id);
 }
@@ -35,6 +37,12 @@ const UI_IDS = [
   "gameOverInsight", "gameOverCoachButton", "serverRecordStatus", "tutorialButton", "tutorialOverlay", "tutorialText",
   "tutorialSteps", "tutorialNextButton", "tutorialPlayButton", "closeTutorialButton", "toast", "fxLayer"
 ];
+
+export function createDomCache(root = document) {
+  return Object.fromEntries(UI_IDS.map((id) => [id, byId(id, root)]));
+}
+
+export const DOM = typeof document === "undefined" ? {} : createDomCache(document);
 
 const UI_TEXT = {
   ru: {
@@ -86,7 +94,7 @@ export function createUi(options = {}) {
   const documentRef = options.documentRef || document;
   const windowRef = options.windowRef || window;
   const performanceRef = options.performanceRef || performance;
-  const refs = Object.fromEntries(UI_IDS.map((id) => [id, byId(id, root)]));
+  const refs = root === documentRef && DOM.board ? DOM : createDomCache(root);
   const ctx = refs.board.getContext("2d");
   const previews = [refs.next1.getContext("2d"), refs.next2.getContext("2d"), refs.next3.getContext("2d")];
   const holdCtx = refs.hold.getContext("2d");
@@ -232,6 +240,15 @@ export function createUi(options = {}) {
     setText(refs.gameOverCoachButton, text.coachTips);
     setText(refs.shareResultButton, text.shareResult);
     setText(refs.gameOverStatsButton, text.stats);
+    populateModeSelect(language);
+  }
+
+  function populateModeSelect(language = "ru") {
+    const selected = normalizeModeKey(refs.startMode.value);
+    refs.startMode.innerHTML = getModeOptions(language)
+      .map((mode) => `<option value="${mode.key}">${escapeHtml(mode.name)}</option>`)
+      .join("");
+    refs.startMode.value = selected;
   }
 
   function tutorialItems(language = "ru") {
@@ -569,11 +586,11 @@ export function createUi(options = {}) {
   }
 
   function getStartMode() {
-    return refs.startMode.value;
+    return normalizeModeKey(refs.startMode.value);
   }
 
   function setStartMode(mode) {
-    refs.startMode.value = mode;
+    refs.startMode.value = normalizeModeKey(mode);
   }
 
   function getVisiblePrimaryOverlay() {
