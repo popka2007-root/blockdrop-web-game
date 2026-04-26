@@ -12,6 +12,7 @@ const MAX_MESSAGES_PER_10S = 90;
 const MAX_UPDATES_PER_SECOND = 8;
 const MAX_ATTACKS_PER_SECOND = 4;
 const rooms = new Map();
+const startedAt = Date.now();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -29,6 +30,11 @@ const server = http.createServer((req, res) => {
 
   if (requestUrl.pathname === "/api/records") {
     handleRecordsApi(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/health") {
+    handleHealth(req, res);
     return;
   }
 
@@ -68,6 +74,42 @@ function safeDecodePath(pathname) {
     return decodeURIComponent(pathname);
   } catch {
     return "";
+  }
+}
+
+function handleHealth(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  const payload = {
+    ok: true,
+    service: "blockdrop-web-game",
+    uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+    rooms: rooms.size,
+    records: readRecords().length,
+    revision: readRevision()
+  };
+
+  if (req.method === "HEAD") {
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-cache"
+    });
+    res.end();
+    return;
+  }
+
+  sendJson(res, payload);
+}
+
+function readRevision() {
+  if (process.env.BLOCKDROP_REVISION) return process.env.BLOCKDROP_REVISION;
+  try {
+    return fs.readFileSync(path.join(ROOT, "REVISION"), "utf8").trim().slice(0, 64) || "unknown";
+  } catch {
+    return "unknown";
   }
 }
 

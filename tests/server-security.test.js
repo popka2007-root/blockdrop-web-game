@@ -93,6 +93,19 @@ describe("server hardening", () => {
     expect(health.status).toBe(200);
   });
 
+  it("reports service health for deployment checks", async () => {
+    const port = 18904;
+    await startServer(port);
+    const response = await fetch(`http://127.0.0.1:${port}/health`);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(payload.service).toBe("blockdrop-web-game");
+    expect(payload.rooms).toBe(0);
+    expect(Number.isInteger(payload.uptimeSec)).toBe(true);
+  });
+
   it("closes suspicious WebSocket clients instead of accepting bad payloads", async () => {
     const port = 18902;
     await startServer(port);
