@@ -9,6 +9,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "verify": "npm run lint && npm test && npm run test:e2e",
+    "smoke:prod": "node scripts/prod-smoke.js",
+    "release:check": "npm run verify && npm run smoke:prod",
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""
   },
   "engines": {
