@@ -22,18 +22,18 @@ const UI_IDS = [
   "app", "topbar", "statusStrip", "gameLayout", "sidePanel", "controls", "nextPanel", "holdPanel", "statsPanel",
   "board", "boardShell", "next1", "next2", "next3", "hold", "scoreValue", "levelValue", "linesValue", "recordValue",
   "comboValue", "piecesValue", "timeValue", "goalValue", "progressFill", "rankValue", "apmValue", "heightValue",
-  "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "startButton",
-  "continueButton", "friendButton", "aiButton", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
+  "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "quickStartButton", "startButton",
+  "dailyButton", "continueButton", "friendButton", "aiButton", "aiDifficultySelect", "menuRecords", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
   "pauseButton", "mainMenuButton", "pauseMenuButton", "gameOverMenuButton", "pauseRestartButton", "pauseSettingsButton",
   "holdButton", "leftButton", "rightButton", "rotateButton", "downButton", "dropButton", "startMode", "themeSelect",
-  "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
+  "themeSwatches", "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
   "volumeRange", "volumeValue", "closeSettingsButton", "closeStatsButton",
   "shareStatsButton", "gameOverStatsButton", "statsGrid", "leaderboard", "serverLeaderboard", "achievementsList",
   "helpButton", "onlineButton", "helpOverlay", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
   "onlineServerInput", "onlineRoomInput", "onlineNameInput", "onlineMaxPlayersSelect", "onlineDurationSelect",
-  "onlinePlayers", "onlineStatus", "connectOnlineButton", "shareRoomButton", "startTournamentButton", "closeOnlineButton",
+  "onlinePlayers", "onlineStatus", "roomCodeValue", "roomInviteLink", "roomQr", "connectOnlineButton", "copyRoomButton", "shareRoomButton", "startTournamentButton", "closeOnlineButton",
   "tournamentOverlay", "tournamentResults", "closeTournamentButton", "rematchButton", "closeHelpButton", "shareResultButton",
-  "finalScore", "finalLevel", "finalLines", "finalCombo", "finalRecord", "gameOverTitle", "gameOverText",
+  "finalScore", "finalLevel", "finalLines", "finalCombo", "finalRecord", "resultBadge", "resultHighlights", "gameOverTitle", "gameOverText",
   "gameOverInsight", "gameOverCoachButton", "serverRecordStatus", "tutorialButton", "tutorialOverlay", "tutorialText",
   "tutorialSteps", "tutorialNextButton", "tutorialPlayButton", "closeTutorialButton", "toast", "fxLayer"
 ];
@@ -111,6 +111,7 @@ export function createUi(options = {}) {
     documentRef.body.classList.toggle("handed-left", settings.handedness === "left");
 
     refs.themeSelect.value = settings.theme;
+    refs.aiDifficultySelect.value = settings.aiDifficulty || "normal";
     refs.languageSelect.value = settings.language;
     refs.controlModeSelect.value = settings.controlMode;
     refs.vibrationToggle.checked = settings.vibration;
@@ -119,6 +120,7 @@ export function createUi(options = {}) {
     refs.performanceSelect.value = settings.performanceMode;
     refs.volumeRange.value = settings.volume;
     refs.volumeValue.textContent = settings.volume;
+    updateThemeSwatches(settings.theme);
     applyLanguage(settings.language);
   }
 
@@ -163,7 +165,10 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#startOverlay h1"), text.title);
     setText(documentRef.querySelector("#startOverlay .muted"), text.intro);
     setLabel('label[for="startMode"]', language === "en" ? "Mode" : "Режим");
+    setLabel('label[for="aiDifficultySelect"]', language === "en" ? "AI difficulty" : "AI сложность");
+    setText(refs.quickStartButton, language === "en" ? "Quick game" : "Быстрая игра");
     setText(refs.startButton, text.start);
+    setText(refs.dailyButton, language === "en" ? "Daily Challenge" : "Испытание дня");
     setText(refs.continueButton, text.continue);
     setText(refs.friendButton, text.friend);
     setText(refs.aiButton, text.ai);
@@ -223,6 +228,7 @@ export function createUi(options = {}) {
     setLabel('label[for="onlineDurationSelect"]', text.timer);
     setText(refs.startTournamentButton, text.startTournament);
     setText(refs.connectOnlineButton, text.connect);
+    setText(refs.copyRoomButton, language === "en" ? "Copy" : "Скопировать");
     setText(refs.shareRoomButton, text.roomLink);
     setText(refs.closeOnlineButton, text.close);
     if (refs.onlineStatus.textContent === UI_TEXT.ru.notConnected || refs.onlineStatus.textContent === UI_TEXT.en.notConnected) {
@@ -241,6 +247,12 @@ export function createUi(options = {}) {
     setText(refs.shareResultButton, text.shareResult);
     setText(refs.gameOverStatsButton, text.stats);
     populateModeSelect(language);
+  }
+
+  function updateThemeSwatches(theme) {
+    for (const button of refs.themeSwatches.querySelectorAll("[data-theme-choice]")) {
+      button.classList.toggle("active", button.dataset.themeChoice === theme);
+    }
   }
 
   function populateModeSelect(language = "ru") {
@@ -548,6 +560,10 @@ export function createUi(options = {}) {
     refs.finalLines.textContent = payload.lines;
     refs.finalCombo.textContent = payload.combo;
     refs.finalRecord.textContent = payload.record;
+    refs.resultBadge.textContent = payload.badge || "";
+    refs.resultHighlights.innerHTML = (payload.highlights || [])
+      .map((item) => `<div><span>${escapeHtml(item.label)}</span><b>${escapeHtml(item.value)}</b></div>`)
+      .join("");
     refs.gameOverInsight.innerHTML = payload.insight;
     refs.serverRecordStatus.textContent = payload.serverStatus;
     refs.gameOverOverlay.hidden = false;
@@ -651,6 +667,16 @@ export function createUi(options = {}) {
     }).join("");
   }
 
+  function renderMenuRecords({ bestScore, lastGame, sprintBest, dailyBest, serverTop }) {
+    refs.menuRecords.innerHTML = [
+      ["Рекорд", bestScore || 0],
+      ["Последняя", lastGame ? `${lastGame.score} · ${lastGame.mode}` : "—"],
+      ["Sprint", sprintBest || "—"],
+      ["Daily", dailyBest || "—"],
+      ["Сервер", serverTop ? `${serverTop.score} · ${serverTop.name}` : "—"]
+    ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("");
+  }
+
   function renderCoachTips(items) {
     refs.coachTips.innerHTML = items.map(([title, body]) => `<div class="achievement"><b>${title}</b><small>${body}</small></div>`).join("");
   }
@@ -677,6 +703,13 @@ export function createUi(options = {}) {
 
   function setOnlineRoom(room) {
     refs.onlineRoomInput.value = room;
+  }
+
+  function renderRoomInvite({ room, url }) {
+    refs.roomCodeValue.textContent = room || "----";
+    refs.roomInviteLink.textContent = url || "Ссылка появится после генерации";
+    refs.roomQr.hidden = !url;
+    if (url) refs.roomQr.src = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&margin=8&data=${encodeURIComponent(url)}`;
   }
 
   function setOnlineStatus(text) {
@@ -759,7 +792,9 @@ export function createUi(options = {}) {
   }
 
   function bindControls(callbacks) {
+    bindPress(refs.quickStartButton, callbacks.quickStart);
     bindPress(refs.startButton, callbacks.startGame);
+    bindPress(refs.dailyButton, callbacks.startDailyChallenge);
     bindPress(refs.continueButton, callbacks.loadCurrentGame);
     bindPress(refs.friendButton, callbacks.playWithFriend);
     bindPress(refs.aiButton, callbacks.startAiGame);
@@ -779,6 +814,7 @@ export function createUi(options = {}) {
     bindPress(refs.closeCoachButton, callbacks.closeCoach);
     bindPress(refs.onlineButton, callbacks.openOnline);
     bindPress(refs.connectOnlineButton, callbacks.toggleOnlineConnection);
+    bindPress(refs.copyRoomButton, callbacks.copyRoomLink);
     bindPress(refs.shareRoomButton, callbacks.shareRoomLink);
     bindPress(refs.startTournamentButton, callbacks.startTournament);
     bindPress(refs.closeOnlineButton, callbacks.closeOnline);
@@ -806,6 +842,13 @@ export function createUi(options = {}) {
     bindPress(refs.dropButton, callbacks.hardDrop);
 
     refs.themeSelect.addEventListener("change", () => callbacks.changeSetting("theme", refs.themeSelect.value));
+    refs.themeSwatches.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-theme-choice]");
+      if (!button) return;
+      refs.themeSelect.value = button.dataset.themeChoice;
+      callbacks.changeSetting("theme", refs.themeSelect.value);
+    });
+    refs.aiDifficultySelect.addEventListener("change", () => callbacks.changeSetting("aiDifficulty", refs.aiDifficultySelect.value));
     refs.languageSelect.addEventListener("change", () => callbacks.changeSetting("language", refs.languageSelect.value));
     refs.controlModeSelect.addEventListener("change", () => callbacks.changeSetting("controlMode", refs.controlModeSelect.value));
     refs.sensitivitySelect.addEventListener("change", () => callbacks.changeSetting("sensitivityPreset", refs.sensitivitySelect.value));
@@ -873,11 +916,13 @@ export function createUi(options = {}) {
     renderOnlinePanel,
     renderTournamentResults,
     renderStats,
+    renderMenuRecords,
     renderCoachTips,
     setServerRecordStatus,
     setOnlineDefaults,
     getOnlineForm,
     setOnlineRoom,
+    renderRoomInvite,
     setOnlineStatus,
     setOnlineButtonState,
     updateInstallButton,
