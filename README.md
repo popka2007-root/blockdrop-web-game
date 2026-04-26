@@ -9,8 +9,8 @@ Live demo: [http://45.148.117.119/](http://45.148.117.119/)
 - 10x20 playfield with ghost piece, hold, next queue, 7-bag randomizer, SRS wall kicks, DAS/ARR, and lock delay.
 - Classic, 40 Lines, Zen, and Chaos modes.
 - Local stats, best score, autosave, achievements, and server leaderboard.
-- Web Audio API sound effects for move, rotate, hard drop, line clear, Tetris, combo, level up, game over, and PvP attacks.
-- Online rooms with garbage attacks, tournament timer, and opponent progress silhouette.
+- Web Audio API sound effects for move, rotate, hard drop, line clear, Tetris, combo, level up, game over, and PvP attacks, with subtle theme variations.
+- Online rooms with shareable `/room/CODE` links, garbage attacks, tournament timer, and opponent progress silhouette.
 - AI opponent for offline practice when online PvP is inconvenient.
 - Russian and English UI from the settings menu.
 - Interactive beginner tutorial in the How to Play section.
@@ -24,10 +24,11 @@ Current mobile screenshots:
 
 ## Controls
 
-- Keyboard: arrows or WASD to move, Up/W/X to rotate, Space/Z for hard drop, C for hold, P/Esc for pause.
+- Keyboard: arrows or WASD to move, Up/W/X to rotate, Q to rotate back, Space/Z for hard drop, C/H/E/Shift for hold, P/Esc for pause.
+- Mouse/trackpad on the board: click to rotate, double click to rotate back, drag left/right to move, drag down to drop, right click for hold.
 - Touch: tap to rotate, double tap to rotate back, swipe left or right to move, swipe down for soft drop, fast swipe down for hard drop, long press for hold.
 - Main menu includes quick access to Stats and How to Play.
-- Settings include language, performance mode, swipe sensitivity, handedness, theme, vibration, and one volume slider.
+- Settings include language, performance mode, swipe sensitivity, handedness, theme, soft vibration, and one volume slider.
 
 ## Installation
 
@@ -111,6 +112,8 @@ Example room URL:
 
 - Local: [http://localhost:8787/room/DUEL](http://localhost:8787/room/DUEL)
 - Public: [http://45.148.117.119/room/DUEL](http://45.148.117.119/room/DUEL)
+
+Use **Play with friend / Играть с другом** from the main menu to generate a room URL automatically and share it.
 
 Server notes:
 

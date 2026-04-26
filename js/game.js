@@ -124,6 +124,18 @@ import { createBag } from "./game-core.js";
     ["relaxFan", "Спокойный ход", "Сыграть 5 партий в режиме Дзен", (s) => s.relaxGames >= 5]
   ];
 
+  const HAPTICS = {
+    move: 3,
+    rotate: 4,
+    hold: 5,
+    drop: 8,
+    clear: [6, 18, 6],
+    tetris: [8, 20, 8],
+    attack: [7, 24, 7],
+    win: [8, 22, 8],
+    gameOver: [12, 30, 14]
+  };
+
   const storage = createGameStorage(STORAGE);
   const ui = createUi();
   const onlineClient = createOnlineClient();
@@ -244,6 +256,7 @@ import { createBag } from "./game-core.js";
       totalRotations: 0,
       totalMoves: 0,
       totalSoftDrops: 0,
+      modeCounts: { classic: 0, sprint: 0, relax: 0, chaos: 0 },
       pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
       ...storage.loadStats({})
     };
@@ -359,7 +372,7 @@ import { createBag } from "./game-core.js";
     if (MODES[mode].chaos) addGarbage(4);
     spawn();
     ensureAudio();
-    buzz(8);
+    buzz("move");
     syncUi();
     saveCurrentGame();
   }
@@ -395,6 +408,7 @@ import { createBag } from "./game-core.js";
     addGarbage(count);
     shakeBoard();
     playEvent("attack");
+    buzz("attack");
     showToast(`Атака от ${from}: +${count}`);
     sendOnlineUpdate(true);
   }
@@ -456,7 +470,7 @@ import { createBag } from "./game-core.js";
         state.rotations += 1;
         state.stats.totalRotations += 1;
         playEvent("rotate", normalizedDirection < 0 ? { freq: SOUND_EVENTS.rotate.freq - 50 } : {});
-        buzz(4);
+        buzz("rotate");
         return true;
       }
     }
@@ -469,7 +483,7 @@ import { createBag } from "./game-core.js";
 
   function stepHorizontal(direction) {
     const moved = move(direction, 0);
-    if (moved) buzz(3);
+    if (moved) buzz("move");
     return moved;
   }
 
@@ -490,7 +504,7 @@ import { createBag } from "./game-core.js";
     addScore(distance * 2);
     lock();
     playEvent("hardDrop");
-    buzz(12);
+    buzz("drop");
     shakeBoard();
   }
 
@@ -553,7 +567,7 @@ import { createBag } from "./game-core.js";
         playEvent("levelUp");
         burst(26);
       }
-      buzz(count === 4 ? 9 : 6);
+      buzz(count === 4 ? "tetris" : "clear");
       const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
       if (count === 4) showToast("Четыре линии сразу!");
       else if (count >= 2) showToast(`${count} линии${comboText}`);
@@ -638,6 +652,8 @@ import { createBag } from "./game-core.js";
     if (won && state.mode === "sprint") state.stats.sprintWins += 1;
     if (state.mode === "chaos") state.stats.chaosGames += 1;
     if (state.mode === "relax") state.stats.relaxGames += 1;
+    state.stats.modeCounts = { classic: 0, sprint: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
+    state.stats.modeCounts[state.mode] = (state.stats.modeCounts[state.mode] || 0) + 1;
     state.scores.unshift({
       score: state.score,
       lines: state.lines,
@@ -664,7 +680,7 @@ import { createBag } from "./game-core.js";
     });
     renderCoachTips();
     playEvent(won ? "win" : "gameOver");
-    buzz(won ? 8 : 12);
+    buzz(won ? "win" : "gameOver");
     if (won) burst(50);
     sendOnlineUpdate(true);
     submitServerRecord();
@@ -882,6 +898,18 @@ import { createBag } from "./game-core.js";
   function shareRoomLink() {
     const room = ensureRoomCode();
     shareText(`Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`);
+  }
+
+  function createFriendRoom() {
+    const room = generateRoomCode();
+    ui.setOnlineRoom(room);
+    storage.saveRoomCode(room);
+    state.online.room = room;
+    const link = roomInviteUrl(room);
+    if (location.protocol.startsWith("http")) history.replaceState(null, "", link);
+    openOnline();
+    shareText(`Заходи в комнату Тетриса ${room}: ${link}`);
+    showToast("Ссылка комнаты готова");
   }
 
   function connectOnline() {
@@ -1118,13 +1146,16 @@ import { createBag } from "./game-core.js";
   }
 
   function renderStats() {
+    const modeCounts = { classic: 0, sprint: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
+    const favoriteMode = Object.entries(modeCounts).sort((a, b) => b[1] - a[1])[0];
+    const averageDuration = state.stats.games ? formatTime((state.stats.totalTime / state.stats.games) * 1000) : "0:00";
+    const rank = rankInfo(state.stats.bestScore);
     const statsRows = [
-      ["Игр сыграно", state.stats.games],
-      ["Лучший счёт", state.stats.bestScore],
-      ["Всего линий", state.stats.totalLines],
-      ["Лучший уровень", state.stats.bestLevel],
-      ["Лучшее комбо", state.stats.bestCombo],
-      ["Время в игре", formatTime(state.stats.totalTime * 1000)]
+      { label: "Лучший счёт", value: state.stats.bestScore, note: rank.current },
+      { label: "Всего игр", value: state.stats.games, note: `${state.stats.totalLines} линий` },
+      { label: "Любимый режим", value: favoriteMode?.[1] ? MODES[favoriteMode[0]].name : "-", note: favoriteMode?.[1] ? `${favoriteMode[1]} игр` : "сыграй первую партию" },
+      { label: "Средняя длительность", value: averageDuration, note: "за партию" },
+      { label: "Прогресс ранга", value: rank.next ? `${rank.progress}%` : "100%", note: rank.next ? `до ${rank.next}` : "максимальный ранг", progress: rank.progress }
     ];
 
     ui.renderStats({
@@ -1204,6 +1235,30 @@ import { createBag } from "./game-core.js";
     return `<b>Хорошая база</b><small>Следующий шаг: заранее смотреть 2-3 фигуры вперёд и держать один ровный колодец сбоку.</small>`;
   }
 
+  function rankInfo(score) {
+    const ranks = [
+      ["Новичок", 0],
+      ["Игрок", 1200],
+      ["Профи", 3500],
+      ["Мастер", 7000],
+      ["Легенда", 12000]
+    ];
+    let index = 0;
+    for (let i = 0; i < ranks.length; i += 1) {
+      if (score >= ranks[i][1]) index = i;
+    }
+    const current = ranks[index][0];
+    const next = ranks[index + 1]?.[0] || "";
+    if (!next) return { current, next: "", progress: 100 };
+    const from = ranks[index][1];
+    const to = ranks[index + 1][1];
+    return {
+      current,
+      next,
+      progress: Math.round((score - from) / Math.max(1, to - from) * 100)
+    };
+  }
+
   async function shareText(text) {
     try {
       if (navigator.share) {
@@ -1270,17 +1325,35 @@ import { createBag } from "./game-core.js";
   function playEvent(name, overrides = {}) {
     const event = SOUND_EVENTS[name];
     if (!event) return;
+    const themed = themedSound(event, overrides);
     playAudioSound(
       audio,
-      overrides.freq ?? event.freq,
-      overrides.duration ?? event.duration,
-      overrides.type ?? event.type,
-      overrides.category ?? event.category
+      themed.freq,
+      themed.duration,
+      themed.type,
+      themed.category
     );
   }
 
-  function buzz(ms) {
-    if (state.settings.vibration && navigator.vibrate) navigator.vibrate(Math.min(ms, 12));
+  function themedSound(event, overrides = {}) {
+    const profile = {
+      ember: { freq: 1, duration: 1, type: null },
+      day: { freq: 0.94, duration: 0.92, type: "triangle" },
+      candy: { freq: 1.14, duration: 1.06, type: "triangle" },
+      mono: { freq: 0.8, duration: 0.86, type: "sine" }
+    }[state.settings.theme] || {};
+    return {
+      freq: (overrides.freq ?? event.freq) * (profile.freq || 1),
+      duration: (overrides.duration ?? event.duration) * (profile.duration || 1),
+      type: overrides.type ?? profile.type ?? event.type,
+      category: overrides.category ?? event.category
+    };
+  }
+
+  function buzz(pattern = "move") {
+    if (!state.settings.vibration || !navigator.vibrate) return;
+    const value = Array.isArray(pattern) || typeof pattern === "number" ? pattern : HAPTICS[pattern] || HAPTICS.move;
+    navigator.vibrate(value);
   }
 
   function showToast(text) {
@@ -1343,6 +1416,19 @@ import { createBag } from "./game-core.js";
     hardDropped: false,
     softDropped: false,
     holdTriggered: false
+  };
+  const pointerState = {
+    active: false,
+    pointerId: 0,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    startTime: 0,
+    lastTapAt: 0,
+    moved: false,
+    hardDropped: false,
+    softDropped: false
   };
 
   function openStats() {
@@ -1416,6 +1502,7 @@ import { createBag } from "./game-core.js";
   }
 
   function handleKeyDown(event) {
+    if (shouldIgnoreKeyboardTarget(event.target)) return;
     const key = event.key.toLowerCase();
     if (key === "arrowleft" || key === "a") {
       event.preventDefault();
@@ -1435,7 +1522,7 @@ import { createBag } from "./game-core.js";
       event.preventDefault();
       hardDrop();
       syncUi();
-    } else if (key === "c") {
+    } else if (key === "c" || key === "h" || key === "e" || key === "shift") {
       event.preventDefault();
       holdPiece();
       syncUi();
@@ -1451,7 +1538,14 @@ import { createBag } from "./game-core.js";
   }
 
   function handleKeyUp(event) {
+    if (shouldIgnoreKeyboardTarget(event.target)) return;
     stopHorizontal(event.key.toLowerCase());
+  }
+
+  function shouldIgnoreKeyboardTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName;
+    return target.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
   }
 
   function handleTouchStart(event) {
@@ -1474,7 +1568,7 @@ import { createBag } from "./game-core.js";
       if (!canInput()) return;
       holdPiece();
       touchState.holdTriggered = true;
-      buzz(6);
+      buzz("hold");
       syncUi();
     }, 240);
   }
@@ -1579,11 +1673,115 @@ import { createBag } from "./game-core.js";
     clearPendingTap();
   }
 
+  function handlePointerStart(event) {
+    if (state.settings.controlMode === "buttons" || event.pointerType === "touch") return;
+    if (event.button === 2) {
+      event.preventDefault();
+      holdPiece();
+      syncUi();
+      return;
+    }
+    if (event.button !== 0) return;
+    event.preventDefault();
+    pointerState.active = true;
+    pointerState.pointerId = event.pointerId;
+    pointerState.startX = event.clientX;
+    pointerState.startY = event.clientY;
+    pointerState.lastX = event.clientX;
+    pointerState.lastY = event.clientY;
+    pointerState.startTime = performance.now();
+    pointerState.moved = false;
+    pointerState.hardDropped = false;
+    pointerState.softDropped = false;
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+  }
+
+  function handlePointerMove(event) {
+    if (!pointerState.active || event.pointerId !== pointerState.pointerId) return;
+    event.preventDefault();
+    const threshold = swipeThresholdForPreset(state.settings.sensitivityPreset);
+    const dx = event.clientX - pointerState.lastX;
+    const totalDx = event.clientX - pointerState.startX;
+    const totalDy = event.clientY - pointerState.startY;
+    if (Math.abs(totalDx) > threshold * 0.45 || Math.abs(totalDy) > threshold * 0.45) pointerState.moved = true;
+
+    if (Math.abs(dx) >= threshold && Math.abs(totalDx) > Math.abs(totalDy) * 0.75) {
+      const steps = Math.max(1, Math.min(4, Math.floor(Math.abs(dx) / threshold)));
+      let moved = false;
+      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(dx < 0 ? -1 : 1) || moved;
+      pointerState.lastX = event.clientX;
+      if (moved) syncUi();
+      return;
+    }
+
+    if (totalDy > threshold * 1.25 && totalDy > Math.abs(totalDx) * 1.1) {
+      softDrop();
+      pointerState.softDropped = true;
+      pointerState.lastY = event.clientY;
+      syncUi();
+    }
+  }
+
+  function handlePointerEnd(event) {
+    if (!pointerState.active || event.pointerId !== pointerState.pointerId) return;
+    event.preventDefault();
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    pointerState.active = false;
+    const dx = event.clientX - pointerState.startX;
+    const dy = event.clientY - pointerState.startY;
+    const threshold = swipeThresholdForPreset(state.settings.sensitivityPreset);
+    const elapsedMs = performance.now() - pointerState.startTime;
+    const gesture = gestureProfile({ dx, dy, elapsedMs, threshold });
+
+    if (gesture.shouldHardDrop && !pointerState.hardDropped) {
+      hardDrop();
+      pointerState.hardDropped = true;
+      syncUi();
+      return;
+    }
+
+    if (gesture.direction && !pointerState.softDropped) {
+      const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
+      let moved = false;
+      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(gesture.direction === "left" ? -1 : 1) || moved;
+      if (moved) syncUi();
+      return;
+    }
+
+    if (gesture.isTap && !pointerState.moved && !pointerState.softDropped) {
+      const now = performance.now();
+      if (now - pointerState.lastTapAt <= 280) {
+        rotateCounterClockwise();
+        pointerState.lastTapAt = 0;
+      } else {
+        rotateClockwise();
+        pointerState.lastTapAt = now;
+      }
+      syncUi();
+      return;
+    }
+
+    if (gesture.shouldSoftDrop && !pointerState.softDropped) {
+      softDrop();
+      syncUi();
+    }
+  }
+
+  function handlePointerCancel(event) {
+    if (event.pointerId !== pointerState.pointerId) return;
+    pointerState.active = false;
+  }
+
+  function handlePointerContextMenu(event) {
+    event.preventDefault();
+  }
+
   function bindUi() {
     ui.bindControls({
       startGame: () => startGame(),
       startAiGame: () => { startAiGame(); syncUi(); },
       loadCurrentGame: () => { loadCurrentGame(); syncUi(); },
+      playWithFriend: () => { createFriendRoom(); syncUi(); },
       openSettings: () => { openSettings(); syncUi(); },
       installApp,
       openStats: () => { openStats(); syncUi(); },
@@ -1648,6 +1846,13 @@ import { createBag } from "./game-core.js";
       touchmove: handleTouchMove,
       touchend: handleTouchEnd,
       touchcancel: handleTouchCancel
+    });
+    ui.bindBoardPointer({
+      pointerdown: handlePointerStart,
+      pointermove: handlePointerMove,
+      pointerup: handlePointerEnd,
+      pointercancel: handlePointerCancel,
+      contextmenu: handlePointerContextMenu
     });
   }
 
