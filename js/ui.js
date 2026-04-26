@@ -21,7 +21,7 @@ const UI_IDS = [
   "board", "boardShell", "next1", "next2", "next3", "hold", "scoreValue", "levelValue", "linesValue", "recordValue",
   "comboValue", "piecesValue", "timeValue", "goalValue", "progressFill", "rankValue", "apmValue", "heightValue",
   "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "startButton",
-  "continueButton", "aiButton", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
+  "continueButton", "friendButton", "aiButton", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
   "pauseButton", "mainMenuButton", "pauseMenuButton", "gameOverMenuButton", "pauseRestartButton", "pauseSettingsButton",
   "holdButton", "leftButton", "rightButton", "rotateButton", "downButton", "dropButton", "startMode", "themeSelect",
   "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
@@ -42,7 +42,7 @@ const UI_TEXT = {
     next: "Дальше", hold: "Запас", record: "Рекорд", pieces: "Фигур", time: "Время", height: "Высота",
     title: "Тетрис",
     intro: "Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы, рекорды, офлайн-режим и онлайн-комнаты.",
-    start: "Начать игру", continue: "Продолжить", ai: "AI соперник", settings: "Настройки", install: "Установить офлайн",
+    start: "Начать игру", continue: "Продолжить", friend: "Играть с другом", ai: "AI соперник", settings: "Настройки", install: "Установить офлайн",
     online: "Онлайн-комната", stats: "Статистика", help: "Как играть", done: "Готово", close: "Закрыть",
     language: "Язык", theme: "Тема", controls: "Управление", sensitivity: "Чувствительность", hand: "Рука",
     performance: "Производительность", vibration: "Вибрация", sound: "Звук", tutorial: "Обучение",
@@ -63,7 +63,7 @@ const UI_TEXT = {
     next: "Next", hold: "Hold", record: "Best", pieces: "Pieces", time: "Time", height: "Height",
     title: "Tetris",
     intro: "A fast web version with saves, themes, records, offline mode, online rooms, and AI practice.",
-    start: "Start game", continue: "Continue", ai: "AI opponent", settings: "Settings", install: "Install offline",
+    start: "Start game", continue: "Continue", friend: "Play with friend", ai: "AI opponent", settings: "Settings", install: "Install offline",
     online: "Online room", stats: "Stats", help: "How to play", done: "Done", close: "Close",
     language: "Language", theme: "Theme", controls: "Controls", sensitivity: "Sensitivity", hand: "Hand",
     performance: "Performance", vibration: "Vibration", sound: "Sound", tutorial: "Tutorial",
@@ -157,6 +157,7 @@ export function createUi(options = {}) {
     setLabel('label[for="startMode"]', language === "en" ? "Mode" : "Режим");
     setText(refs.startButton, text.start);
     setText(refs.continueButton, text.continue);
+    setText(refs.friendButton, text.friend);
     setText(refs.aiButton, text.ai);
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
@@ -239,7 +240,7 @@ export function createUi(options = {}) {
         ["Move", "Swipe left/right or use arrow keys to place the piece."],
         ["Rotate", "Tap to rotate clockwise. Double tap rotates back."],
         ["Drop", "Swipe down to speed up. Fast swipe down hard drops."],
-        ["Hold", "Long press or press Hold to save a useful piece."],
+        ["Hold", "Long press, right-click the board, or press C / H / E / Shift to save a useful piece."],
         ["Plan", "Keep one side well open for the long I piece and clear 2+ lines for attacks."]
       ];
     }
@@ -343,6 +344,33 @@ export function createUi(options = {}) {
     if (stroke) context.stroke();
   }
 
+  function chamfer(context, x, y, w, h, cut, fill, stroke) {
+    context.beginPath();
+    context.moveTo(x + cut, y);
+    context.lineTo(x + w - cut, y);
+    context.lineTo(x + w, y + cut);
+    context.lineTo(x + w, y + h - cut);
+    context.lineTo(x + w - cut, y + h);
+    context.lineTo(x + cut, y + h);
+    context.lineTo(x, y + h - cut);
+    context.lineTo(x, y + cut);
+    context.closePath();
+    if (fill) context.fill();
+    if (stroke) context.stroke();
+  }
+
+  function drawBlockShape(context, theme, x, y, side, radius, fill, stroke) {
+    if (theme === "day") {
+      chamfer(context, x, y, side, side, Math.max(3, side * 0.13), fill, stroke);
+      return;
+    }
+    if (theme === "mono") {
+      round(context, x, y, side, side, Math.max(1, side * 0.03), fill, stroke);
+      return;
+    }
+    round(context, x, y, side, side, radius, fill, stroke);
+  }
+
   function line(context, x1, y1, x2, y2) {
     context.beginPath();
     context.moveTo(x1, y1);
@@ -364,13 +392,13 @@ export function createUi(options = {}) {
     const palette = settings.colorBlind ? palettes.safe : (palettes.themes[settings.theme] || palettes.base);
     const color = palette[kind] || palette.X || palettes.base.X;
     const theme = settings.theme;
-    const pad = Math.max(1, size * (theme === "mono" ? 0.10 : theme === "candy" ? 0.04 : 0.06));
+    const pad = Math.max(1, size * (theme === "mono" ? 0.12 : theme === "candy" ? 0.04 : theme === "day" ? 0.08 : 0.06));
     const side = size - pad * 2;
-    const radius = theme === "mono" ? Math.max(2, size * 0.04) : theme === "candy" ? Math.max(5, size * 0.22) : Math.max(3, size * 0.15);
+    const radius = theme === "mono" ? Math.max(1, size * 0.03) : theme === "candy" ? Math.max(6, size * 0.28) : Math.max(3, size * 0.15);
     context.globalAlpha = alpha;
     if (!kind) {
       context.fillStyle = "rgba(255,255,255,0.035)";
-      round(context, x + pad, y + pad, side, side, radius, true, false);
+      drawBlockShape(context, theme, x + pad, y + pad, side, radius, true, false);
       context.globalAlpha = 1;
       return;
     }
@@ -379,13 +407,17 @@ export function createUi(options = {}) {
     gradient.addColorStop(0, color);
     gradient.addColorStop(1, shade(color, theme === "day" ? -12 : -22));
     context.fillStyle = gradient;
-    round(context, x + pad, y + pad, side, side, radius, true, false);
+    drawBlockShape(context, theme, x + pad, y + pad, side, radius, true, false);
     if (theme !== "mono") {
-      context.fillStyle = theme === "candy" ? "rgba(255,255,255,0.26)" : "rgba(255,255,255,0.16)";
-      round(context, x + pad + 3, y + pad + 3, Math.max(2, side - 6), Math.max(5, side * 0.22), Math.max(2, size * 0.08), true, false);
+      context.fillStyle = theme === "candy" ? "rgba(255,255,255,0.30)" : theme === "day" ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.16)";
+      if (theme === "day") {
+        chamfer(context, x + pad + side * 0.22, y + pad + side * 0.22, side * 0.56, side * 0.56, Math.max(2, side * 0.08), true, false);
+      } else {
+        round(context, x + pad + 3, y + pad + 3, Math.max(2, side - 6), Math.max(5, side * 0.22), Math.max(2, size * 0.08), true, false);
+      }
     }
-    context.strokeStyle = theme === "mono" ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.18)";
-    round(context, x + pad, y + pad, side, side, radius, false, true);
+    context.strokeStyle = theme === "mono" ? "rgba(255,255,255,0.40)" : theme === "day" ? "rgba(23,32,51,0.18)" : "rgba(255,255,255,0.18)";
+    drawBlockShape(context, theme, x + pad, y + pad, side, radius, false, true);
     context.globalAlpha = 1;
   }
 
@@ -454,11 +486,18 @@ export function createUi(options = {}) {
       const stripX = x0 + (boardWidth - stripWidth) / 2;
       const gradient = ctx.createLinearGradient(stripX, 0, stripX + stripWidth, 0);
       gradient.addColorStop(0, "rgba(255,255,255,0)");
-      gradient.addColorStop(0.5, `rgba(255,255,255,${0.62 * flash.life})`);
+      const flashColors = {
+        ember: [86, 223, 186],
+        day: [22, 127, 114],
+        candy: [255, 207, 86],
+        mono: [217, 208, 189]
+      };
+      const [fr, fg, fb] = flashColors[renderConfig.settings.theme] || flashColors.ember;
+      gradient.addColorStop(0.5, `rgba(${fr},${fg},${fb},${0.68 * flash.life})`);
       gradient.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = gradient;
       ctx.fillRect(stripX, flash.row * cell, stripWidth, cell);
-      ctx.fillStyle = `rgba(86,223,186,${0.22 * flash.life})`;
+      ctx.fillStyle = `rgba(${fr},${fg},${fb},${0.24 * flash.life})`;
       ctx.fillRect(x0, flash.row * cell + cell * 0.42, boardWidth, Math.max(2, cell * 0.16));
     }
 
@@ -576,7 +615,13 @@ export function createUi(options = {}) {
   }
 
   function renderStats({ statsRows, scores, serverRecords, achievements }) {
-    refs.statsGrid.innerHTML = statsRows.map(([label, value]) => `<div class="result-row"><span>${label}</span><span>${value}</span></div>`).join("");
+    refs.statsGrid.classList.add("stats-cards");
+    refs.statsGrid.innerHTML = statsRows.map((item) => {
+      const progress = Number.isFinite(item.progress) ? `<i style="width:${Math.max(0, Math.min(100, item.progress))}%"></i>` : "";
+      const note = item.note ? `<small>${escapeHtml(item.note)}</small>` : "";
+      const track = progress ? `<div class="stats-progress">${progress}</div>` : "";
+      return `<div class="stats-card"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(item.value)}</b>${note}${track}</div>`;
+    }).join("");
     refs.leaderboard.innerHTML = scores.length
       ? scores.map((entry, index) => `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.mode)}, ${escapeHtml(entry.date)}</span><span>${entry.score}</span></div>`).join("")
       : `<div class="score-row"><span>Пока пусто</span><span>0</span></div>`;
@@ -699,6 +744,7 @@ export function createUi(options = {}) {
   function bindControls(callbacks) {
     bindPress(refs.startButton, callbacks.startGame);
     bindPress(refs.continueButton, callbacks.loadCurrentGame);
+    bindPress(refs.friendButton, callbacks.playWithFriend);
     bindPress(refs.aiButton, callbacks.startAiGame);
     bindPress(refs.startSettingsButton, callbacks.openSettings);
     bindPress(refs.installButton, callbacks.installApp);
@@ -780,6 +826,15 @@ export function createUi(options = {}) {
     refs.board.addEventListener("touchcancel", callbacks.touchcancel, { passive: false });
   }
 
+  function bindBoardPointer(callbacks) {
+    const target = refs.boardShell;
+    target.addEventListener("pointerdown", callbacks.pointerdown, { passive: false });
+    target.addEventListener("pointermove", callbacks.pointermove, { passive: false });
+    target.addEventListener("pointerup", callbacks.pointerup, { passive: false });
+    target.addEventListener("pointercancel", callbacks.pointercancel, { passive: false });
+    target.addEventListener("contextmenu", callbacks.contextmenu);
+  }
+
   return {
     ...refs,
     refs,
@@ -814,6 +869,7 @@ export function createUi(options = {}) {
     burst,
     bindControls,
     bindWindowEvents,
-    bindBoardTouch
+    bindBoardTouch,
+    bindBoardPointer
   };
 }

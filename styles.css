@@ -786,6 +786,53 @@ input[type="checkbox"] {
   margin-top: 12px;
 }
 
+.stats-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stats-card {
+  min-height: 84px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.stats-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.stats-card b {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.stats-card small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.stats-progress {
+  height: 5px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.stats-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
 .result-row,
 .achievement,
 .score-row {
@@ -1050,6 +1097,10 @@ body.reduced-motion *::after {
   }
 
   .tutorial-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-cards {
     grid-template-columns: 1fr;
   }
 
