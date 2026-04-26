@@ -722,6 +722,41 @@ h3 {
   margin-top: 10px;
 }
 
+.help-stack {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+  text-align: left;
+}
+
+.help-card {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-normal);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.help-card b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.help-card small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.compact-help {
+  margin-top: 0;
+}
+
+.compact-help .result-row {
+  padding: 8px;
+}
+
 .menu-records,
 .result-highlights {
   display: grid;

@@ -29,7 +29,7 @@ const UI_IDS = [
   "themeSwatches", "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
   "volumeRange", "volumeValue", "closeSettingsButton", "closeStatsButton",
   "shareStatsButton", "gameOverStatsButton", "statsGrid", "leaderboard", "serverLeaderboard", "achievementsList",
-  "helpButton", "onlineButton", "helpOverlay", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
+  "helpButton", "onlineButton", "helpOverlay", "helpOnlineButton", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
   "onlineServerInput", "onlineRoomInput", "onlineNameInput", "onlineMaxPlayersSelect", "onlineDurationSelect",
   "onlinePlayers", "onlineStatus", "roomCodeValue", "roomInviteLink", "roomQr", "connectOnlineButton", "copyRoomButton", "shareRoomButton", "startTournamentButton", "closeOnlineButton",
   "tournamentOverlay", "tournamentResults", "closeTournamentButton", "rematchButton", "closeHelpButton", "shareResultButton",
@@ -208,6 +208,7 @@ export function createUi(options = {}) {
     setText(refs.shareStatsButton, text.shareStats);
 
     setText(documentRef.querySelector("#helpOverlay h2"), text.help);
+    setText(refs.helpOnlineButton, language === "en" ? "Open room QR" : "Открыть комнату с QR");
     setText(refs.tutorialButton, text.tutorial);
     setText(refs.closeHelpButton, text.understood);
     setText(documentRef.querySelector("#tutorialOverlay h2"), text.tutorial);
@@ -802,6 +803,7 @@ export function createUi(options = {}) {
     bindPress(refs.installButton, callbacks.installApp);
     bindPress(refs.openStatsButton, callbacks.openStats);
     bindPress(refs.helpButton, callbacks.openHelp);
+    bindPress(refs.helpOnlineButton, callbacks.openOnlineFromHelp);
     bindPress(refs.closeHelpButton, callbacks.closeHelp);
     bindPress(refs.tutorialButton, callbacks.openTutorial);
     bindPress(refs.tutorialNextButton, () => {

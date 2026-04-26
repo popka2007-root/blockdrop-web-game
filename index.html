@@ -237,17 +237,34 @@
   <section class="overlay" id="helpOverlay" hidden>
     <div class="modal">
       <h2>Как играть</h2>
-      <div class="result-grid">
-        <div class="result-row"><span>Двигать</span><span>Свайп влево/вправо</span></div>
-        <div class="result-row"><span>Повернуть</span><span>Тап</span></div>
-        <div class="result-row"><span>Поворот назад</span><span>Двойной тап</span></div>
-        <div class="result-row"><span>Мягко вниз</span><span>Свайп вниз</span></div>
-        <div class="result-row"><span>Сброс</span><span>Быстрый свайп вниз</span></div>
-        <div class="result-row"><span>Запас</span><span>Долгое нажатие или кнопка</span></div>
+      <div class="help-stack">
+        <div class="help-card">
+          <b>Быстрый старт</b>
+          <small>Быстрая игра запускает последний режим. Daily Challenge каждый день даёт одинаковую последовательность фигур.</small>
+        </div>
+        <div class="help-card">
+          <b>Против AI-бота</b>
+          <small>Выбери AI сложность в главном меню, затем нажми “AI соперник”. Бот играет рядом, набирает очки и периодически отправляет мусорные линии.</small>
+        </div>
+        <div class="help-card">
+          <b>С другом и QR лобби</b>
+          <small>Нажми “Играть с другом” или “Онлайн-комната”. Вверху окна появятся крупный код комнаты, ссылка и QR. Друг сканирует QR или открывает ссылку /room/CODE.</small>
+        </div>
+        <div class="help-card">
+          <b>Режимы</b>
+          <small>Классика — рекорд. 40 линий — спринт. Дзен — спокойная игра. Хаос — периодические мусорные линии.</small>
+        </div>
+      </div>
+      <div class="result-grid compact-help">
+        <div class="result-row"><span>Двигать</span><span>Свайп / ← → / A D</span></div>
+        <div class="result-row"><span>Повернуть</span><span>Тап / ↑ / W / X</span></div>
+        <div class="result-row"><span>Поворот назад</span><span>Двойной тап / Q</span></div>
+        <div class="result-row"><span>Сброс</span><span>Быстрый свайп вниз / Space</span></div>
+        <div class="result-row"><span>Запас</span><span>Долгое нажатие / C / Shift</span></div>
         <div class="result-row"><span>Пауза</span><span>P / Esc</span></div>
       </div>
-      <p class="muted">На клавиатуре также работают стрелки, пробел, C, Q и P.</p>
       <div class="modal-actions">
+        <button class="button warn" id="helpOnlineButton">Открыть комнату с QR</button>
         <button class="button" id="tutorialButton">Обучение</button>
         <button class="button primary" id="closeHelpButton">Понятно</button>
       </div>
