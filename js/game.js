@@ -111,6 +111,13 @@ import { createBag } from "./game-core.js";
     expert: { name: "Эксперт", startLevel: 7, speedBonus: 80, garbage: 4 }
   };
 
+  const AI_DIFFICULTY = {
+    easy: { name: "Лёгкий", scoreRate: 0.68, heightRate: 0.72, attackRate: 1.35, doubleChance: 0.08 },
+    normal: { name: "Нормальный", scoreRate: 1, heightRate: 1, attackRate: 1, doubleChance: 0.22 },
+    hard: { name: "Сильный", scoreRate: 1.35, heightRate: 1.18, attackRate: 0.78, doubleChance: 0.38 },
+    insane: { name: "Безумный", scoreRate: 1.75, heightRate: 1.36, attackRate: 0.58, doubleChance: 0.58 }
+  };
+
   const ACHIEVEMENTS = [
     ["firstLine", "Первый шаг", "Очистить первую линию", (s) => s.totalLines >= 1],
     ["tenLines", "Разогрев", "Очистить 10 линий за всё время", (s) => s.totalLines >= 10],
@@ -200,12 +207,14 @@ import { createBag } from "./game-core.js";
     },
     ai: {
       enabled: false,
+      difficulty: "normal",
       score: 0,
       height: 0,
       elapsedMs: 0,
       attackMs: 0,
       name: "AI"
-    }
+    },
+    daily: null
   };
 
   const audio = initAudio(() => state.settings);
@@ -237,6 +246,8 @@ import { createBag } from "./game-core.js";
       reducedMotion: false,
       language: "ru",
       performanceMode: "auto",
+      aiDifficulty: "normal",
+      lastMode: "classic",
       ...makeAudioSettings(),
       ...storage.loadSettings({})
     };
@@ -263,6 +274,7 @@ import { createBag } from "./game-core.js";
       totalMoves: 0,
       totalSoftDrops: 0,
       modeCounts: { classic: 0, sprint: 0, relax: 0, chaos: 0 },
+      daily: { date: "", score: 0, lines: 0 },
       pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
       ...storage.loadStats({})
     };
@@ -280,6 +292,8 @@ import { createBag } from "./game-core.js";
     state.settings.autoPause = true;
     state.settings.reducedMotion = state.settings.performanceMode === "battery";
     state.settings.language = ["ru", "en"].includes(state.settings.language) ? state.settings.language : "ru";
+    state.settings.aiDifficulty = AI_DIFFICULTY[state.settings.aiDifficulty] ? state.settings.aiDifficulty : "normal";
+    state.settings.lastMode = MODES[normalizeModeKey(state.settings.lastMode)] ? normalizeModeKey(state.settings.lastMode) : "classic";
     state.settings.volume = clamp(Number(state.settings.volume) || 0, 0, 100);
     state.settings.moveVolume = state.settings.volume;
     state.settings.clearVolume = state.settings.volume;
@@ -302,6 +316,25 @@ import { createBag } from "./game-core.js";
 
   function random() {
     return state.rng ? state.rng() : Math.random();
+  }
+
+  function seededRandom(seedText) {
+    let seed = 2166136261;
+    for (let i = 0; i < seedText.length; i += 1) {
+      seed ^= seedText.charCodeAt(i);
+      seed = Math.imul(seed, 16777619);
+    }
+    return () => {
+      seed += 0x6d2b79f5;
+      let value = seed;
+      value = Math.imul(value ^ value >>> 15, value | 1);
+      value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+      return ((value ^ value >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function dailyKey(date = new Date()) {
+    return date.toISOString().slice(0, 10);
   }
 
   function takeKind() {
@@ -333,13 +366,15 @@ import { createBag } from "./game-core.js";
     difficulty = "normal";
     mode = normalizeModeKey(mode);
     const modeConfig = getModeConfig(mode);
+    state.settings.lastMode = mode;
+    storage.saveSettings(state.settings);
     state.board = makeBoard();
     state.active = null;
     state.queue = [];
     state.bag = [];
     state.hold = null;
     state.holdUsed = false;
-    state.rng = Math.random;
+    state.rng = options.seed ? seededRandom(options.seed) : Math.random;
     state.mode = mode;
     state.difficulty = difficulty;
     state.score = 0;
@@ -369,11 +404,13 @@ import { createBag } from "./game-core.js";
     state.lockResets = 0;
     state.flashes = [];
     state.ai.enabled = Boolean(options.ai);
+    state.ai.difficulty = options.aiDifficulty || state.settings.aiDifficulty;
     state.ai.score = 0;
     state.ai.height = 0;
     state.ai.elapsedMs = 0;
     state.ai.attackMs = 0;
-    state.ai.name = state.settings.language === "en" ? "AI bot" : "Бот";
+    state.ai.name = state.settings.language === "en" ? `AI ${AI_DIFFICULTY[state.ai.difficulty].name}` : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name}`;
+    state.daily = options.daily ? { date: dailyKey(), seed: options.seed } : null;
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
@@ -386,8 +423,18 @@ import { createBag } from "./game-core.js";
   }
 
   function startAiGame() {
-    startGame("classic", "normal", { ai: true });
-    showToast(state.settings.language === "en" ? "AI opponent joined" : "AI соперник подключён");
+    startGame(ui.getStartMode(), "normal", { ai: true, aiDifficulty: state.settings.aiDifficulty });
+    showToast(state.settings.language === "en" ? "AI opponent joined" : `AI: ${AI_DIFFICULTY[state.settings.aiDifficulty].name}`);
+  }
+
+  function startDailyChallenge() {
+    const key = dailyKey();
+    startGame("classic", "normal", { daily: true, seed: `daily:${key}` });
+    showToast(`Испытание дня ${key}`);
+  }
+
+  function quickStart() {
+    startGame(state.settings.lastMode || ui.getStartMode(), "normal");
   }
 
   function spawn() {
@@ -646,6 +693,27 @@ import { createBag } from "./game-core.js";
     storage.saveBestScore(state.stats.bestScore);
   }
 
+  function resultBadge(won) {
+    if (won && state.mode === "sprint") return "Сильный спринт";
+    if (state.daily) return "Daily Challenge";
+    if (state.bestClearInGame >= 4) return "Tetris-момент";
+    if (state.bestComboRun >= 4) return "Комбо-машина";
+    if (countHoles() >= 8) return "Много дыр";
+    if (state.score >= state.stats.bestScore) return "Новый рекорд";
+    return "Стабильная партия";
+  }
+
+  function resultHighlights() {
+    const modeName = getModeConfig(state.mode).name;
+    const daily = state.daily ? `${state.stats.daily?.score || state.score} · ${state.daily.date}` : "—";
+    return [
+      { label: "Режим", value: modeName },
+      { label: "Лучший момент", value: state.bestClearInGame >= 4 ? "Tetris" : `Комбо x${state.bestComboRun}` },
+      { label: "APM", value: actionsPerMinute() },
+      { label: "Daily best", value: daily }
+    ];
+  }
+
   function finish(won, text) {
     state.running = false;
     state.gameOver = true;
@@ -661,6 +729,12 @@ import { createBag } from "./game-core.js";
     if (won && state.mode === "sprint") state.stats.sprintWins += 1;
     if (state.mode === "chaos") state.stats.chaosGames += 1;
     if (state.mode === "relax") state.stats.relaxGames += 1;
+    if (state.daily) {
+      const currentDaily = state.stats.daily || { date: "", score: 0, lines: 0 };
+      if (currentDaily.date !== state.daily.date || state.score > currentDaily.score) {
+        state.stats.daily = { date: state.daily.date, score: state.score, lines: state.lines };
+      }
+    }
     state.stats.modeCounts = { classic: 0, sprint: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
     state.stats.modeCounts[state.mode] = (state.stats.modeCounts[state.mode] || 0) + 1;
     state.scores.unshift({
@@ -684,6 +758,8 @@ import { createBag } from "./game-core.js";
       lines: state.lines,
       combo: state.bestComboRun,
       record: state.stats.bestScore,
+      badge: resultBadge(won),
+      highlights: resultHighlights(),
       insight: gameOverInsight(),
       serverStatus: "Серверный рекорд отправляется..."
     });
@@ -763,15 +839,16 @@ import { createBag } from "./game-core.js";
 
   function updateAiOpponent(delta) {
     if (!state.ai.enabled) return;
+    const ai = AI_DIFFICULTY[state.ai.difficulty] || AI_DIFFICULTY.normal;
     state.ai.elapsedMs += delta;
     state.ai.attackMs += delta;
-    state.ai.score += delta * (0.045 + state.level * 0.004);
+    state.ai.score += delta * (0.045 + state.level * 0.004) * ai.scoreRate;
     const wave = Math.sin(state.ai.elapsedMs / 5200) * 2;
-    state.ai.height = Math.max(2, Math.min(16, Math.round(4 + state.level * 0.35 + state.ai.elapsedMs / 42000 + wave)));
-    const attackInterval = Math.max(9000, 21000 - state.level * 520);
+    state.ai.height = Math.max(2, Math.min(18, Math.round(4 + state.level * 0.35 * ai.heightRate + state.ai.elapsedMs / (42000 / ai.heightRate) + wave)));
+    const attackInterval = Math.max(6500, (21000 - state.level * 520) * ai.attackRate);
     if (state.ai.attackMs >= attackInterval) {
       state.ai.attackMs = 0;
-      const lines = state.level >= 7 && Math.random() > 0.55 ? 2 : 1;
+      const lines = state.level >= 7 && Math.random() < ai.doubleChance ? 2 : 1;
       receiveGarbage(lines, state.ai.name);
     }
   }
@@ -821,6 +898,13 @@ import { createBag } from "./game-core.js";
       progress: progressPercent(),
       rank: rankText(),
       danger: state.settings.danger && topDanger()
+    });
+    ui.renderMenuRecords({
+      bestScore: state.stats.bestScore,
+      lastGame: state.scores[0],
+      sprintBest: state.scores.find((entry) => entry.mode === MODES.sprint.name)?.score || 0,
+      dailyBest: state.stats.daily?.date === dailyKey() ? state.stats.daily.score : 0,
+      serverTop: state.serverRecords[0]
     });
     renderOnlinePanel();
     sendOnlineUpdateThrottled();
@@ -886,11 +970,13 @@ import { createBag } from "./game-core.js";
 
   function openOnline() {
     const form = ui.getOnlineForm();
+    const room = form.room || storage.loadRoomCode("") || generateRoomCode();
     ui.setOnlineDefaults({
       server: form.server || defaultServerUrl(),
-      room: form.room || storage.loadRoomCode("") || generateRoomCode(),
+      room,
       name: form.name || storage.loadPlayerName("Игрок")
     });
+    ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
     ui.showOverlay("onlineOverlay");
     renderOnlinePlayers();
     updateOnlineControls();
@@ -901,6 +987,7 @@ import { createBag } from "./game-core.js";
     const room = normalizeRoomId(ui.getOnlineForm().room || state.online.room) || generateRoomCode();
     ui.setOnlineRoom(room);
     storage.saveRoomCode(room);
+    ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
     return room;
   }
 
@@ -911,6 +998,16 @@ import { createBag } from "./game-core.js";
   function shareRoomLink() {
     const room = ensureRoomCode();
     shareText(`Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`);
+  }
+
+  function copyRoomLink() {
+    const room = ensureRoomCode();
+    const link = roomInviteUrl(room);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(link).then(() => showToast("Ссылка скопирована")).catch(() => shareText(link));
+      return;
+    }
+    shareText(link);
   }
 
   function createFriendRoom() {
@@ -1792,7 +1889,9 @@ import { createBag } from "./game-core.js";
 
   function bindUi() {
     ui.bindControls({
+      quickStart: () => { quickStart(); syncUi(); },
       startGame: () => startGame(),
+      startDailyChallenge: () => { startDailyChallenge(); syncUi(); },
       startAiGame: () => { startAiGame(); syncUi(); },
       loadCurrentGame: () => { loadCurrentGame(); syncUi(); },
       playWithFriend: () => { createFriendRoom(); syncUi(); },
@@ -1807,6 +1906,7 @@ import { createBag } from "./game-core.js";
       closeCoach: () => { ui.hideOverlay("coachOverlay"); syncUi(); },
       openOnline: () => { openOnline(); syncUi(); },
       toggleOnlineConnection: () => { toggleOnlineConnection(); syncUi(); },
+      copyRoomLink,
       shareRoomLink,
       startTournament: () => { startTournament(); syncUi(); },
       closeOnline: () => { ui.hideOverlay("onlineOverlay"); syncUi(); },

@@ -97,9 +97,21 @@
             <option value="chaos">Хаос</option>
           </select>
         </div>
+        <div class="setting">
+          <label for="aiDifficultySelect">AI</label>
+          <select class="select" id="aiDifficultySelect">
+            <option value="easy">Лёгкий</option>
+            <option value="normal" selected>Нормальный</option>
+            <option value="hard">Сильный</option>
+            <option value="insane">Безумный</option>
+          </select>
+        </div>
       </div>
+      <div class="menu-records" id="menuRecords"></div>
       <div class="modal-actions">
+        <button class="button primary" id="quickStartButton">Быстрая игра</button>
         <button class="button primary" id="startButton">Начать игру</button>
+        <button class="button warn" id="dailyButton">Daily Challenge</button>
         <button class="button" id="continueButton">Продолжить</button>
         <button class="button warn" id="friendButton">Играть с другом</button>
         <button class="button" id="aiButton">AI соперник</button>
@@ -137,6 +149,12 @@
             <option value="candy">Аркада</option>
             <option value="mono">Минимализм</option>
           </select>
+          <div class="theme-swatches" id="themeSwatches">
+            <button type="button" class="theme-swatch" data-theme-choice="ember" aria-label="Графит"><i></i></button>
+            <button type="button" class="theme-swatch" data-theme-choice="day" aria-label="День"><i></i></button>
+            <button type="button" class="theme-swatch" data-theme-choice="candy" aria-label="Аркада"><i></i></button>
+            <button type="button" class="theme-swatch" data-theme-choice="mono" aria-label="Моно"><i></i></button>
+          </div>
         </div>
         <div class="setting">
           <label for="languageSelect">Язык</label>
@@ -252,6 +270,14 @@
   <section class="overlay" id="onlineOverlay" hidden>
     <div class="modal">
       <h2>Онлайн-комната</h2>
+      <div class="room-card">
+        <div>
+          <span>Код комнаты</span>
+          <b id="roomCodeValue">----</b>
+          <small id="roomInviteLink">Ссылка появится после генерации</small>
+        </div>
+        <img id="roomQr" alt="QR комнаты">
+      </div>
       <div class="settings-grid">
         <div class="setting">
           <label for="onlineRoomInput">Комната</label>
@@ -297,6 +323,7 @@
       </details>
       <div class="modal-actions">
         <button class="button primary" id="connectOnlineButton">Подключиться</button>
+        <button class="button" id="copyRoomButton">Скопировать</button>
         <button class="button" id="shareRoomButton">Ссылка другу</button>
         <button class="button" id="closeOnlineButton">Закрыть</button>
       </div>
@@ -319,6 +346,7 @@
     <div class="modal">
       <h2 id="gameOverTitle">Игра окончена</h2>
       <p class="muted" id="gameOverText">Башня дошла до верхней границы.</p>
+      <div class="result-badge" id="resultBadge">Стабильная партия</div>
       <div class="result-grid">
         <div class="result-row"><span>Счёт</span><span id="finalScore">0</span></div>
         <div class="result-row"><span>Уровень</span><span id="finalLevel">1</span></div>
@@ -326,6 +354,7 @@
         <div class="result-row"><span>Комбо</span><span id="finalCombo">0</span></div>
         <div class="result-row"><span>Рекорд</span><span id="finalRecord">0</span></div>
       </div>
+      <div class="result-highlights" id="resultHighlights"></div>
       <div class="achievement" id="gameOverInsight"></div>
       <p class="muted" id="serverRecordStatus"></p>
       <div class="modal-actions">
