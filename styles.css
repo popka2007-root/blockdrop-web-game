@@ -21,6 +21,17 @@
   --board-pad: 8px;
   --preview-main: 76px;
   --preview-small: 58px;
+  --duration-fast: 180ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+  --radius-small: 6px;
+  --radius-normal: 8px;
+  --radius-large: 12px;
+  --shadow-light: 0 5px 15px rgba(0, 0, 0, 0.1);
+  --shadow-normal: 0 14px 36px var(--shadow);
+  --shadow-heavy: 0 28px 80px rgba(0, 0, 0, 0.42);
+  --transition-smooth: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: all 300ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
 [data-theme="day"] {

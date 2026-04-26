@@ -79,6 +79,32 @@ Refactor status:
 - `js/storage.js` owns local persistence helpers.
 - `js/ui.js` also applies lightweight runtime translations for Russian and English.
 
+## Module Architecture
+
+### Game Logic Layer
+
+- **`js/game-core.js`**: pure Tetris logic for piece generation, collision checks, line clears, and SRS helpers.
+- **`js/config.js`**: shared constants for board dimensions, pieces, scoring, timing, physics, UI timing, and score thresholds.
+- **`js/modes.js`**: single source of truth for Classic, 40 Lines, Zen, and Chaos mode configuration.
+
+### State Layer
+
+- **`js/game-state.js`**: small state-manager module with event notifications, serialization helpers, and a migration path for future autosave cleanup.
+
+### Interaction Layer
+
+- **`js/game.js`**: main runtime loop and orchestration between modules.
+- **`js/input.js`**: keyboard, mouse, and touch input normalization.
+- **`js/ui.js`**: DOM cache, canvas rendering, HUD updates, overlays, settings controls, and runtime translations.
+- **`js/audio.js`**: Web Audio playback and haptic helpers.
+- **`js/online.js`**: WebSocket rooms, PvP messages, and room URL helpers.
+- **`js/storage.js`**: local persistence helpers.
+
+### Utility Layer
+
+- **`js/event-bus.js`**: lightweight event system for looser module coupling.
+- **`js/utils.js`**: formatting, validation, and math helpers.
+
 Useful scripts:
 
 ```bash
