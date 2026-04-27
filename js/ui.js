@@ -225,6 +225,7 @@ const UI_TEXT = {
     shareStats: "Поделиться статистикой",
     coach: "Бот-тренер",
     coachText: "Короткий разбор партии и 2-3 совета для следующей попытки.",
+    roomCode: "Код комнаты",
     room: "Комната",
     name: "Имя",
     notConnected: "Не подключено",
@@ -234,6 +235,9 @@ const UI_TEXT = {
     timer: "Таймер",
     startTournament: "Старт турнира",
     connect: "Подключиться",
+    startOnlineGame: "Начать игру",
+    disconnect: "Отключиться",
+    copied: "Скопировано",
     roomLink: "Ссылка другу",
     tournamentDone: "Турнир завершён",
     tournamentText: "Финальная таблица комнаты.",
@@ -296,6 +300,7 @@ const UI_TEXT = {
     shareStats: "Share stats",
     coach: "Coach bot",
     coachText: "A short review and 2-3 tips for your next attempt.",
+    roomCode: "Room code",
     room: "Room",
     name: "Name",
     notConnected: "Not connected",
@@ -305,6 +310,9 @@ const UI_TEXT = {
     timer: "Timer",
     startTournament: "Start tournament",
     connect: "Connect",
+    startOnlineGame: "Start game",
+    disconnect: "Disconnect",
+    copied: "Copied",
     roomLink: "Invite link",
     tournamentDone: "Tournament finished",
     tournamentText: "Final room leaderboard.",
@@ -314,6 +322,194 @@ const UI_TEXT = {
     playAgain: "Play again",
     coachTips: "Coach tips",
     shareResult: "Share result",
+  },
+};
+
+const LOCALIZED_OPTIONS = {
+  ru: {
+    themeSelect: [
+      ["ember", "Графит и мята"],
+      ["day", "Светлая"],
+      ["candy", "Аркада"],
+      ["mono", "Минимализм"],
+    ],
+    languageSelect: [
+      ["ru", "Русский"],
+      ["en", "English"],
+    ],
+    controlModeSelect: [
+      ["gestures", "Свайпы"],
+      ["hybrid", "Свайпы + кнопки"],
+      ["buttons", "Только кнопки"],
+    ],
+    sensitivitySelect: [
+      ["low", "Низкая"],
+      ["medium", "Средняя"],
+      ["high", "Высокая"],
+    ],
+    handednessSelect: [
+      ["right", "Правая"],
+      ["left", "Левая"],
+    ],
+    performanceSelect: [
+      ["auto", "Авто"],
+      ["battery", "Экономия"],
+      ["quality", "Качество"],
+    ],
+    aiDifficultySelect: [
+      ["easy", "Лёгкий"],
+      ["normal", "Нормальный"],
+      ["hard", "Сильный"],
+      ["insane", "Безумный"],
+    ],
+    aiStyleSelect: [
+      ["balanced", "Баланс"],
+      ["aggressive", "Атака"],
+      ["defensive", "Защита"],
+    ],
+    aiPaceSelect: [
+      ["calm", "Спокойный"],
+      ["fair", "Ровный"],
+      ["fast", "Быстрый"],
+    ],
+    onlineMaxPlayersSelect: [
+      ["2", "1 на 1"],
+      ["3", "3 игрока"],
+      ["4", "4 игрока"],
+      ["5", "5 игроков"],
+      ["6", "6 игроков"],
+      ["7", "7 игроков"],
+      ["8", "8 игроков"],
+    ],
+    onlineDurationSelect: [
+      ["120", "2 минуты"],
+      ["180", "3 минуты"],
+      ["300", "5 минут"],
+      ["600", "10 минут"],
+    ],
+  },
+  en: {
+    themeSelect: [
+      ["ember", "Graphite and mint"],
+      ["day", "Light"],
+      ["candy", "Arcade"],
+      ["mono", "Minimal"],
+    ],
+    languageSelect: [
+      ["ru", "Russian"],
+      ["en", "English"],
+    ],
+    controlModeSelect: [
+      ["gestures", "Swipes"],
+      ["hybrid", "Swipes + buttons"],
+      ["buttons", "Buttons only"],
+    ],
+    sensitivitySelect: [
+      ["low", "Low"],
+      ["medium", "Medium"],
+      ["high", "High"],
+    ],
+    handednessSelect: [
+      ["right", "Right"],
+      ["left", "Left"],
+    ],
+    performanceSelect: [
+      ["auto", "Auto"],
+      ["battery", "Battery saver"],
+      ["quality", "Quality"],
+    ],
+    aiDifficultySelect: [
+      ["easy", "Easy"],
+      ["normal", "Normal"],
+      ["hard", "Hard"],
+      ["insane", "Insane"],
+    ],
+    aiStyleSelect: [
+      ["balanced", "Balanced"],
+      ["aggressive", "Attack"],
+      ["defensive", "Defense"],
+    ],
+    aiPaceSelect: [
+      ["calm", "Calm"],
+      ["fair", "Fair"],
+      ["fast", "Fast"],
+    ],
+    onlineMaxPlayersSelect: [
+      ["2", "1v1"],
+      ["3", "3 players"],
+      ["4", "4 players"],
+      ["5", "5 players"],
+      ["6", "6 players"],
+      ["7", "7 players"],
+      ["8", "8 players"],
+    ],
+    onlineDurationSelect: [
+      ["120", "2 minutes"],
+      ["180", "3 minutes"],
+      ["300", "5 minutes"],
+      ["600", "10 minutes"],
+    ],
+  },
+};
+
+const HELP_CONTENT = {
+  ru: {
+    cards: [
+      [
+        "Быстрый старт",
+        "Обычная игра запускает выбранный режим. Daily Challenge каждый день даёт одинаковую последовательность фигур.",
+      ],
+      [
+        "Против AI-бота",
+        "Открой AI, выбери сложность, стиль и темп. Бот играет рядом, набирает очки и периодически отправляет мусорные линии.",
+      ],
+      [
+        "С другом онлайн",
+        "Нажми «Играть с другом»: комната создастся, подключится и скопирует ссылку. Друг открывает ссылку или сканирует QR.",
+      ],
+      [
+        "Режимы",
+        "Классика — рекорд. 40 линий — спринт. Дзен — спокойная игра. Хаос — периодические мусорные линии.",
+      ],
+    ],
+    controls: [
+      ["Двигать", "Свайп / ← → / A D / кнопки"],
+      ["Повернуть", "Тап / ↑ / W / X / кнопка"],
+      ["Поворот назад", "Двойной тап / Q"],
+      ["Мягко вниз", "Свайп вниз / ↓ / S / кнопка"],
+      ["Сброс", "Быстрый свайп вниз / Space / Z"],
+      ["Запас", "Долгое нажатие / C / H / E / Shift"],
+      ["Пауза", "P / Esc"],
+    ],
+  },
+  en: {
+    cards: [
+      [
+        "Quick start",
+        "Standard play starts the selected mode. Daily Challenge uses the same piece sequence for everyone each day.",
+      ],
+      [
+        "Against AI",
+        "Open AI, choose difficulty, style, and pace. The bot plays beside you, scores points, and sends garbage lines.",
+      ],
+      [
+        "Online with a friend",
+        "Press Play with friend: the room is created, connected, and copied. Your friend opens the link or scans the QR.",
+      ],
+      [
+        "Modes",
+        "Classic is for high score. 40 Lines is a sprint. Zen is relaxed. Chaos adds periodic garbage lines.",
+      ],
+    ],
+    controls: [
+      ["Move", "Swipe / ← → / A D / buttons"],
+      ["Rotate", "Tap / ↑ / W / X / button"],
+      ["Rotate back", "Double tap / Q"],
+      ["Soft drop", "Swipe down / ↓ / S / button"],
+      ["Hard drop", "Fast swipe down / Space / Z"],
+      ["Hold", "Long press / C / H / E / Shift"],
+      ["Pause", "P / Esc"],
+    ],
   },
 };
 
@@ -389,8 +585,59 @@ export function createUi(options = {}) {
     if (element) element.textContent = value;
   }
 
+  function setPlaceholder(element, value) {
+    if (element) element.setAttribute("placeholder", value);
+  }
+
+  function setSelectOptions(select, options) {
+    if (!select || !Array.isArray(options)) return;
+    const selected = select.value;
+    select.innerHTML = options
+      .map(
+        ([value, label]) =>
+          `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`,
+      )
+      .join("");
+    if (options.some(([value]) => value === selected)) select.value = selected;
+  }
+
+  function applyLocalizedOptions(language) {
+    const optionSets = LOCALIZED_OPTIONS[language] || LOCALIZED_OPTIONS.ru;
+    for (const [id, options] of Object.entries(optionSets)) {
+      setSelectOptions(refs[id], options);
+    }
+    for (const [value, label] of optionSets.themeSelect) {
+      refs.themeSwatches
+        .querySelector(`[data-theme-choice="${value}"]`)
+        ?.setAttribute("aria-label", label);
+    }
+  }
+
+  function renderHelp(language) {
+    const content = HELP_CONTENT[language] || HELP_CONTENT.ru;
+    const stack = documentRef.querySelector("#helpOverlay .help-stack");
+    const controls = documentRef.querySelector("#helpOverlay .compact-help");
+    if (stack) {
+      stack.innerHTML = content.cards
+        .map(
+          ([title, body]) =>
+            `<div class="help-card"><b>${escapeHtml(title)}</b><small>${escapeHtml(body)}</small></div>`,
+        )
+        .join("");
+    }
+    if (controls) {
+      controls.innerHTML = content.controls
+        .map(
+          ([label, value]) =>
+            `<div class="result-row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`,
+        )
+        .join("");
+    }
+  }
+
   function applyLanguage(language = "ru") {
     const text = textFor(language);
+    applyLocalizedOptions(language);
     documentRef.documentElement.lang = language;
     documentRef.title = text.title;
     const titleMeta = documentRef.querySelector(
@@ -515,6 +762,7 @@ export function createUi(options = {}) {
     setText(refs.shareStatsButton, text.shareStats);
 
     setText(documentRef.querySelector("#helpOverlay h2"), text.help);
+    renderHelp(language);
     setText(refs.tutorialButton, text.tutorial);
     setText(refs.closeHelpButton, text.understood);
     setText(documentRef.querySelector("#tutorialOverlay h2"), text.tutorial);
@@ -529,12 +777,25 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#onlineOverlay h2"), text.online);
     setLabel('label[for="onlineRoomInput"]', text.room);
     setLabel('label[for="onlineNameInput"]', text.name);
+    setText(documentRef.querySelector(".room-card span"), text.roomCode);
+    refs.roomQr.setAttribute(
+      "alt",
+      language === "en" ? "Room QR code" : "QR комнаты",
+    );
+    setPlaceholder(
+      refs.onlineRoomInput,
+      language === "en" ? "Example: FRIENDS" : "Например: FRIENDS",
+    );
+    setPlaceholder(
+      refs.onlineNameInput,
+      language === "en" ? "Player" : "Игрок",
+    );
     setText(refs.onlineAdvancedSummary, text.tournamentServer);
     setLabel('label[for="onlineServerInput"]', text.server);
     setLabel('label[for="onlineMaxPlayersSelect"]', text.players);
     setLabel('label[for="onlineDurationSelect"]', text.timer);
     setText(refs.startTournamentButton, text.startTournament);
-    setText(refs.connectOnlineButton, text.connect);
+    setOnlineButtonState(refs.connectOnlineButton.dataset.connected === "true");
     setText(refs.copyRoomButton, language === "en" ? "Copy" : "Скопировать");
     setText(refs.shareRoomButton, text.roomLink);
     setText(refs.closeOnlineButton, text.close);
@@ -1178,6 +1439,8 @@ export function createUi(options = {}) {
   }
 
   function renderOnlinePlayers(players, tournament, formatTime) {
+    const language = refs.languageSelect.value;
+    const text = textFor(language);
     refs.onlinePlayers.innerHTML = players.length
       ? players
           .map(
@@ -1185,9 +1448,9 @@ export function createUi(options = {}) {
               `<div class="result-row"><span>${escapeHtml(player.name)} · ${escapeHtml(player.status)}</span><span>${player.score}</span></div>`,
           )
           .join("")
-      : `<div class="result-row"><span>Игроков пока нет</span><span>0</span></div>`;
+      : `<div class="result-row"><span>${escapeHtml(language === "en" ? "No players yet" : "Игроков пока нет")}</span><span>0</span></div>`;
     if (tournament?.active) {
-      refs.onlineStatus.textContent = `Турнир: ${formatTime(tournament.timeLeftMs)} · ${players.length}/${tournament.maxPlayers}`;
+      refs.onlineStatus.textContent = `${text.tournamentServer}: ${formatTime(tournament.timeLeftMs)} · ${players.length}/${tournament.maxPlayers}`;
     }
   }
 
@@ -1204,13 +1467,14 @@ export function createUi(options = {}) {
       return;
     }
     refs.onlinePanel.classList.add("active");
+    const text = textFor(refs.languageSelect.value);
     const timer = tournament?.active
-      ? `<div class="online-timer">Турнир: ${formatTime(tournament.timeLeftMs)}</div>`
+      ? `<div class="online-timer">${escapeHtml(text.tournamentServer)}: ${formatTime(tournament.timeLeftMs)}</div>`
       : "";
     const label =
       room === "AI"
-        ? textFor(refs.languageSelect.value).ai
-        : `Онлайн ${escapeHtml(room)}`;
+        ? text.ai
+        : `${refs.languageSelect.value === "en" ? "Online" : "Онлайн"} ${escapeHtml(room)}`;
     refs.onlinePanel.innerHTML =
       timer +
       `<div class="mission done"><span>${label}</span><b>${players.length}</b></div>` +
@@ -1223,6 +1487,8 @@ export function createUi(options = {}) {
   }
 
   function renderTournamentResults(players, stateWasRunning) {
+    const noResults =
+      refs.languageSelect.value === "en" ? "No results" : "Нет результатов";
     refs.tournamentResults.innerHTML = players.length
       ? players
           .map(
@@ -1230,12 +1496,13 @@ export function createUi(options = {}) {
               `<div class="result-row"><span>${index + 1}. ${escapeHtml(player.name)} · ${escapeHtml(player.status)}</span><span>${player.score}</span></div>`,
           )
           .join("")
-      : `<div class="result-row"><span>Нет результатов</span><span>0</span></div>`;
+      : `<div class="result-row"><span>${escapeHtml(noResults)}</span><span>0</span></div>`;
     refs.tournamentOverlay.hidden = false;
     return stateWasRunning;
   }
 
   function renderStats({ statsRows, scores, serverRecords, achievements }) {
+    const language = refs.languageSelect.value;
     refs.statsGrid.classList.add("stats-cards");
     refs.statsGrid.innerHTML = statsRows
       .map((item) => {
@@ -1256,7 +1523,7 @@ export function createUi(options = {}) {
               `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.mode)}, ${escapeHtml(entry.date)}</span><span>${entry.score}</span></div>`,
           )
           .join("")
-      : `<div class="score-row"><span>Пока пусто</span><span>0</span></div>`;
+      : `<div class="score-row"><span>${language === "en" ? "No games yet" : "Пока пусто"}</span><span>0</span></div>`;
     refs.serverLeaderboard.innerHTML = serverRecords.length
       ? serverRecords
           .map(
@@ -1264,7 +1531,7 @@ export function createUi(options = {}) {
               `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.name)} · ${escapeHtml(entry.mode)} · ${escapeHtml(entry.date)}</span><span>${entry.score}</span></div>`,
           )
           .join("")
-      : `<div class="score-row"><span>Пока нет связи с сервером</span><span>—</span></div>`;
+      : `<div class="score-row"><span>${language === "en" ? "No server records yet" : "Пока нет связи с сервером"}</span><span>—</span></div>`;
     refs.achievementsList.innerHTML = achievements
       .map((item) => {
         const prefix = item.unlocked ? "✓ " : "";
@@ -1323,12 +1590,20 @@ export function createUi(options = {}) {
     dailyBest,
     serverTop,
   }) {
+    const text = textFor(refs.languageSelect.value);
+    const empty = "—";
     refs.menuRecords.innerHTML = [
-      ["Рекорд", bestScore || 0],
-      ["Последняя", lastGame ? `${lastGame.score} · ${lastGame.mode}` : "—"],
-      ["Sprint", sprintBest || "—"],
-      ["Daily", dailyBest || "—"],
-      ["Сервер", serverTop ? `${serverTop.score} · ${serverTop.name}` : "—"],
+      [text.record, bestScore || 0],
+      [
+        refs.languageSelect.value === "en" ? "Last" : "Последняя",
+        lastGame ? `${lastGame.score} · ${lastGame.mode}` : empty,
+      ],
+      ["Sprint", sprintBest || empty],
+      ["Daily", dailyBest || empty],
+      [
+        refs.languageSelect.value === "en" ? "Server" : "Сервер",
+        serverTop ? `${serverTop.score} · ${serverTop.name}` : empty,
+      ],
     ]
       .map(
         ([label, value]) =>
@@ -1372,7 +1647,11 @@ export function createUi(options = {}) {
 
   function renderRoomInvite({ room, url }) {
     refs.roomCodeValue.textContent = room || "----";
-    refs.roomInviteLink.textContent = url || "Ссылка появится после генерации";
+    refs.roomInviteLink.textContent =
+      url ||
+      (refs.languageSelect.value === "en"
+        ? "The link appears after room creation"
+        : "Ссылка появится после генерации");
     refs.roomQr.hidden = !url;
     if (url)
       refs.roomQr.src = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&margin=8&data=${encodeURIComponent(url)}`;
@@ -1383,10 +1662,12 @@ export function createUi(options = {}) {
   }
 
   function setOnlineButtonState(connected) {
+    const text = textFor(refs.languageSelect.value);
+    refs.connectOnlineButton.dataset.connected = connected ? "true" : "false";
     refs.connectOnlineButton.textContent = connected
-      ? "Отключиться"
-      : "Подключиться";
-    refs.connectOnlineButton.classList.toggle("primary", !connected);
+      ? text.startOnlineGame
+      : text.connect;
+    refs.connectOnlineButton.classList.add("primary");
   }
 
   function updateInstallButton(visible) {

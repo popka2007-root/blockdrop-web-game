@@ -121,6 +121,18 @@ test("game over overlay can be shown by the runtime", async ({ page }) => {
 });
 
 test("new menu actions expose useful play flows", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    window.__copiedText = "";
+    document.execCommand = (command) => {
+      if (command !== "copy") return false;
+      window.__copiedText = document.activeElement?.value || "";
+      return true;
+    };
+  });
   await page.goto("/");
 
   await expect(page.locator("#modeSummary")).toContainText("Выжить");
@@ -146,14 +158,46 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await page.locator("#mainMenuButton").click();
   await page.locator("#friendButton").click();
   await expect(page.locator("#roomCodeValue")).not.toHaveText("----");
+  await expect(page.locator("#onlineStatus")).toContainText(/Комната/);
+  await expect(page.locator("#connectOnlineButton")).toHaveText("Начать игру");
   await expect(page.locator("#roomQr")).toHaveAttribute(
     "src",
     /create-qr-code/,
   );
+  await expect
+    .poll(() => page.evaluate(() => window.__copiedText))
+    .toContain("/room/");
   await page.locator("#closeOnlineButton").click();
 
   await page.locator("#dailyButton").click();
   await expect(page.locator("#startOverlay")).toBeHidden();
+});
+
+test("language switch updates settings, help, and online labels", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator("#menuMoreSummary").click();
+  await page.locator("#startSettingsButton").click();
+  await page.selectOption("#languageSelect", "en");
+
+  await expect(page.locator("#settingsOverlay h2")).toHaveText("Settings");
+  await expect(page.locator("#themeSelect")).toContainText("Graphite and mint");
+  await expect(page.locator("#controlModeSelect")).toContainText("Swipes");
+  await expect(page.locator("#sensitivitySelect")).toContainText("Medium");
+  await expect(page.locator("#handednessSelect")).toContainText("Right");
+  await page.locator("#closeSettingsButton").click();
+
+  await page.locator("#helpButton").click();
+  await expect(page.locator("#helpOverlay")).toContainText(
+    "Online with a friend",
+  );
+  await page.locator("#closeHelpButton").click();
+
+  await page.locator("#friendButton").click();
+  await expect(page.locator("#onlineOverlay h2")).toHaveText("Online room");
+  await expect(page.locator("label[for='onlineRoomInput']")).toHaveText("Room");
+  await expect(page.locator("#connectOnlineButton")).toHaveText("Start game");
 });
 
 test("mobile layout keeps board and controls inside viewport", async ({
@@ -231,18 +275,15 @@ test("online room connects two players and shares state", async ({
   const second = await browser.newPage();
   const room = `PW${Date.now().toString(36).slice(-6)}`.toUpperCase();
 
-  await first.goto("/");
-  await second.goto("/");
+  await first.addInitScript(() =>
+    localStorage.setItem("blockdrop-player-name", "P1"),
+  );
+  await second.addInitScript(() =>
+    localStorage.setItem("blockdrop-player-name", "P2"),
+  );
 
-  await first.locator("#friendButton").click();
-  await first.fill("#onlineRoomInput", room);
-  await first.fill("#onlineNameInput", "P1");
-  await first.locator("#connectOnlineButton").click();
-
-  await second.locator("#friendButton").click();
-  await second.fill("#onlineRoomInput", room);
-  await second.fill("#onlineNameInput", "P2");
-  await second.locator("#connectOnlineButton").click();
+  await first.goto(`/room/${room}`);
+  await second.goto(`/room/${room}`);
 
   await expect(first.locator("#onlineStatus")).toContainText(room);
   await expect(second.locator("#onlineStatus")).toContainText(room);
