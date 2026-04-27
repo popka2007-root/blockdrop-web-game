@@ -27,6 +27,10 @@ test("game over overlay can be shown by the runtime", async ({ page }) => {
 test("new menu actions expose useful play flows", async ({ page }) => {
   await page.goto("/");
 
+  await expect(page.locator("#modeSummary")).toContainText("Выжить");
+  await page.selectOption("#startMode", "sprint");
+  await expect(page.locator("#modeSummary")).toContainText("40");
+
   await page.locator("#helpButton").click();
   await expect(page.locator("#helpOverlay")).toContainText("AI");
   await expect(page.locator("#helpOverlay")).toContainText("QR");

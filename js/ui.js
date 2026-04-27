@@ -23,7 +23,7 @@ const UI_IDS = [
   "board", "boardShell", "next1", "next2", "next3", "hold", "scoreValue", "levelValue", "linesValue", "recordValue",
   "comboValue", "piecesValue", "timeValue", "goalValue", "progressFill", "rankValue", "apmValue", "heightValue",
   "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "startButton",
-  "dailyButton", "continueButton", "friendButton", "aiButton", "aiDifficultySelect", "menuRecords", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
+  "dailyButton", "continueButton", "friendButton", "aiButton", "aiDifficultySelect", "modeSummary", "menuRecords", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
   "pauseButton", "mainMenuButton", "pauseMenuButton", "gameOverMenuButton", "pauseRestartButton", "pauseSettingsButton",
   "holdButton", "leftButton", "rightButton", "rotateButton", "downButton", "dropButton", "startMode", "themeSelect",
   "themeSwatches", "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
@@ -259,6 +259,13 @@ export function createUi(options = {}) {
       .map((mode) => `<option value="${mode.key}">${escapeHtml(mode.name)}</option>`)
       .join("");
     refs.startMode.value = selected;
+    renderModeSummary(language);
+  }
+
+  function renderModeSummary(language = refs.languageSelect.value || "ru") {
+    const mode = getModeOptions(language).find((item) => item.key === normalizeModeKey(refs.startMode.value));
+    if (!mode) return;
+    refs.modeSummary.innerHTML = `<b>${escapeHtml(mode.goal)}</b><small>${escapeHtml(mode.description)}</small>`;
   }
 
   function tutorialItems(language = "ru") {
@@ -845,6 +852,10 @@ export function createUi(options = {}) {
       callbacks.changeSetting("theme", refs.themeSelect.value);
     });
     refs.aiDifficultySelect.addEventListener("change", () => callbacks.changeSetting("aiDifficulty", refs.aiDifficultySelect.value));
+    refs.startMode.addEventListener("change", () => {
+      renderModeSummary(refs.languageSelect.value || "ru");
+      callbacks.changeSetting("lastMode", refs.startMode.value);
+    });
     refs.languageSelect.addEventListener("change", () => callbacks.changeSetting("language", refs.languageSelect.value));
     refs.controlModeSelect.addEventListener("change", () => callbacks.changeSetting("controlMode", refs.controlModeSelect.value));
     refs.sensitivitySelect.addEventListener("change", () => callbacks.changeSetting("sensitivityPreset", refs.sensitivitySelect.value));

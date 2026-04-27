@@ -133,7 +133,7 @@ npm run verify
 npm run smoke:prod
 ```
 
-`verify` runs lint, unit tests, and Playwright e2e before a push or deploy. `smoke:prod` opens the public server in desktop and mobile Chromium, checks `/health`, quick start, AI game, room invite QR, and Daily Challenge. Set `TARGET_URL` to smoke another host.
+`verify` runs lint, unit tests, and Playwright e2e before a push or deploy. `smoke:prod` opens the public server in desktop and mobile Chromium, checks `/health`, start game, AI game, room invite QR, and Daily Challenge. Set `TARGET_URL` to smoke another host.
 
 Current automated coverage:
 
