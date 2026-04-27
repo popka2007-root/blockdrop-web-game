@@ -44,6 +44,23 @@ const mime = {
   ".txt": "text/plain; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
 };
+const securityHeaders = {
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https://api.qrserver.com",
+    "connect-src 'self' ws: wss:",
+    "manifest-src 'self'",
+    "worker-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+  ].join("; "),
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
 
 const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -65,7 +82,7 @@ const server = http.createServer((req, res) => {
       : requestUrl.pathname;
   const decodedPathname = safeDecodePath(pathname);
   if (!decodedPathname) {
-    res.writeHead(400);
+    writeHead(res, 400);
     res.end("Bad request");
     return;
   }
@@ -77,18 +94,18 @@ const server = http.createServer((req, res) => {
   const filePath = path.join(ROOT, safePath);
 
   if (!filePath.startsWith(ROOT)) {
-    res.writeHead(403);
+    writeHead(res, 403);
     res.end("Forbidden");
     return;
   }
 
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      res.writeHead(404);
+      writeHead(res, 404);
       res.end("Not found");
       return;
     }
-    res.writeHead(200, {
+    writeHead(res, 200, {
       "Content-Type":
         mime[path.extname(filePath)] || "application/octet-stream",
       "Cache-Control": "no-cache",
@@ -121,7 +138,7 @@ function handleHealth(req, res) {
   };
 
   if (req.method === "HEAD") {
-    res.writeHead(200, {
+    writeHead(res, 200, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-cache",
     });
@@ -269,11 +286,15 @@ function writeRecords(records) {
 }
 
 function sendJson(res, payload, status = 200) {
-  res.writeHead(status, {
+  writeHead(res, status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-cache",
   });
   res.end(JSON.stringify(payload));
+}
+
+function writeHead(res, status, headers = {}) {
+  res.writeHead(status, { ...securityHeaders, ...headers });
 }
 
 server.on("upgrade", (req, socket) => {
@@ -281,8 +302,18 @@ server.on("upgrade", (req, socket) => {
     socket.destroy();
     return;
   }
+  if (!isAllowedWebSocketOrigin(req)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
 
   const key = req.headers["sec-websocket-key"];
+  if (!isValidWebSocketKey(key)) {
+    socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
   const accept = crypto
     .createHash("sha1")
     .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
@@ -346,6 +377,50 @@ server.on("upgrade", (req, socket) => {
   socket.on("error", () => removeClient(client));
   sendFrame(socket, JSON.stringify({ type: "hello", id: client.id }));
 });
+
+function isValidWebSocketKey(key) {
+  if (typeof key !== "string") return false;
+  try {
+    return Buffer.from(key, "base64").length === 16;
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedWebSocketOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  let normalized;
+  try {
+    normalized = new URL(origin).origin;
+  } catch {
+    return false;
+  }
+  return allowedWebSocketOrigins(req).has(normalized);
+}
+
+function allowedWebSocketOrigins(req) {
+  const origins = new Set();
+  for (const origin of String(process.env.BLOCKDROP_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)) {
+    try {
+      origins.add(new URL(origin).origin);
+    } catch {
+      // Ignore invalid deployment config entries instead of breaking upgrades.
+    }
+  }
+  const host = req.headers.host;
+  if (host) {
+    origins.add(`http://${host}`);
+    origins.add(`https://${host}`);
+  }
+  origins.add("http://45.148.117.119");
+  origins.add("http://localhost:8787");
+  origins.add("http://127.0.0.1:8787");
+  return origins;
+}
 
 function emptyState() {
   return {

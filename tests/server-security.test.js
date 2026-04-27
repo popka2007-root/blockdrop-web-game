@@ -57,7 +57,7 @@ function sendBadWebSocketMessage(port) {
   return sendWebSocketMessages(port, ["not-json"]);
 }
 
-function sendWebSocketMessages(port, messages) {
+function sendWebSocketMessages(port, messages, { origin = "" } = {}) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ port, host: "127.0.0.1" });
     const key = crypto.randomBytes(16).toString("base64");
@@ -76,13 +76,18 @@ function sendWebSocketMessages(port, messages) {
           "Connection: Upgrade",
           `Sec-WebSocket-Key: ${key}`,
           "Sec-WebSocket-Version: 13",
+          origin ? `Origin: ${origin}` : "",
           "",
           "",
-        ].join("\r\n"),
+        ]
+          .filter((line) => line !== "")
+          .join("\r\n") + "\r\n\r\n",
       );
     });
-    socket.on("data", () => {
+    socket.on("data", (chunk) => {
       if (handshaken) return;
+      const response = String(chunk);
+      if (!response.startsWith("HTTP/1.1 101")) return;
       handshaken = true;
       for (const message of messages) {
         socket.write(
@@ -130,6 +135,22 @@ describe("server hardening", () => {
     expect(payload.service).toBe("blockdrop-web-game");
     expect(payload.rooms).toBe(0);
     expect(Number.isInteger(payload.uptimeSec)).toBe(true);
+  });
+
+  it("sends baseline browser security headers", async () => {
+    const port = 18909;
+    await startServer(port);
+    const response = await fetch(`http://127.0.0.1:${port}/`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toContain(
+      "default-src 'self'",
+    );
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
+    expect(response.headers.get("permissions-policy")).toContain("camera=()");
   });
 
   it("rejects impossible server records", async () => {
@@ -214,5 +235,17 @@ describe("server hardening", () => {
         { type: "attack", room: "SAFE", lines: 99 },
       ]),
     ).resolves.toBe(true);
+  });
+
+  it("rejects WebSocket upgrades from unexpected browser origins", async () => {
+    const port = 18910;
+    await startServer(port);
+    await expect(
+      sendWebSocketMessages(
+        port,
+        [{ type: "join", room: "SAFE", name: "P1" }],
+        { origin: "https://example.invalid" },
+      ),
+    ).resolves.toBe(false);
   });
 });
