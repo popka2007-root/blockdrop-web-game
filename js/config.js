@@ -350,26 +350,9 @@ export const PROGRESSION = {
   TIME_SPEED_STEP_MS: 12_000,
   TIME_SPEED_STEP_DROP_MS: 12,
   TIME_SPEED_MAX_DROP_MS: 150,
-  CHAOS_BOOST_MS: 7_000,
-  CHAOS_SPEED_DROP_MS: 70,
   SURVIVAL_STREAK_STEP_MS: 10_000,
   SURVIVAL_STREAK_SCORE: 12,
   MAX_STREAK_SCORE_BONUS: 220,
-};
-
-export const PIECE_MODIFIERS = {
-  NORMAL: "normal",
-  DANGER: "danger",
-  BONUS: "bonus",
-  CHAOS: "chaos",
-  CHANCES: {
-    normal: 0.82,
-    danger: 0.08,
-    bonus: 0.08,
-    chaos: 0.02,
-  },
-  BONUS_SCORE: 90,
-  DANGER_GARBAGE_LINES: 1,
 };
 
 export const UI = {

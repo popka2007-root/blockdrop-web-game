@@ -17,7 +17,6 @@ Live demo: [http://45.148.117.119/](http://45.148.117.119/)
 - Modes: Classic, 40 Lines, Hardcore, Time Attack, Zen, and Chaos.
 - Score, level, lines, timer, high score, local stats, achievements, and server leaderboard.
 - Gradual speed progression with a cap.
-- Special pieces: normal, danger, bonus, and rare chaos.
 - Survival streak and score bonuses for stable play.
 - Web Audio API sounds, mute toggle, screen shake, particles, score flash, and game over effect.
 - AI opponent with difficulty, style, and pace settings.

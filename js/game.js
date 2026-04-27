@@ -9,7 +9,6 @@
 import {
   COLS,
   FLOW_STATE,
-  PIECE_MODIFIERS,
   PHYSICS,
   PROGRESSION,
   ROWS,
@@ -320,7 +319,6 @@ import { createBag, makeBoard } from "./game-core.js";
     phase: FLOW_STATE.MENU,
     survivalStreak: 0,
     lastStreakMs: 0,
-    chaosUntilMs: 0,
     holds: 0,
     rotations: 0,
     moves: 0,
@@ -525,26 +523,13 @@ import { createBag, makeBoard } from "./game-core.js";
   }
 
   function makePieceDraft(kind) {
-    const roll = random();
-    let threshold = PIECE_MODIFIERS.CHANCES.normal;
-    let modifier = PIECE_MODIFIERS.NORMAL;
-    if (roll > threshold) {
-      threshold += PIECE_MODIFIERS.CHANCES.danger;
-      modifier =
-        roll <= threshold ? PIECE_MODIFIERS.DANGER : PIECE_MODIFIERS.BONUS;
-    }
-    if (roll > 1 - PIECE_MODIFIERS.CHANCES.chaos) {
-      modifier = PIECE_MODIFIERS.CHAOS;
-    }
-    return { kind, modifier };
+    return { kind };
   }
 
   function normalizePieceDraft(value) {
-    if (typeof value === "string")
-      return { kind: value, modifier: PIECE_MODIFIERS.NORMAL };
+    if (typeof value === "string") return { kind: value };
     return {
       kind: value?.kind || "T",
-      modifier: value?.modifier || PIECE_MODIFIERS.NORMAL,
     };
   }
 
@@ -603,7 +588,6 @@ import { createBag, makeBoard } from "./game-core.js";
     state.phase = FLOW_STATE.PLAYING;
     state.survivalStreak = 0;
     state.lastStreakMs = 0;
-    state.chaosUntilMs = 0;
     state.currentGhostRun = [];
     state.lastGhostSampleMs = 0;
     state.previousBestScore = state.stats.bestScore;
@@ -813,7 +797,6 @@ import { createBag, makeBoard } from "./game-core.js";
     if (!canInput() || state.holdUsed) return;
     const current = {
       kind: state.active.kind,
-      modifier: state.active.modifier,
     };
     state.holds += 1;
     state.stats.totalHolds += 1;
@@ -832,7 +815,6 @@ import { createBag, makeBoard } from "./game-core.js";
     if (!state.active) return;
     const modeConfig = getModeConfig(state.mode);
     const lockedKind = state.active.kind;
-    const lockedModifier = state.active.modifier || PIECE_MODIFIERS.NORMAL;
     const beforeMetrics = {
       holes: countHoles(),
       height: currentHeight(),
@@ -841,7 +823,6 @@ import { createBag, makeBoard } from "./game-core.js";
     for (const c of cells(state.active))
       state.board[c.y][c.x] = {
         kind: state.active.kind,
-        modifier: lockedModifier,
       };
     state.stats.pieceCounts[state.active.kind] += 1;
     state.pieces += 1;
@@ -902,9 +883,6 @@ import { createBag, makeBoard } from "./game-core.js";
     } else {
       state.combo = 0;
     }
-
-    applyPieceModifier(lockedModifier, count);
-
     if (modeConfig.targetLines && state.lines >= modeConfig.targetLines) {
       finish(true, `${modeConfig.goalText} выполнено.`);
       return;
@@ -992,41 +970,6 @@ import { createBag, makeBoard } from "./game-core.js";
         duration: 0.055,
       });
       if (state.survivalStreak % 3 === 0) burst(10);
-    }
-  }
-
-  function applyPieceModifier(modifier, clearedLines) {
-    if (modifier === PIECE_MODIFIERS.NORMAL) return;
-
-    if (modifier === PIECE_MODIFIERS.BONUS) {
-      state.survivalStreak += 1;
-      addScore(
-        PIECE_MODIFIERS.BONUS_SCORE + state.level * 10 + streakScoreBonus(),
-      );
-      playEvent("combo", { freq: 1120, duration: 0.08 });
-      burst(22);
-      showToast(`Бонус +${PIECE_MODIFIERS.BONUS_SCORE}`);
-      return;
-    }
-
-    if (modifier === PIECE_MODIFIERS.CHAOS) {
-      state.chaosUntilMs = Math.max(
-        state.chaosUntilMs,
-        state.elapsedMs + PROGRESSION.CHAOS_BOOST_MS,
-      );
-      addScore(60 + streakScoreBonus());
-      playEvent("levelUp", { freq: 1180, duration: 0.08 });
-      shakeBoard();
-      showToast("Хаос: ускорение на 7 секунд");
-      return;
-    }
-
-    if (modifier === PIECE_MODIFIERS.DANGER && clearedLines === 0) {
-      resetStreak();
-      addGarbage(PIECE_MODIFIERS.DANGER_GARBAGE_LINES);
-      playEvent("attack", { duration: 0.09 });
-      shakeBoard();
-      showToast("Опасная фигура: +1 линия");
     }
   }
 
@@ -1187,10 +1130,6 @@ import { createBag, makeBoard } from "./game-core.js";
       PROGRESSION.TIME_SPEED_MAX_DROP_MS,
       timeSteps * PROGRESSION.TIME_SPEED_STEP_DROP_MS,
     );
-    const chaosPressure =
-      state.chaosUntilMs > state.elapsedMs
-        ? PROGRESSION.CHAOS_SPEED_DROP_MS
-        : 0;
     const modeMultiplier = modeConfig.speedMultiplier || 1;
     return Math.max(
       PHYSICS.MIN_DROP_INTERVAL_MS,
@@ -1198,8 +1137,7 @@ import { createBag, makeBoard } from "./game-core.js";
         relaxed -
         (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS -
         bonus -
-        timePressure -
-        chaosPressure) /
+        timePressure) /
         modeMultiplier,
     );
   }
@@ -1338,7 +1276,6 @@ import { createBag, makeBoard } from "./game-core.js";
         active: state.active
           ? {
               kind: state.active.kind,
-              modifier: state.active.modifier,
               cells: cells(state.active),
             }
           : null,

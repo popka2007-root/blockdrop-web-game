@@ -22,7 +22,6 @@ const SAVE_KEYS = [
   "sessionHistory",
   "survivalStreak",
   "lastStreakMs",
-  "chaosUntilMs",
   "currentGhostRun",
   "lastGhostSampleMs",
   "elapsedMs",
@@ -51,7 +50,6 @@ export function applySaveSnapshot(state, save, phase) {
     : [];
   state.survivalStreak = Number(save.survivalStreak) || 0;
   state.lastStreakMs = Number(save.lastStreakMs) || state.elapsedMs || 0;
-  state.chaosUntilMs = Number(save.chaosUntilMs) || 0;
   state.currentGhostRun = Array.isArray(save.currentGhostRun)
     ? save.currentGhostRun
     : [];

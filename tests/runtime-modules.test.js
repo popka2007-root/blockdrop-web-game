@@ -57,7 +57,6 @@ describe("runtime helper modules", () => {
       sessionHistory: [],
       survivalStreak: 1,
       lastStreakMs: 1000,
-      chaosUntilMs: 0,
       currentGhostRun: [],
       lastGhostSampleMs: 1000,
       elapsedMs: 1000,
