@@ -90,24 +90,24 @@ test("autosave restores an active game from the menu", async ({ page }) => {
 
 test("menu buttons ignore scroll-like pointer movement", async ({ page }) => {
   await page.goto("/");
-  const helpButton = page.locator("#helpButton");
-  await helpButton.scrollIntoViewIfNeeded();
-  const box = await helpButton.boundingBox();
+  const moreButton = page.locator("#menuMoreSummary");
+  await moreButton.scrollIntoViewIfNeeded();
+  const box = await moreButton.boundingBox();
   expect(box).toBeTruthy();
 
-  await helpButton.dispatchEvent("pointerdown", {
+  await moreButton.dispatchEvent("pointerdown", {
     pointerId: 1,
     button: 0,
     clientX: box.x + box.width / 2,
     clientY: box.y + box.height / 2,
   });
-  await helpButton.dispatchEvent("pointermove", {
+  await moreButton.dispatchEvent("pointermove", {
     pointerId: 1,
     button: 0,
     clientX: box.x + box.width / 2,
     clientY: box.y + box.height / 2 + 40,
   });
-  await helpButton.dispatchEvent("pointerup", {
+  await moreButton.dispatchEvent("pointerup", {
     pointerId: 1,
     button: 0,
     clientX: box.x + box.width / 2,
@@ -132,6 +132,7 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await page.selectOption("#startMode", "sprint");
   await expect(page.locator("#modeSummary")).toContainText("40");
 
+  await page.locator("#menuMoreSummary").click();
   await page.locator("#helpButton").click();
   await expect(page.locator("#helpOverlay")).toContainText("AI");
   await expect(page.locator("#helpOverlay")).toContainText("QR");
@@ -270,6 +271,7 @@ test("hardcore time attack and replay menu are exposed", async ({ page }) => {
   await page.selectOption("#startMode", "timeAttack");
   await expect(page.locator("#modeSummary")).toContainText("2");
 
+  await page.locator("#menuMoreSummary").click();
   await page.locator("#replayButton").click();
   await expect(page.locator("#replayOverlay")).toBeVisible();
   await expect(page.locator("#replaySummary")).toBeVisible();
