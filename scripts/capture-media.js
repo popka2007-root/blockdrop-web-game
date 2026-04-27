@@ -8,10 +8,22 @@ const outDir = path.join(root, "screenshots");
 const baseUrl = "http://127.0.0.1:8787";
 
 const palette = [
-  [10, 15, 25], [22, 31, 48], [38, 49, 73], [78, 91, 120],
-  [33, 211, 245], [255, 209, 102], [155, 108, 255], [34, 214, 153],
-  [255, 107, 107], [79, 120, 255], [255, 154, 61], [223, 230, 238],
-  [94, 234, 212], [255, 194, 87], [255, 255, 255], [0, 0, 0]
+  [10, 15, 25],
+  [22, 31, 48],
+  [38, 49, 73],
+  [78, 91, 120],
+  [33, 211, 245],
+  [255, 209, 102],
+  [155, 108, 255],
+  [34, 214, 153],
+  [255, 107, 107],
+  [79, 120, 255],
+  [255, 154, 61],
+  [223, 230, 238],
+  [94, 234, 212],
+  [255, 194, 87],
+  [255, 255, 255],
+  [0, 0, 0],
 ];
 
 function waitForServer() {
@@ -94,7 +106,7 @@ function lzw(indices, minCodeSize = 4) {
     if (nextCode < 4096) {
       dict.set(joined, nextCode);
       nextCode += 1;
-      if (nextCode === (1 << codeSize) && codeSize < 12) codeSize += 1;
+      if (nextCode === 1 << codeSize && codeSize < 12) codeSize += 1;
     } else {
       write(clearCode);
       reset();
@@ -108,8 +120,11 @@ function lzw(indices, minCodeSize = 4) {
 }
 
 function encodeGif(frames, width, height, delay = 12) {
-  const colorTable = palette.map(([r, g, b]) => byte(r) + byte(g) + byte(b)).join("");
-  let gif = "GIF89a" + word(width) + word(height) + byte(0xf3) + "\0\0" + colorTable;
+  const colorTable = palette
+    .map(([r, g, b]) => byte(r) + byte(g) + byte(b))
+    .join("");
+  let gif =
+    "GIF89a" + word(width) + word(height) + byte(0xf3) + "\0\0" + colorTable;
   gif += "!\xff\u000bNETSCAPE2.0\u0003\u0001" + word(0) + "\0";
   for (const frame of frames) {
     gif += "!\xf9\u0004\u0004" + word(delay) + "\0\0";
@@ -120,50 +135,69 @@ function encodeGif(frames, width, height, delay = 12) {
 }
 
 async function captureBoardFrame(page, width = 120, height = 240) {
-  return page.evaluate(({ width, height, palette }) => {
-    const source = document.getElementById("board");
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    context.drawImage(source, 0, 0, width, height);
-    const data = context.getImageData(0, 0, width, height).data;
-    const indices = [];
-    for (let i = 0; i < data.length; i += 4) {
-      let best = 0;
-      let bestDistance = Infinity;
-      for (let p = 0; p < palette.length; p += 1) {
-        const color = palette[p];
-        const dr = data[i] - color[0];
-        const dg = data[i + 1] - color[1];
-        const db = data[i + 2] - color[2];
-        const distance = dr * dr + dg * dg + db * db;
-        if (distance < bestDistance) {
-          best = p;
-          bestDistance = distance;
+  return page.evaluate(
+    ({ width, height, palette }) => {
+      const source = document.getElementById("board");
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(source, 0, 0, width, height);
+      const data = context.getImageData(0, 0, width, height).data;
+      const indices = [];
+      for (let i = 0; i < data.length; i += 4) {
+        let best = 0;
+        let bestDistance = Infinity;
+        for (let p = 0; p < palette.length; p += 1) {
+          const color = palette[p];
+          const dr = data[i] - color[0];
+          const dg = data[i + 1] - color[1];
+          const db = data[i + 2] - color[2];
+          const distance = dr * dr + dg * dg + db * db;
+          if (distance < bestDistance) {
+            best = p;
+            bestDistance = distance;
+          }
         }
+        indices.push(best);
       }
-      indices.push(best);
-    }
-    return indices;
-  }, { width, height, palette });
+      return indices;
+    },
+    { width, height, palette },
+  );
 }
 
 (async () => {
   fs.mkdirSync(outDir, { recursive: true });
-  const server = spawn(process.execPath, ["server.js"], { cwd: root, env: { ...process.env, PORT: "8787" }, stdio: "ignore" });
+  const server = spawn(process.execPath, ["server.js"], {
+    cwd: root,
+    env: { ...process.env, PORT: "8787" },
+    stdio: "ignore",
+  });
   try {
     await waitForServer();
     const browser = await chromium.launch();
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true });
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 2,
+      isMobile: true,
+    });
     await page.goto(baseUrl);
     await page.waitForTimeout(1900);
-    await page.screenshot({ path: path.join(outDir, "menu-mobile.png"), fullPage: true });
+    await page.screenshot({
+      path: path.join(outDir, "menu-mobile.png"),
+      fullPage: true,
+    });
     await page.locator("#startButton").click();
     await page.keyboard.press("ArrowLeft");
     await page.keyboard.press("Space");
-    await page.evaluate(() => document.getElementById("toast")?.classList.remove("show"));
-    await page.screenshot({ path: path.join(outDir, "game-mobile.png"), fullPage: true });
+    await page.evaluate(() =>
+      document.getElementById("toast")?.classList.remove("show"),
+    );
+    await page.screenshot({
+      path: path.join(outDir, "game-mobile.png"),
+      fullPage: true,
+    });
 
     const frames = [];
     for (let i = 0; i < 10; i += 1) {
@@ -172,7 +206,10 @@ async function captureBoardFrame(page, width = 120, height = 240) {
       await page.waitForTimeout(90);
       frames.push(await captureBoardFrame(page));
     }
-    fs.writeFileSync(path.join(outDir, "gameplay.gif"), encodeGif(frames, 120, 240));
+    fs.writeFileSync(
+      path.join(outDir, "gameplay.gif"),
+      encodeGif(frames, 120, 240),
+    );
     await browser.close();
   } finally {
     server.kill();

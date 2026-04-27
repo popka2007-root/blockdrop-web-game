@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventBus } from "../js/event-bus.js";
 import { GameState } from "../js/game-state.js";
-import { getModeConfig, getModeOptions, normalizeModeKey } from "../js/modes.js";
+import {
+  getModeConfig,
+  getModeOptions,
+  normalizeModeKey,
+} from "../js/modes.js";
 import { calc, format, validate } from "../js/utils.js";
 
 describe("mode configuration", () => {

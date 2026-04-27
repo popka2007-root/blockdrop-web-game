@@ -1,4 +1,12 @@
-import { ATTACK_TABLE, COLS, PIECES, ROWS, SCORE_TABLE, SHAPES, SRS_KICKS } from "./config.js";
+import {
+  ATTACK_TABLE,
+  COLS,
+  PIECES,
+  ROWS,
+  SCORE_TABLE,
+  SHAPES,
+  SRS_KICKS,
+} from "./config.js";
 
 export function makeBoard(rows = ROWS, cols = COLS) {
   return Array.from({ length: rows }, () => Array(cols).fill(null));
@@ -30,7 +38,10 @@ export function makePiece(kind, x = 3, y = 0) {
 }
 
 export function cells(piece) {
-  return SHAPES[piece.kind][piece.rotation].map(([x, y]) => ({ x: piece.x + x, y: piece.y + y }));
+  return SHAPES[piece.kind][piece.rotation].map(([x, y]) => ({
+    x: piece.x + x,
+    y: piece.y + y,
+  }));
 }
 
 export function isValid(board, piece) {
@@ -46,9 +57,14 @@ export function rotateWithSrs(board, piece, direction = 1) {
   const to = (from + direction + 4) % 4;
   const key = `${from}>${to}`;
   const table = piece.kind === "I" ? SRS_KICKS.I : SRS_KICKS.normal;
-  const kicks = piece.kind === "O" ? [[0, 0]] : (table[key] || [[0, 0]]);
+  const kicks = piece.kind === "O" ? [[0, 0]] : table[key] || [[0, 0]];
   for (const [dx, dy] of kicks) {
-    const candidate = { ...piece, rotation: to, x: piece.x + dx, y: piece.y + dy };
+    const candidate = {
+      ...piece,
+      rotation: to,
+      x: piece.x + dx,
+      y: piece.y + dy,
+    };
     if (isValid(board, candidate)) return candidate;
   }
   return piece;
@@ -77,10 +93,21 @@ export function holdPiece(state) {
   if (state.holdUsed || !state.active) return state;
   const current = state.active.kind;
   if (state.hold) {
-    return { ...state, active: makePiece(state.hold), hold: current, holdUsed: true };
+    return {
+      ...state,
+      active: makePiece(state.hold),
+      hold: current,
+      holdUsed: true,
+    };
   }
   const [next, ...queue] = state.queue;
-  return { ...state, active: makePiece(next), queue, hold: current, holdUsed: true };
+  return {
+    ...state,
+    active: makePiece(next),
+    queue,
+    hold: current,
+    holdUsed: true,
+  };
 }
 
 export function addGarbage(board, count, random = Math.random) {
@@ -88,7 +115,9 @@ export function addGarbage(board, count, random = Math.random) {
   for (let i = 0; i < count; i += 1) {
     const hole = Math.floor(random() * COLS);
     next.shift();
-    next.push(Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")));
+    next.push(
+      Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")),
+    );
   }
   return next;
 }

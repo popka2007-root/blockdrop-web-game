@@ -15,7 +15,11 @@ export function removeItem(key, storage = globalThis.localStorage) {
   storage?.removeItem(key);
 }
 
-export function loadText(key, fallback = "", storage = globalThis.localStorage) {
+export function loadText(
+  key,
+  fallback = "",
+  storage = globalThis.localStorage,
+) {
   try {
     const raw = storage?.getItem(key);
     return raw == null ? fallback : String(raw);
@@ -28,7 +32,11 @@ export function saveText(key, value, storage = globalThis.localStorage) {
   storage?.setItem(key, String(value));
 }
 
-export function loadNumber(key, fallback = 0, storage = globalThis.localStorage) {
+export function loadNumber(
+  key,
+  fallback = 0,
+  storage = globalThis.localStorage,
+) {
   const value = Number(loadText(key, fallback, storage));
   return Number.isFinite(value) ? value : fallback;
 }
@@ -91,6 +99,6 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     },
     savePlayerName(value) {
       saveText(keys.playerName, value, storage);
-    }
+    },
   };
 }

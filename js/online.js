@@ -1,9 +1,18 @@
 export function normalizeRoomId(value) {
-  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 16);
 }
 
 export function normalizePlayerName(value) {
-  return String(value || "Player").replace(/[<>]/g, "").trim().slice(0, 18) || "Player";
+  return (
+    String(value || "Player")
+      .replace(/[<>]/g, "")
+      .trim()
+      .slice(0, 18) || "Player"
+  );
 }
 
 export function attackLinesForClear(count) {
@@ -37,9 +46,13 @@ export function roomFromLocation(locationLike = globalThis.location) {
 export function buildRoomInviteUrl(locationLike, room) {
   const url = new URL(locationLike.href);
   const safeRoom = normalizeRoomId(room);
-  const canUsePrettyRoom = locationLike.protocol.startsWith("http") && !locationLike.hostname.endsWith("github.io");
+  const canUsePrettyRoom =
+    locationLike.protocol.startsWith("http") &&
+    !locationLike.hostname.endsWith("github.io");
   if (canUsePrettyRoom) {
-    const basePath = url.pathname.includes("/room/") ? url.pathname.split("/room/")[0] : url.pathname.replace(/\/[^/]*$/, "");
+    const basePath = url.pathname.includes("/room/")
+      ? url.pathname.split("/room/")[0]
+      : url.pathname.replace(/\/[^/]*$/, "");
     url.pathname = `${basePath.replace(/\/$/, "")}/room/${safeRoom}`;
     url.search = "";
   } else {
@@ -55,7 +68,7 @@ export function buildJoinMessage({ room, name, maxPlayers, durationSec }) {
     room: normalizeRoomId(room),
     name: normalizePlayerName(name),
     maxPlayers: Number(maxPlayers) || 2,
-    durationSec: Number(durationSec) || 180
+    durationSec: Number(durationSec) || 180,
   };
 }
 
@@ -69,11 +82,14 @@ export function buildUpdateMessage(state) {
     level: Math.max(1, Math.floor(Number(state.level) || 1)),
     height: Math.max(0, Math.floor(Number(state.height) || 0)),
     sentGarbage: Math.max(0, Math.floor(Number(state.sentGarbage) || 0)),
-    receivedGarbage: Math.max(0, Math.floor(Number(state.receivedGarbage) || 0)),
+    receivedGarbage: Math.max(
+      0,
+      Math.floor(Number(state.receivedGarbage) || 0),
+    ),
     mode: String(state.mode || "Classic").slice(0, 24),
     time: String(state.time || "0:00").slice(0, 12),
     status: String(state.status || "Playing").slice(0, 18),
-    force: Boolean(state.force)
+    force: Boolean(state.force),
   };
 }
 
@@ -82,7 +98,7 @@ export function buildTournamentMessage({ room, maxPlayers, durationSec }) {
     type: "startTournament",
     room: normalizeRoomId(room),
     maxPlayers: Number(maxPlayers) || 2,
-    durationSec: Number(durationSec) || 180
+    durationSec: Number(durationSec) || 180,
   };
 }
 
@@ -101,7 +117,7 @@ export function createOnlineClient() {
     room: "",
     name: "",
     lastSentAt: 0,
-    listeners: new Set()
+    listeners: new Set(),
   };
 }
 
@@ -115,7 +131,8 @@ function emitOnlineMessage(client, payload) {
 }
 
 export function sendOnlineMessage(client, payload) {
-  if (!client?.socket || client.socket.readyState !== WebSocket.OPEN) return false;
+  if (!client?.socket || client.socket.readyState !== WebSocket.OPEN)
+    return false;
   client.socket.send(JSON.stringify(payload));
   return true;
 }
@@ -124,7 +141,7 @@ export function sendAttack(client, room, lines) {
   return sendOnlineMessage(client, {
     type: "attack",
     room: normalizeRoomId(room),
-    lines: Math.max(1, Math.min(6, Math.floor(Number(lines) || 0)))
+    lines: Math.max(1, Math.min(6, Math.floor(Number(lines) || 0))),
   });
 }
 
@@ -140,7 +157,10 @@ export function disconnectOnline(client) {
   client.connected = false;
 }
 
-export function connectOnline(client, { server, room, name, maxPlayers, durationSec }) {
+export function connectOnline(
+  client,
+  { server, room, name, maxPlayers, durationSec },
+) {
   disconnectOnline(client);
   const socket = new WebSocket(server);
   client.socket = socket;
@@ -149,13 +169,20 @@ export function connectOnline(client, { server, room, name, maxPlayers, duration
 
   socket.addEventListener("open", () => {
     client.connected = true;
-    sendOnlineMessage(client, buildJoinMessage({
+    sendOnlineMessage(
+      client,
+      buildJoinMessage({
+        room: client.room,
+        name: client.name,
+        maxPlayers,
+        durationSec,
+      }),
+    );
+    emitOnlineMessage(client, {
+      type: "open",
       room: client.room,
       name: client.name,
-      maxPlayers,
-      durationSec
-    }));
-    emitOnlineMessage(client, { type: "open", room: client.room, name: client.name });
+    });
   });
 
   socket.addEventListener("message", (event) => {

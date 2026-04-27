@@ -21,17 +21,23 @@ export class EventBus {
     this.log(event, data);
     const handlers = this.events.get(event);
     if (!handlers?.length) return this;
-    this.events.set(event, handlers.filter((entry) => {
-      entry.handler(data);
-      return !entry.once;
-    }));
+    this.events.set(
+      event,
+      handlers.filter((entry) => {
+        entry.handler(data);
+        return !entry.once;
+      }),
+    );
     return this;
   }
 
   off(event, handler) {
     const handlers = this.events.get(event);
     if (!handlers?.length) return this;
-    this.events.set(event, handlers.filter((entry) => entry.handler !== handler));
+    this.events.set(
+      event,
+      handlers.filter((entry) => entry.handler !== handler),
+    );
     return this;
   }
 
@@ -43,7 +49,10 @@ export class EventBus {
 
   log(event, data) {
     try {
-      if (typeof localStorage !== "undefined" && localStorage.getItem(this.debugKey)) {
+      if (
+        typeof localStorage !== "undefined" &&
+        localStorage.getItem(this.debugKey)
+      ) {
         this.logger.log(`[EVENT] ${event}`, data);
       }
     } catch {

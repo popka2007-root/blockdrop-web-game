@@ -1,28 +1,83 @@
 const MODE_COPY = {
   classic: {
-    ru: { name: "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430", goal: "\u0412\u044b\u0436\u0438\u0442\u044c", description: "\u041a\u043b\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043f\u0430\u0440\u0442\u0438\u044f \u043d\u0430 \u0440\u0435\u043a\u043e\u0440\u0434." },
-    en: { name: "Classic", goal: "Survive", description: "Classic high-score run." }
+    ru: {
+      name: "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430",
+      goal: "\u0412\u044b\u0436\u0438\u0442\u044c",
+      description:
+        "\u041a\u043b\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043f\u0430\u0440\u0442\u0438\u044f \u043d\u0430 \u0440\u0435\u043a\u043e\u0440\u0434.",
+    },
+    en: {
+      name: "Classic",
+      goal: "Survive",
+      description: "Classic high-score run.",
+    },
   },
   sprint: {
-    ru: { name: "40 \u043b\u0438\u043d\u0438\u0439", goal: "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c 40 \u043b\u0438\u043d\u0438\u0439", description: "\u0421\u043f\u0440\u0438\u043d\u0442 \u0434\u043e 40 \u043e\u0447\u0438\u0449\u0435\u043d\u043d\u044b\u0445 \u043b\u0438\u043d\u0438\u0439." },
-    en: { name: "40 Lines", goal: "Clear 40 lines", description: "Sprint to 40 cleared lines." }
+    ru: {
+      name: "40 \u043b\u0438\u043d\u0438\u0439",
+      goal: "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c 40 \u043b\u0438\u043d\u0438\u0439",
+      description:
+        "\u0421\u043f\u0440\u0438\u043d\u0442 \u0434\u043e 40 \u043e\u0447\u0438\u0449\u0435\u043d\u043d\u044b\u0445 \u043b\u0438\u043d\u0438\u0439.",
+    },
+    en: {
+      name: "40 Lines",
+      goal: "Clear 40 lines",
+      description: "Sprint to 40 cleared lines.",
+    },
   },
   hardcore: {
-    ru: { name: "Hardcore", goal: "\u0412\u044b\u0436\u0438\u0442\u044c \u043d\u0430 \u0441\u043a\u043e\u0440\u043e\u0441\u0442\u0438", description: "\u0411\u044b\u0441\u0442\u0440\u043e\u0435 \u0443\u0441\u043a\u043e\u0440\u0435\u043d\u0438\u0435, \u0440\u0430\u043d\u043d\u0438\u0439 \u0432\u044b\u0441\u043e\u043a\u0438\u0439 \u0443\u0440\u043e\u0432\u0435\u043d\u044c \u0438 \u043c\u0435\u043d\u044c\u0448\u0435 \u043f\u0440\u0430\u0432\u0430 \u043d\u0430 \u043e\u0448\u0438\u0431\u043a\u0443." },
-    en: { name: "Hardcore", goal: "Survive the speed", description: "Faster acceleration, higher start level, and less room for mistakes." }
+    ru: {
+      name: "Hardcore",
+      goal: "\u0412\u044b\u0436\u0438\u0442\u044c \u043d\u0430 \u0441\u043a\u043e\u0440\u043e\u0441\u0442\u0438",
+      description:
+        "\u0411\u044b\u0441\u0442\u0440\u043e\u0435 \u0443\u0441\u043a\u043e\u0440\u0435\u043d\u0438\u0435, \u0440\u0430\u043d\u043d\u0438\u0439 \u0432\u044b\u0441\u043e\u043a\u0438\u0439 \u0443\u0440\u043e\u0432\u0435\u043d\u044c \u0438 \u043c\u0435\u043d\u044c\u0448\u0435 \u043f\u0440\u0430\u0432\u0430 \u043d\u0430 \u043e\u0448\u0438\u0431\u043a\u0443.",
+    },
+    en: {
+      name: "Hardcore",
+      goal: "Survive the speed",
+      description:
+        "Faster acceleration, higher start level, and less room for mistakes.",
+    },
   },
   timeAttack: {
-    ru: { name: "Time Attack", goal: "\u041d\u0430\u0431\u0440\u0430\u0442\u044c \u043e\u0447\u043a\u0438 \u0437\u0430 2 \u043c\u0438\u043d\u0443\u0442\u044b", description: "\u0414\u0432\u0435 \u043c\u0438\u043d\u0443\u0442\u044b \u043d\u0430 \u043c\u0430\u043a\u0441\u0438\u043c\u0443\u043c \u043e\u0447\u043a\u043e\u0432." },
-    en: { name: "Time Attack", goal: "Score for 2 minutes", description: "Two minutes to score as much as possible." }
+    ru: {
+      name: "Time Attack",
+      goal: "\u041d\u0430\u0431\u0440\u0430\u0442\u044c \u043e\u0447\u043a\u0438 \u0437\u0430 2 \u043c\u0438\u043d\u0443\u0442\u044b",
+      description:
+        "\u0414\u0432\u0435 \u043c\u0438\u043d\u0443\u0442\u044b \u043d\u0430 \u043c\u0430\u043a\u0441\u0438\u043c\u0443\u043c \u043e\u0447\u043a\u043e\u0432.",
+    },
+    en: {
+      name: "Time Attack",
+      goal: "Score for 2 minutes",
+      description: "Two minutes to score as much as possible.",
+    },
   },
   relax: {
-    ru: { name: "\u0414\u0437\u0435\u043d", goal: "\u0411\u0435\u0437 \u0441\u043f\u0435\u0448\u043a\u0438", description: "\u0420\u0435\u0436\u0438\u043c \u0431\u0435\u0437 \u0434\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u0438 \u0443\u0441\u043a\u043e\u0440\u0435\u043d\u0438\u044f." },
-    en: { name: "Zen", goal: "No rush", description: "Relaxed play without pressure." }
+    ru: {
+      name: "\u0414\u0437\u0435\u043d",
+      goal: "\u0411\u0435\u0437 \u0441\u043f\u0435\u0448\u043a\u0438",
+      description:
+        "\u0420\u0435\u0436\u0438\u043c \u0431\u0435\u0437 \u0434\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u0438 \u0443\u0441\u043a\u043e\u0440\u0435\u043d\u0438\u044f.",
+    },
+    en: {
+      name: "Zen",
+      goal: "No rush",
+      description: "Relaxed play without pressure.",
+    },
   },
   chaos: {
-    ru: { name: "\u0425\u0430\u043e\u0441", goal: "\u041f\u0435\u0440\u0435\u0436\u0438\u0442\u044c \u0430\u0442\u0430\u043a\u0438", description: "\u041f\u0430\u0440\u0442\u0438\u044f \u0441 \u043f\u0435\u0440\u0438\u043e\u0434\u0438\u0447\u0435\u0441\u043a\u0438\u043c\u0438 \u043c\u0443\u0441\u043e\u0440\u043d\u044b\u043c\u0438 \u043b\u0438\u043d\u0438\u044f\u043c\u0438." },
-    en: { name: "Chaos", goal: "Survive attacks", description: "Survive periodic garbage attacks." }
-  }
+    ru: {
+      name: "\u0425\u0430\u043e\u0441",
+      goal: "\u041f\u0435\u0440\u0435\u0436\u0438\u0442\u044c \u0430\u0442\u0430\u043a\u0438",
+      description:
+        "\u041f\u0430\u0440\u0442\u0438\u044f \u0441 \u043f\u0435\u0440\u0438\u043e\u0434\u0438\u0447\u0435\u0441\u043a\u0438\u043c\u0438 \u043c\u0443\u0441\u043e\u0440\u043d\u044b\u043c\u0438 \u043b\u0438\u043d\u0438\u044f\u043c\u0438.",
+    },
+    en: {
+      name: "Chaos",
+      goal: "Survive attacks",
+      description: "Survive periodic garbage attacks.",
+    },
+  },
 };
 
 export const GAME_MODES = {
@@ -44,7 +99,7 @@ export const GAME_MODES = {
     description: MODE_COPY.classic.ru.description,
     descriptionEn: MODE_COPY.classic.en.description,
     relaxed: false,
-    chaos: false
+    chaos: false,
   },
   sprint: {
     key: "sprint",
@@ -64,7 +119,7 @@ export const GAME_MODES = {
     description: MODE_COPY.sprint.ru.description,
     descriptionEn: MODE_COPY.sprint.en.description,
     relaxed: false,
-    chaos: false
+    chaos: false,
   },
   hardcore: {
     key: "hardcore",
@@ -85,7 +140,7 @@ export const GAME_MODES = {
     descriptionEn: MODE_COPY.hardcore.en.description,
     relaxed: false,
     chaos: false,
-    speedMultiplier: 1.35
+    speedMultiplier: 1.35,
   },
   timeAttack: {
     key: "timeAttack",
@@ -105,7 +160,7 @@ export const GAME_MODES = {
     description: MODE_COPY.timeAttack.ru.description,
     descriptionEn: MODE_COPY.timeAttack.en.description,
     relaxed: false,
-    chaos: false
+    chaos: false,
   },
   relax: {
     key: "relax",
@@ -125,7 +180,7 @@ export const GAME_MODES = {
     description: MODE_COPY.relax.ru.description,
     descriptionEn: MODE_COPY.relax.en.description,
     relaxed: true,
-    chaos: false
+    chaos: false,
   },
   chaos: {
     key: "chaos",
@@ -145,17 +200,24 @@ export const GAME_MODES = {
     description: MODE_COPY.chaos.ru.description,
     descriptionEn: MODE_COPY.chaos.en.description,
     relaxed: false,
-    chaos: true
-  }
+    chaos: true,
+  },
 };
 
 const MODE_ALIASES = {
   zen: "relax",
   timeattack: "timeAttack",
-  time: "timeAttack"
+  time: "timeAttack",
 };
 
-export const GAME_MODE_KEYS = ["classic", "sprint", "hardcore", "timeAttack", "relax", "chaos"];
+export const GAME_MODE_KEYS = [
+  "classic",
+  "sprint",
+  "hardcore",
+  "timeAttack",
+  "relax",
+  "chaos",
+];
 
 export function normalizeModeKey(modeKey) {
   const key = MODE_ALIASES[modeKey] || modeKey;
@@ -174,7 +236,7 @@ export function getModeOptions(language = "ru") {
       key,
       name: useEnglish ? mode.nameEn : mode.name,
       goal: useEnglish ? mode.goalTextEn : mode.goalText,
-      description: useEnglish ? mode.descriptionEn : mode.description
+      description: useEnglish ? mode.descriptionEn : mode.description,
     };
   });
 }

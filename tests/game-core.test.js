@@ -11,7 +11,7 @@ import {
   lineScore,
   makeBoard,
   makePiece,
-  rotateWithSrs
+  rotateWithSrs,
 } from "../js/game-core.js";
 import { COLS, PIECES, ROWS } from "../js/config.js";
 
@@ -67,7 +67,12 @@ describe("scoring and side systems", () => {
   });
 
   it("handles hold with an existing queue", () => {
-    const state = { active: makePiece("T"), hold: null, holdUsed: false, queue: ["I", "O"] };
+    const state = {
+      active: makePiece("T"),
+      hold: null,
+      holdUsed: false,
+      queue: ["I", "O"],
+    };
     const next = holdPiece(state);
     expect(next.hold).toBe("T");
     expect(next.active.kind).toBe("I");

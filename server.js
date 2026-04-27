@@ -8,10 +8,29 @@ const ROOT = __dirname;
 const RECORDS_FILE = path.join(ROOT, "records.json");
 const MAX_RECORDS = 50;
 const MAX_WS_FRAME_BYTES = 4096;
+const MAX_WS_MESSAGES_PER_CHUNK = 12;
 const MAX_MESSAGES_PER_10S = 90;
 const MAX_UPDATES_PER_SECOND = 8;
 const MAX_ATTACKS_PER_SECOND = 4;
+const MAX_ATTACK_LINES_PER_10S = 18;
 const MAX_RECORD_SCORE = 99999999;
+const MAX_PAYLOAD_KEYS = 16;
+const UPDATE_KEYS = new Set([
+  "type",
+  "room",
+  "name",
+  "score",
+  "lines",
+  "level",
+  "height",
+  "sentGarbage",
+  "receivedGarbage",
+  "mode",
+  "time",
+  "status",
+  "force",
+]);
+const ATTACK_KEYS = new Set(["type", "room", "lines"]);
 const rooms = new Map();
 const startedAt = Date.now();
 
@@ -23,7 +42,7 @@ const mime = {
   ".webmanifest": "application/manifest+json; charset=utf-8",
   ".png": "image/png",
   ".txt": "text/plain; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8"
+  ".md": "text/markdown; charset=utf-8",
 };
 
 const server = http.createServer((req, res) => {
@@ -39,7 +58,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const pathname = requestUrl.pathname === "/" || /^\/room\/[A-Z0-9]+$/i.test(requestUrl.pathname) ? "/index.html" : requestUrl.pathname;
+  const pathname =
+    requestUrl.pathname === "/" ||
+    /^\/room\/[A-Z0-9]+$/i.test(requestUrl.pathname)
+      ? "/index.html"
+      : requestUrl.pathname;
   const decodedPathname = safeDecodePath(pathname);
   if (!decodedPathname) {
     res.writeHead(400);
@@ -47,7 +70,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const safePath = path.normalize(decodedPathname).replace(/^([/\\])/, "").replace(/^(\.\.[/\\])+/, "");
+  const safePath = path
+    .normalize(decodedPathname)
+    .replace(/^([/\\])/, "")
+    .replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(ROOT, safePath);
 
   if (!filePath.startsWith(ROOT)) {
@@ -63,8 +89,9 @@ const server = http.createServer((req, res) => {
       return;
     }
     res.writeHead(200, {
-      "Content-Type": mime[path.extname(filePath)] || "application/octet-stream",
-      "Cache-Control": "no-cache"
+      "Content-Type":
+        mime[path.extname(filePath)] || "application/octet-stream",
+      "Cache-Control": "no-cache",
     });
     res.end(data);
   });
@@ -90,13 +117,13 @@ function handleHealth(req, res) {
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     rooms: rooms.size,
     records: readRecords().length,
-    revision: readRevision()
+    revision: readRevision(),
   };
 
   if (req.method === "HEAD") {
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-cache"
+      "Cache-Control": "no-cache",
     });
     res.end();
     return;
@@ -108,7 +135,12 @@ function handleHealth(req, res) {
 function readRevision() {
   if (process.env.BLOCKDROP_REVISION) return process.env.BLOCKDROP_REVISION;
   try {
-    return fs.readFileSync(path.join(ROOT, "REVISION"), "utf8").trim().slice(0, 64) || "unknown";
+    return (
+      fs
+        .readFileSync(path.join(ROOT, "REVISION"), "utf8")
+        .trim()
+        .slice(0, 64) || "unknown"
+    );
   } catch {
     return "unknown";
   }
@@ -146,13 +178,25 @@ function handleRecordsApi(req, res) {
     }
 
     if (!isPlausibleRecord(record)) {
-      sendJson(res, { error: "Record rejected by server authority", records: readRecords() }, 422);
+      sendJson(
+        res,
+        {
+          error: "Record rejected by server authority",
+          records: readRecords(),
+        },
+        422,
+      );
       return;
     }
 
     const records = readRecords()
       .concat(record)
-      .sort((a, b) => b.score - a.score || b.lines - a.lines || a.date.localeCompare(b.date))
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.lines - a.lines ||
+          a.date.localeCompare(b.date),
+      )
       .slice(0, MAX_RECORDS);
     writeRecords(records);
     sendJson(res, { records });
@@ -165,9 +209,15 @@ function sanitizeRecord(data) {
     score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
-    mode: String(data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430").replace(/[<>]/g, "").slice(0, 24),
-    time: String(data.time || "0:00").replace(/[<>]/g, "").slice(0, 12),
-    date: new Date().toISOString()
+    mode: String(
+      data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430",
+    )
+      .replace(/[<>]/g, "")
+      .slice(0, 24),
+    time: String(data.time || "0:00")
+      .replace(/[<>]/g, "")
+      .slice(0, 12),
+    date: new Date().toISOString(),
   };
 }
 
@@ -176,21 +226,28 @@ function isPlausibleRecord(record) {
   if (!record.time || !/^\d{1,3}:\d{2}$/.test(record.time)) return false;
   const seconds = parseTimeSeconds(record.time);
   if (seconds < 2 || seconds > 60 * 60 * 3) return false;
-  if (record.level > Math.max(1, Math.floor(record.lines / 8) + 14)) return false;
+  if (record.level > Math.max(1, Math.floor(record.lines / 8) + 14))
+    return false;
 
   const mode = record.mode.toLowerCase();
   const sprintCap = mode.includes("40") || mode.includes("sprint") ? 40 : 9999;
   if (record.lines > sprintCap) return false;
 
-  const lineScoreCap = Math.max(1, record.lines) * Math.max(1, record.level) * 1100;
+  const lineScoreCap =
+    Math.max(1, record.lines) * Math.max(1, record.level) * 1100;
   const timeScoreCap = seconds * 520;
   const modifierCap = 9000 + record.level * 900;
   return record.score <= lineScoreCap + timeScoreCap + modifierCap;
 }
 
 function parseTimeSeconds(value) {
-  const [minutes, seconds] = String(value).split(":").map((part) => Number(part));
-  return (Number.isFinite(minutes) ? minutes : 0) * 60 + (Number.isFinite(seconds) ? seconds : 0);
+  const [minutes, seconds] = String(value)
+    .split(":")
+    .map((part) => Number(part));
+  return (
+    (Number.isFinite(minutes) ? minutes : 0) * 60 +
+    (Number.isFinite(seconds) ? seconds : 0)
+  );
 }
 
 function readRecords() {
@@ -214,7 +271,7 @@ function writeRecords(records) {
 function sendJson(res, payload, status = 200) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-cache"
+    "Cache-Control": "no-cache",
   });
   res.end(JSON.stringify(payload));
 }
@@ -231,14 +288,16 @@ server.on("upgrade", (req, socket) => {
     .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
     .digest("base64");
 
-  socket.write([
-    "HTTP/1.1 101 Switching Protocols",
-    "Upgrade: websocket",
-    "Connection: Upgrade",
-    `Sec-WebSocket-Accept: ${accept}`,
-    "",
-    ""
-  ].join("\r\n"));
+  socket.write(
+    [
+      "HTTP/1.1 101 Switching Protocols",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${accept}`,
+      "",
+      "",
+    ].join("\r\n"),
+  );
 
   const client = {
     id: crypto.randomUUID(),
@@ -252,8 +311,10 @@ server.on("upgrade", (req, socket) => {
       updateStartedAt: Date.now(),
       updates: 0,
       attackStartedAt: Date.now(),
-      attacks: 0
-    }
+      attacks: 0,
+      attackLinesStartedAt: Date.now(),
+      attackLines: 0,
+    },
   };
 
   socket.on("data", (chunk) => {
@@ -266,6 +327,10 @@ server.on("upgrade", (req, socket) => {
       messages = decodeFrames(chunk);
     } catch {
       safeClose(client, "Bad frame");
+      return;
+    }
+    if (messages.length > MAX_WS_MESSAGES_PER_CHUNK) {
+      safeClose(client, "Too many frames");
       return;
     }
     for (const message of messages) {
@@ -292,7 +357,7 @@ function emptyState() {
     receivedGarbage: 0,
     mode: "Classic",
     time: "0:00",
-    status: "Lobby"
+    status: "Lobby",
   };
 }
 
@@ -302,7 +367,7 @@ function createRoom(id, maxPlayers = 4, durationSec = 180) {
     clients: new Map(),
     maxPlayers: clamp(maxPlayers, 2, 8),
     durationSec: clamp(durationSec, 60, 1800),
-    tournament: null
+    tournament: null,
   };
 }
 
@@ -315,7 +380,7 @@ function handleMessage(client, raw) {
     return;
   }
 
-  if (!data || typeof data !== "object" || typeof data.type !== "string") {
+  if (!isSafePayload(data)) {
     safeClose(client, "Bad payload");
     return;
   }
@@ -329,6 +394,10 @@ function handleMessage(client, raw) {
 
   if (data.type === "update") {
     if (!allowTypedMessage(client, "update")) return;
+    if (!validateUpdatePayload(client, data)) {
+      safeClose(client, "Bad update");
+      return;
+    }
     updateClientState(client, data);
     broadcastRoom(client.room);
     return;
@@ -336,11 +405,12 @@ function handleMessage(client, raw) {
 
   if (data.type === "attack") {
     if (!allowTypedMessage(client, "attack")) return;
-    const lines = safeNumber(data.lines);
-    if (!Number.isInteger(lines) || lines < 1 || lines > 6) {
+    if (!validateAttackPayload(client, data)) {
       safeClose(client, "Bad attack");
       return;
     }
+    const lines = Number(data.lines);
+    if (!allowAttackLines(client, lines)) return;
     broadcastAttack(client, lines);
     return;
   }
@@ -353,22 +423,102 @@ function handleMessage(client, raw) {
   safeClose(client, "Unknown message");
 }
 
+function isSafePayload(data) {
+  return (
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    typeof data.type === "string" &&
+    data.type.length <= 32 &&
+    Object.keys(data).length <= MAX_PAYLOAD_KEYS
+  );
+}
+
+function hasOnlyKeys(data, allowed) {
+  return Object.keys(data).every((key) => allowed.has(key));
+}
+
+function isIntegerInRange(value, min, max) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= min && number <= max;
+}
+
+function isSafeShortText(value, maxLength) {
+  if (value == null) return true;
+  const text = String(value);
+  return text.length <= maxLength && !hasUnsafeTextChars(text);
+}
+
+function hasUnsafeTextChars(text) {
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code < 32 || text[i] === "<" || text[i] === ">") return true;
+  }
+  return false;
+}
+
+function matchesClientRoom(client, data) {
+  return !data.room || cleanCode(data.room) === client.room;
+}
+
+function validateUpdatePayload(client, data) {
+  if (!hasOnlyKeys(data, UPDATE_KEYS) || !matchesClientRoom(client, data))
+    return false;
+  if (
+    !isSafeShortText(data.name, 40) ||
+    !isSafeShortText(data.mode, 24) ||
+    !isSafeShortText(data.status, 18)
+  )
+    return false;
+  if (data.time != null && !/^\d{1,3}:\d{2}$/.test(String(data.time)))
+    return false;
+  if (data.force != null && typeof data.force !== "boolean") return false;
+  return (
+    isIntegerInRange(data.score ?? 0, 0, MAX_RECORD_SCORE) &&
+    isIntegerInRange(data.lines ?? 0, 0, 9999) &&
+    isIntegerInRange(data.level ?? 1, 1, 99) &&
+    isIntegerInRange(data.height ?? 0, 0, 20) &&
+    isIntegerInRange(data.sentGarbage ?? 0, 0, 9999) &&
+    isIntegerInRange(data.receivedGarbage ?? 0, 0, 9999)
+  );
+}
+
+function validateAttackPayload(client, data) {
+  return (
+    hasOnlyKeys(data, ATTACK_KEYS) &&
+    matchesClientRoom(client, data) &&
+    isIntegerInRange(data.lines, 1, 6)
+  );
+}
+
 function joinRoom(client, data) {
   removeClient(client);
   const roomId = cleanCode(data.room) || "LOBBY";
-  if (data.room && roomId !== String(data.room).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16)) {
+  if (
+    data.room &&
+    roomId !==
+      String(data.room)
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 16)
+  ) {
     safeClose(client, "Bad room");
     return;
   }
   const maxPlayers = clamp(safeNumber(data.maxPlayers) || 2, 2, 8);
   const durationSec = clamp(safeNumber(data.durationSec) || 180, 60, 1800);
-  if (!rooms.has(roomId)) rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
+  if (!rooms.has(roomId))
+    rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
   const room = rooms.get(roomId);
   room.maxPlayers = maxPlayers;
   room.durationSec = durationSec;
 
   if (room.clients.size >= room.maxPlayers) {
-    sendFrame(client.socket, JSON.stringify({ type: "error", message: "Room is full" }));
+    sendFrame(
+      client.socket,
+      JSON.stringify({ type: "error", message: "Room is full" }),
+    );
     return;
   }
 
@@ -391,7 +541,7 @@ function updateClientState(client, data) {
     receivedGarbage: clamp(safeNumber(data.receivedGarbage), 0, 9999),
     mode: String(data.mode || "Classic").slice(0, 24),
     time: String(data.time || "0:00").slice(0, 12),
-    status: String(data.status || "Playing").slice(0, 18)
+    status: String(data.status || "Playing").slice(0, 18),
   };
 }
 
@@ -399,13 +549,17 @@ function startTournament(roomId, data) {
   const room = rooms.get(roomId);
   if (!room) return;
   room.maxPlayers = clamp(safeNumber(data.maxPlayers) || room.maxPlayers, 2, 8);
-  room.durationSec = clamp(safeNumber(data.durationSec) || room.durationSec, 60, 1800);
+  room.durationSec = clamp(
+    safeNumber(data.durationSec) || room.durationSec,
+    60,
+    1800,
+  );
   room.tournament = {
     active: true,
     startedAt: Date.now(),
     endsAt: Date.now() + room.durationSec * 1000,
     maxPlayers: room.maxPlayers,
-    durationSec: room.durationSec
+    durationSec: room.durationSec,
   };
   broadcastRoom(roomId);
   scheduleTournamentEnd(roomId, room.durationSec * 1000 + 250);
@@ -424,7 +578,8 @@ function allowMessage(client) {
 function allowTypedMessage(client, type) {
   const now = Date.now();
   const key = type === "attack" ? "attack" : "update";
-  const max = type === "attack" ? MAX_ATTACKS_PER_SECOND : MAX_UPDATES_PER_SECOND;
+  const max =
+    type === "attack" ? MAX_ATTACKS_PER_SECOND : MAX_UPDATES_PER_SECOND;
   const startedKey = `${key}StartedAt`;
   const countKey = `${key}s`;
   if (now - client.buckets[startedKey] > 1000) {
@@ -435,10 +590,23 @@ function allowTypedMessage(client, type) {
   return client.buckets[countKey] <= max;
 }
 
+function allowAttackLines(client, lines) {
+  const now = Date.now();
+  if (now - client.buckets.attackLinesStartedAt > 10000) {
+    client.buckets.attackLinesStartedAt = now;
+    client.buckets.attackLines = 0;
+  }
+  client.buckets.attackLines += lines;
+  return client.buckets.attackLines <= MAX_ATTACK_LINES_PER_10S;
+}
+
 function safeClose(client, reason = "Policy violation") {
   removeClient(client);
   try {
-    sendFrame(client.socket, JSON.stringify({ type: "error", message: reason }));
+    sendFrame(
+      client.socket,
+      JSON.stringify({ type: "error", message: reason }),
+    );
   } catch {
     client.socket = null;
   }
@@ -452,11 +620,21 @@ function safeClose(client, reason = "Policy violation") {
 function scheduleTournamentEnd(roomId, delay) {
   setTimeout(() => {
     const room = rooms.get(roomId);
-    if (!room || !room.tournament?.active || Date.now() < room.tournament.endsAt) return;
+    if (
+      !room ||
+      !room.tournament?.active ||
+      Date.now() < room.tournament.endsAt
+    )
+      return;
     room.tournament.active = false;
     const players = playersPayload(room);
-    const payload = JSON.stringify({ type: "tournamentEnd", tournament: tournamentPayload(room), players });
-    for (const client of room.clients.values()) sendFrame(client.socket, payload);
+    const payload = JSON.stringify({
+      type: "tournamentEnd",
+      tournament: tournamentPayload(room),
+      players,
+    });
+    for (const client of room.clients.values())
+      sendFrame(client.socket, payload);
     broadcastRoom(roomId);
   }, delay);
 }
@@ -467,7 +645,7 @@ function broadcastAttack(attacker, lines) {
   const payload = JSON.stringify({
     type: "attack",
     from: attacker.name,
-    lines: clamp(lines, 1, 6)
+    lines: clamp(lines, 1, 6),
   });
   for (const client of room.clients.values()) {
     if (client.id !== attacker.id) sendFrame(client.socket, payload);
@@ -481,7 +659,7 @@ function broadcastRoom(roomId) {
     type: "state",
     room: roomId,
     tournament: tournamentPayload(room),
-    players: playersPayload(room)
+    players: playersPayload(room),
   });
   for (const client of room.clients.values()) sendFrame(client.socket, payload);
 }
@@ -492,12 +670,12 @@ function tournamentPayload(room) {
       active: false,
       maxPlayers: room.maxPlayers,
       durationSec: room.durationSec,
-      timeLeftMs: 0
+      timeLeftMs: 0,
     };
   }
   return {
     ...room.tournament,
-    timeLeftMs: Math.max(0, room.tournament.endsAt - Date.now())
+    timeLeftMs: Math.max(0, room.tournament.endsAt - Date.now()),
   };
 }
 
@@ -507,7 +685,7 @@ function playersPayload(room) {
     players[client.id] = {
       id: client.id,
       name: client.name,
-      ...client.state
+      ...client.state,
     };
   }
   return players;
@@ -524,11 +702,19 @@ function removeClient(client) {
 }
 
 function cleanCode(value) {
-  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 16);
 }
 
 function cleanName(value) {
-  return String(value || "Player").replace(/[<>]/g, "").trim().slice(0, 18) || "Player";
+  return (
+    String(value || "Player")
+      .replace(/[<>]/g, "")
+      .trim()
+      .slice(0, 18) || "Player"
+  );
 }
 
 function safeNumber(value) {
@@ -545,8 +731,14 @@ function decodeFrames(buffer) {
   let offset = 0;
 
   while (offset + 2 <= buffer.length) {
+    const first = buffer[offset];
+    const opcode = first & 0x0f;
+    if (opcode === 0x08) break;
+    if (opcode !== 0x01) throw new Error("Unsupported frame opcode");
+
     const second = buffer[offset + 1];
     const masked = (second & 0x80) !== 0;
+    if (!masked) throw new Error("Unmasked client frame");
     let length = second & 0x7f;
     let header = 2;
 
@@ -559,6 +751,8 @@ function decodeFrames(buffer) {
       length = Number(buffer.readBigUInt64BE(offset + 2));
       header = 10;
     }
+
+    if (length > MAX_WS_FRAME_BYTES) throw new Error("Frame payload too large");
 
     const maskOffset = offset + header;
     const dataOffset = maskOffset + (masked ? 4 : 0);

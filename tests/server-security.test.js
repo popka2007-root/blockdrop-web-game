@@ -24,10 +24,13 @@ function startServer(port) {
     serverProcess = spawn(process.execPath, ["server.js"], {
       cwd: process.cwd(),
       env: { ...process.env, PORT: String(port) },
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    const timeout = setTimeout(() => reject(new Error("server did not start")), 5000);
+    const timeout = setTimeout(
+      () => reject(new Error("server did not start")),
+      5000,
+    );
     serverProcess.stdout.on("data", (chunk) => {
       if (String(chunk).includes(`localhost:${port}`)) {
         clearTimeout(timeout);
@@ -41,37 +44,53 @@ function startServer(port) {
 function maskedTextFrame(text) {
   const payload = Buffer.from(text);
   const mask = crypto.randomBytes(4);
-  const header = payload.length < 126
-    ? Buffer.from([0x81, 0x80 | payload.length])
-    : Buffer.from([0x81, 0xfe, payload.length >> 8, payload.length & 0xff]);
+  const header =
+    payload.length < 126
+      ? Buffer.from([0x81, 0x80 | payload.length])
+      : Buffer.from([0x81, 0xfe, payload.length >> 8, payload.length & 0xff]);
   const masked = Buffer.from(payload);
   for (let i = 0; i < masked.length; i += 1) masked[i] ^= mask[i % 4];
   return Buffer.concat([header, mask, masked]);
 }
 
 function sendBadWebSocketMessage(port) {
+  return sendWebSocketMessages(port, ["not-json"]);
+}
+
+function sendWebSocketMessages(port, messages) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ port, host: "127.0.0.1" });
     const key = crypto.randomBytes(16).toString("base64");
     let handshaken = false;
-    const timeout = setTimeout(() => reject(new Error("websocket did not close")), 5000);
+    const timeout = setTimeout(
+      () => reject(new Error("websocket did not close")),
+      5000,
+    );
 
     socket.on("connect", () => {
-      socket.write([
-        "GET / HTTP/1.1",
-        "Host: 127.0.0.1",
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        `Sec-WebSocket-Key: ${key}`,
-        "Sec-WebSocket-Version: 13",
-        "",
-        ""
-      ].join("\r\n"));
+      socket.write(
+        [
+          "GET / HTTP/1.1",
+          "Host: 127.0.0.1",
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          `Sec-WebSocket-Key: ${key}`,
+          "Sec-WebSocket-Version: 13",
+          "",
+          "",
+        ].join("\r\n"),
+      );
     });
     socket.on("data", () => {
       if (handshaken) return;
       handshaken = true;
-      socket.write(maskedTextFrame("not-json"));
+      for (const message of messages) {
+        socket.write(
+          maskedTextFrame(
+            typeof message === "string" ? message : JSON.stringify(message),
+          ),
+        );
+      }
     });
     socket.on("close", () => {
       clearTimeout(timeout);
@@ -125,12 +144,14 @@ describe("server hardening", () => {
         lines: 1,
         level: 1,
         mode: "Классика",
-        time: "0:03"
-      })
+        time: "0:03",
+      }),
     });
 
     expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toMatchObject({ error: "Record rejected by server authority" });
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Record rejected by server authority",
+    });
   });
 
   it("accepts plausible server records", async () => {
@@ -145,8 +166,8 @@ describe("server hardening", () => {
         lines: 4,
         level: 2,
         mode: "Классика",
-        time: "1:05"
-      })
+        time: "1:05",
+      }),
     });
     const payload = await response.json();
 
@@ -158,5 +179,40 @@ describe("server hardening", () => {
     const port = 18902;
     await startServer(port);
     await expect(sendBadWebSocketMessage(port)).resolves.toBe(true);
+  });
+
+  it("closes WebSocket clients that send invalid update payloads", async () => {
+    const port = 18907;
+    await startServer(port);
+    await expect(
+      sendWebSocketMessages(port, [
+        { type: "join", room: "SAFE", name: "P1" },
+        {
+          type: "update",
+          room: "SAFE",
+          name: "P1",
+          score: "not-a-score",
+          lines: 0,
+          level: 1,
+          height: 0,
+          sentGarbage: 0,
+          receivedGarbage: 0,
+          mode: "Classic",
+          time: "0:00",
+          status: "Playing",
+        },
+      ]),
+    ).resolves.toBe(true);
+  });
+
+  it("closes WebSocket clients that send invalid attack payloads", async () => {
+    const port = 18908;
+    await startServer(port);
+    await expect(
+      sendWebSocketMessages(port, [
+        { type: "join", room: "SAFE", name: "P1" },
+        { type: "attack", room: "SAFE", lines: 99 },
+      ]),
+    ).resolves.toBe(true);
   });
 });

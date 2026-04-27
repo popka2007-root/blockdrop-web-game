@@ -9,7 +9,7 @@ export const SOUND_EVENTS = {
   levelUp: { freq: 1040, duration: 0.12, type: "triangle", category: "clear" },
   gameOver: { freq: 170, duration: 0.22, type: "sawtooth", category: "alert" },
   win: { freq: 980, duration: 0.22, type: "triangle", category: "alert" },
-  attack: { freq: 150, duration: 0.12, type: "sawtooth", category: "alert" }
+  attack: { freq: 150, duration: 0.12, type: "sawtooth", category: "alert" },
 };
 
 export function makeAudioSettings(overrides = {}) {
@@ -19,24 +19,31 @@ export function makeAudioSettings(overrides = {}) {
     moveVolume: 55,
     clearVolume: 100,
     alertVolume: 90,
-    ...overrides
+    ...overrides,
   };
 }
 
 function soundLevelFor(settings, category) {
-  if (category === "move" || category === "rotate" || category === "drop") return settings.moveVolume / 100;
+  if (category === "move" || category === "rotate" || category === "drop")
+    return settings.moveVolume / 100;
   if (category === "clear") return settings.clearVolume / 100;
   if (category === "alert") return settings.alertVolume / 100;
   return Math.min(1.4, (settings.moveVolume + settings.alertVolume) / 200);
 }
 
-export function createWebAudioPlayer(settingsProvider, audioContextFactory = null) {
+export function createWebAudioPlayer(
+  settingsProvider,
+  audioContextFactory = null,
+) {
   let audioContext = null;
 
   function ensureAudio() {
     const settings = settingsProvider();
     if (!settings.sound || settings.volume <= 0) return null;
-    const AudioClass = audioContextFactory || globalThis.AudioContext || globalThis.webkitAudioContext;
+    const AudioClass =
+      audioContextFactory ||
+      globalThis.AudioContext ||
+      globalThis.webkitAudioContext;
     if (!audioContext && AudioClass) audioContext = new AudioClass();
     if (audioContext?.state === "suspended") audioContext.resume();
     return audioContext;
@@ -51,15 +58,17 @@ export function createWebAudioPlayer(settingsProvider, audioContextFactory = nul
     const oscillator = context.createOscillator();
     const filter = context.createBiquadFilter();
     const gain = context.createGain();
-    const softType = type === "sawtooth" || type === "square" ? "triangle" : type;
-    const categoryGain = {
-      move: 0.55,
-      rotate: 0.62,
-      drop: 0.78,
-      clear: 1.05,
-      alert: 0.9,
-      ui: 0.68
-    }[category] || 0.68;
+    const softType =
+      type === "sawtooth" || type === "square" ? "triangle" : type;
+    const categoryGain =
+      {
+        move: 0.55,
+        rotate: 0.62,
+        drop: 0.78,
+        clear: 1.05,
+        alert: 0.9,
+        ui: 0.68,
+      }[category] || 0.68;
 
     oscillator.type = softType;
     oscillator.frequency.setValueAtTime(Math.max(110, freq * 0.82), now);
@@ -68,10 +77,16 @@ export function createWebAudioPlayer(settingsProvider, audioContextFactory = nul
     filter.Q.setValueAtTime(0.35, now);
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(
-      0.052 * categoryGain * soundLevelFor(settings, category) * (settings.volume / 100),
-      now + 0.014
+      0.052 *
+        categoryGain *
+        soundLevelFor(settings, category) *
+        (settings.volume / 100),
+      now + 0.014,
     );
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, duration * 0.9));
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      now + Math.max(0.04, duration * 0.9),
+    );
     oscillator.connect(filter);
     filter.connect(gain);
     gain.connect(context.destination);
@@ -91,12 +106,18 @@ export function initAudio(settingsProvider, audioContextFactory = null) {
   const controller = {
     muted: false,
     settingsProvider,
-    player
+    player,
   };
   return controller;
 }
 
-export function playSound(controller, eventOrFreq, duration, type, category = "ui") {
+export function playSound(
+  controller,
+  eventOrFreq,
+  duration,
+  type,
+  category = "ui",
+) {
   if (!controller || controller.muted) return;
 
   if (typeof eventOrFreq === "string") {
@@ -106,7 +127,7 @@ export function playSound(controller, eventOrFreq, duration, type, category = "u
       freq: event.freq,
       duration: event.duration,
       type: event.type,
-      category: event.category
+      category: event.category,
     });
     return;
   }
@@ -115,7 +136,7 @@ export function playSound(controller, eventOrFreq, duration, type, category = "u
     freq: eventOrFreq,
     duration,
     type,
-    category
+    category,
   });
 }
 
