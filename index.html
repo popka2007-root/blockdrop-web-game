@@ -162,39 +162,47 @@
               <button class="button" id="openStatsButton">Статистика</button>
               <button class="button" id="replayButton">Повтор лучшей</button>
               <button class="button" id="helpButton">Как играть</button>
-              <details class="ai-options">
-                <summary id="aiOptionsSummary">Настройки AI</summary>
-                <div class="settings-grid compact-settings">
-                  <div class="setting">
-                    <label for="aiDifficultySelect">AI</label>
-                    <select class="select" id="aiDifficultySelect">
-                      <option value="easy">Лёгкий</option>
-                      <option value="normal" selected>Нормальный</option>
-                      <option value="hard">Сильный</option>
-                      <option value="insane">Безумный</option>
-                    </select>
-                  </div>
-                  <div class="setting">
-                    <label for="aiStyleSelect">Стиль AI</label>
-                    <select class="select" id="aiStyleSelect">
-                      <option value="balanced" selected>Баланс</option>
-                      <option value="aggressive">Атака</option>
-                      <option value="defensive">Защита</option>
-                    </select>
-                  </div>
-                  <div class="setting">
-                    <label for="aiPaceSelect">Темп AI</label>
-                    <select class="select" id="aiPaceSelect">
-                      <option value="calm">Спокойный</option>
-                      <option value="fair" selected>Ровный</option>
-                      <option value="fast">Быстрый</option>
-                    </select>
-                  </div>
-                </div>
-              </details>
               <div class="menu-records" id="menuRecords"></div>
             </div>
           </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="aiOverlay" hidden>
+      <div class="modal">
+        <h2>AI соперник</h2>
+        <p class="muted">Выбери поведение бота для партии в текущем режиме.</p>
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="aiDifficultySelect">AI</label>
+            <select class="select" id="aiDifficultySelect">
+              <option value="easy">Лёгкий</option>
+              <option value="normal" selected>Нормальный</option>
+              <option value="hard">Сильный</option>
+              <option value="insane">Безумный</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="aiStyleSelect">Стиль AI</label>
+            <select class="select" id="aiStyleSelect">
+              <option value="balanced" selected>Баланс</option>
+              <option value="aggressive">Атака</option>
+              <option value="defensive">Защита</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="aiPaceSelect">Темп AI</label>
+            <select class="select" id="aiPaceSelect">
+              <option value="calm">Спокойный</option>
+              <option value="fair" selected>Ровный</option>
+              <option value="fast">Быстрый</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="button primary" id="startAiButton">Начать с AI</button>
+          <button class="button" id="closeAiButton">Главная</button>
         </div>
       </div>
     </section>

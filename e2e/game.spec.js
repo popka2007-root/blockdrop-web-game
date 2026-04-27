@@ -142,9 +142,10 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await page.locator("#closeHelpButton").click();
 
   await expect(page.locator("#menuRecords")).toContainText("Рекорд");
-  await page.locator("#aiOptionsSummary").click();
-  await page.selectOption("#aiDifficultySelect", "hard");
   await page.locator("#aiButton").click();
+  await expect(page.locator("#aiOverlay")).toBeVisible();
+  await page.selectOption("#aiDifficultySelect", "hard");
+  await page.locator("#startAiButton").click();
   await expect(page.locator("#startOverlay")).toBeHidden();
 
   await page.locator("#mainMenuButton").click();
