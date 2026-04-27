@@ -34,15 +34,7 @@ test("hold works on C key and is limited until the next lock", async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    const values = [
-      0.11, 0.71, 0.23, 0.62, 0.34, 0.52, 0.45, 0.81, 0.18, 0.66, 0.29, 0.74,
-    ];
-    let index = 0;
-    Math.random = () => {
-      const value = values[index % values.length];
-      index += 1;
-      return value;
-    };
+    Math.random = () => 0;
   });
   await page.goto("/");
   await page.locator("#startButton").click();
@@ -51,6 +43,9 @@ test("hold works on C key and is limited until the next lock", async ({
   const holdPreview = page.locator("#hold");
   const beforeHold = await holdPreview.evaluate((canvas) => canvas.toDataURL());
   await page.keyboard.press("KeyC");
+  await expect
+    .poll(() => holdPreview.evaluate((canvas) => canvas.toDataURL()))
+    .not.toBe(beforeHold);
   const afterHold = await holdPreview.evaluate((canvas) => canvas.toDataURL());
   expect(afterHold).not.toBe(beforeHold);
 

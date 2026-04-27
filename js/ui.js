@@ -847,14 +847,14 @@ export function createUi(options = {}) {
   }
 
   function normalizeCell(value) {
-    if (!value) return { kind: null, modifier: "normal" };
-    if (typeof value === "string") return { kind: value, modifier: "normal" };
-    return { kind: value.kind || null, modifier: value.modifier || "normal" };
+    if (!value) return null;
+    if (typeof value === "string") return value;
+    return value.kind || null;
   }
 
   function drawCell(context, x, y, size, value, alpha, renderConfig) {
     const { settings, palettes } = renderConfig;
-    const { kind, modifier } = normalizeCell(value);
+    const kind = normalizeCell(value);
     const palette = settings.colorBlind
       ? palettes.safe
       : palettes.themes[settings.theme] || palettes.base;
@@ -938,30 +938,11 @@ export function createUi(options = {}) {
           ? "rgba(23,32,51,0.18)"
           : "rgba(255,255,255,0.18)";
     drawBlockShape(context, theme, x + pad, y + pad, side, radius, false, true);
-    if (modifier === "bonus" || modifier === "danger" || modifier === "chaos") {
-      context.fillStyle =
-        modifier === "bonus"
-          ? "rgba(94, 234, 212, 0.9)"
-          : modifier === "danger"
-            ? "rgba(255, 91, 91, 0.9)"
-            : "rgba(255, 194, 87, 0.95)";
-      context.beginPath();
-      context.arc(
-        x + size * 0.72,
-        y + size * 0.28,
-        Math.max(2, size * 0.1),
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
-      context.strokeStyle = "rgba(11,15,25,0.7)";
-      context.stroke();
-    }
     context.globalAlpha = 1;
   }
 
   function drawPreview(context, canvas, value, renderConfig) {
-    const { kind, modifier } = normalizeCell(value);
+    const kind = normalizeCell(value);
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     context.clearRect(0, 0, width, height);
@@ -976,7 +957,7 @@ export function createUi(options = {}) {
           x * size + 2,
           y * size + 2,
           size - 2,
-          filled ? { kind, modifier } : null,
+          filled ? kind : null,
           filled ? 1 : 0.5,
           renderConfig,
         );
