@@ -433,10 +433,6 @@ import { createBag } from "./game-core.js";
     showToast(`Испытание дня ${key}`);
   }
 
-  function quickStart() {
-    startGame(state.settings.lastMode || ui.getStartMode(), "normal");
-  }
-
   function spawn() {
     fillQueue();
     state.active = makePiece(state.queue.shift());
@@ -1889,7 +1885,6 @@ import { createBag } from "./game-core.js";
 
   function bindUi() {
     ui.bindControls({
-      quickStart: () => { quickStart(); syncUi(); },
       startGame: () => startGame(),
       startDailyChallenge: () => { startDailyChallenge(); syncUi(); },
       startAiGame: () => { startAiGame(); syncUi(); },
@@ -1899,7 +1894,6 @@ import { createBag } from "./game-core.js";
       installApp,
       openStats: () => { openStats(); syncUi(); },
       openHelp: () => { ui.showOverlay("helpOverlay"); syncUi(); },
-      openOnlineFromHelp: () => { ui.hideOverlay("helpOverlay"); openOnline(); syncUi(); },
       closeHelp: () => { ui.hideOverlay("helpOverlay"); syncUi(); },
       openTutorial: () => { ui.hideOverlay("helpOverlay"); ui.showOverlay("tutorialOverlay"); syncUi(); },
       closeTutorial: () => { ui.hideOverlay("tutorialOverlay"); syncUi(); },
