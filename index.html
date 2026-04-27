@@ -178,13 +178,18 @@
           <button class="button" id="continueButton">Продолжить</button>
           <button class="button warn" id="friendButton">Играть с другом</button>
           <button class="button" id="aiButton">AI соперник</button>
-          <button class="button" id="startSettingsButton">Настройки</button>
-          <button class="button hidden" id="installButton">
-            Установить офлайн
-          </button>
-          <button class="button" id="openStatsButton">Статистика</button>
-          <button class="button" id="replayButton">Повтор лучшей</button>
-          <button class="button" id="helpButton">Как играть</button>
+          <details class="secondary-menu">
+            <summary id="menuMoreSummary">Ещё</summary>
+            <div class="modal-actions secondary-actions">
+              <button class="button" id="startSettingsButton">Настройки</button>
+              <button class="button hidden" id="installButton">
+                Установить офлайн
+              </button>
+              <button class="button" id="openStatsButton">Статистика</button>
+              <button class="button" id="replayButton">Повтор лучшей</button>
+              <button class="button" id="helpButton">Как играть</button>
+            </div>
+          </details>
         </div>
       </div>
     </section>
@@ -463,17 +468,10 @@
         </div>
         <div class="result-grid" id="onlinePlayers"></div>
         <p class="muted" id="onlineStatus">Не подключено</p>
+        <input id="onlineServerInput" type="hidden" />
         <details class="advanced-online">
-          <summary>Турнир и сервер</summary>
+          <summary id="onlineAdvancedSummary">Турнир</summary>
           <div class="settings-grid">
-            <div class="setting">
-              <label for="onlineServerInput">Сервер</label>
-              <input
-                class="input"
-                id="onlineServerInput"
-                placeholder="ws://localhost:8787"
-              />
-            </div>
             <div class="setting">
               <label for="onlineMaxPlayersSelect">Игроков</label>
               <select class="select" id="onlineMaxPlayersSelect">

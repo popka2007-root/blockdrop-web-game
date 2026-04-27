@@ -61,6 +61,7 @@ const UI_IDS = [
   "continueButton",
   "friendButton",
   "aiButton",
+  "menuMoreSummary",
   "aiDifficultySelect",
   "aiStyleSelect",
   "aiPaceSelect",
@@ -111,6 +112,7 @@ const UI_IDS = [
   "closeCoachButton",
   "onlineOverlay",
   "onlineServerInput",
+  "onlineAdvancedSummary",
   "onlineRoomInput",
   "onlineNameInput",
   "onlineMaxPlayersSelect",
@@ -188,6 +190,7 @@ const UI_TEXT = {
     continue: "Продолжить",
     friend: "Играть с другом",
     ai: "AI соперник",
+    more: "Ещё",
     settings: "Настройки",
     install: "Установить офлайн",
     online: "Онлайн-комната",
@@ -221,7 +224,7 @@ const UI_TEXT = {
     room: "Комната",
     name: "Имя",
     notConnected: "Не подключено",
-    tournamentServer: "Турнир и сервер",
+    tournamentServer: "Турнир",
     server: "Сервер",
     players: "Игроков",
     timer: "Таймер",
@@ -257,6 +260,7 @@ const UI_TEXT = {
     continue: "Continue",
     friend: "Play with friend",
     ai: "AI opponent",
+    more: "More",
     settings: "Settings",
     install: "Install offline",
     online: "Online room",
@@ -290,7 +294,7 @@ const UI_TEXT = {
     room: "Room",
     name: "Name",
     notConnected: "Not connected",
-    tournamentServer: "Tournament and server",
+    tournamentServer: "Tournament",
     server: "Server",
     players: "Players",
     timer: "Timer",
@@ -445,6 +449,7 @@ export function createUi(options = {}) {
     setText(refs.continueButton, text.continue);
     setText(refs.friendButton, text.friend);
     setText(refs.aiButton, text.ai);
+    setText(refs.menuMoreSummary, text.more);
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
     setText(refs.openStatsButton, text.stats);
@@ -510,10 +515,7 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#onlineOverlay h2"), text.online);
     setLabel('label[for="onlineRoomInput"]', text.room);
     setLabel('label[for="onlineNameInput"]', text.name);
-    setText(
-      documentRef.querySelector(".advanced-online summary"),
-      text.tournamentServer,
-    );
+    setText(refs.onlineAdvancedSummary, text.tournamentServer);
     setLabel('label[for="onlineServerInput"]', text.server);
     setLabel('label[for="onlineMaxPlayersSelect"]', text.players);
     setLabel('label[for="onlineDurationSelect"]', text.timer);

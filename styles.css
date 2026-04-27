@@ -761,6 +761,28 @@ h3 {
   margin-top: 10px;
 }
 
+.secondary-menu {
+  margin-top: 2px;
+}
+
+.secondary-menu summary,
+.advanced-online summary {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+  font-weight: 900;
+  cursor: pointer;
+  user-select: none;
+}
+
+.secondary-actions {
+  margin-top: 8px;
+}
+
 .mode-summary {
   display: grid;
   gap: 3px;
@@ -944,14 +966,7 @@ h3 {
 }
 
 .advanced-online summary {
-  min-height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--muted);
-  font-weight: 900;
-  cursor: pointer;
+  border-color: transparent;
 }
 
 .advanced-online .settings-grid {
