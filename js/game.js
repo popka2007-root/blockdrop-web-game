@@ -1315,7 +1315,7 @@ import { createBag, makeBoard } from "./game-core.js";
       height: currentHeight(),
       goal: goalText(),
       progress: progressPercent(),
-      rank: rankTextForScore(state.score),
+      rank: localizedRank(rankTextForScore(state.score)),
       danger: state.settings.danger && topDanger(),
     });
     ui.renderMenuRecords({
@@ -1330,6 +1330,19 @@ import { createBag, makeBoard } from "./game-core.js";
     });
     renderOnlinePanel();
     sendOnlineUpdateThrottled();
+  }
+
+  function localizedRank(rank) {
+    if (state.settings.language !== "en") return rank;
+    return (
+      {
+        Новичок: "Rookie",
+        Игрок: "Player",
+        Профи: "Pro",
+        Мастер: "Master",
+        Легенда: "Legend",
+      }[rank] || rank
+    );
   }
 
   function actionsPerMinute() {
@@ -1359,15 +1372,21 @@ import { createBag, makeBoard } from "./game-core.js";
   function goalText() {
     const modeConfig = getModeConfig(state.mode);
     if (modeConfig.targetLines)
-      return `${state.lines}/${modeConfig.targetLines} линий`;
+      return onlineText(
+        `${state.lines}/${modeConfig.targetLines} линий`,
+        `${state.lines}/${modeConfig.targetLines} lines`,
+      );
     if (modeConfig.timeLimit)
       return formatTime(
         Math.max(0, modeConfig.timeLimit * 1000 - state.elapsedMs),
       );
-    if (modeConfig.relaxed) return modeConfig.goalText;
+    if (modeConfig.relaxed)
+      return state.settings.language === "en"
+        ? modeConfig.goalTextEn
+        : modeConfig.goalText;
     if (state.mode === "hardcore") return "Hardcore";
-    if (modeConfig.garbageAttacks) return "Выжить";
-    return "Рекорд";
+    if (modeConfig.garbageAttacks) return onlineText("Выжить", "Survive");
+    return onlineText("Рекорд", "High score");
   }
 
   function progressPercent() {
@@ -1385,19 +1404,35 @@ import { createBag, makeBoard } from "./game-core.js";
     return Math.min(100, Math.round((state.level / 20) * 100));
   }
 
-  function openOnline() {
+  function onlineText(ru, en) {
+    return state.settings.language === "en" ? en : ru;
+  }
+
+  function defaultPlayerName() {
+    return onlineText("Игрок", "Player");
+  }
+
+  function inviteText(room) {
+    return onlineText(
+      `Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`,
+      `Join my Tetris room ${room}: ${roomInviteUrl(room)}`,
+    );
+  }
+
+  function openOnline({ autoConnect = false } = {}) {
     const form = ui.getOnlineForm();
     const room = form.room || storage.loadRoomCode("") || generateRoomCode();
     ui.setOnlineDefaults({
       server: form.server || defaultServerUrl(),
       room,
-      name: form.name || storage.loadPlayerName("Игрок"),
+      name: form.name || storage.loadPlayerName(defaultPlayerName()),
     });
     ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
     ui.showOverlay("onlineOverlay");
     renderOnlinePlayers();
     updateOnlineControls();
     updateLayoutMetrics();
+    if (autoConnect && !state.online.connected) connectOnline();
   }
 
   function ensureRoomCode() {
@@ -1416,20 +1451,17 @@ import { createBag, makeBoard } from "./game-core.js";
 
   function shareRoomLink() {
     const room = ensureRoomCode();
-    shareText(`Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`);
+    shareText(inviteText(room));
   }
 
   function copyRoomLink() {
     const room = ensureRoomCode();
     const link = roomInviteUrl(room);
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard
-        .writeText(link)
-        .then(() => showToast("Ссылка скопирована"))
-        .catch(() => shareText(link));
-      return;
-    }
-    shareText(link);
+    copyTextToClipboard(
+      link,
+      onlineText("Ссылка скопирована", "Link copied"),
+      onlineText("Не удалось скопировать", "Copy failed"),
+    );
   }
 
   function createFriendRoom() {
@@ -1440,9 +1472,12 @@ import { createBag, makeBoard } from "./game-core.js";
     const link = roomInviteUrl(room);
     if (location.protocol.startsWith("http"))
       history.replaceState(null, "", link);
-    openOnline();
-    shareText(`Заходи в комнату Тетриса ${room}: ${link}`);
-    showToast("Ссылка комнаты готова");
+    openOnline({ autoConnect: true });
+    copyTextToClipboard(
+      link,
+      onlineText("Комната создана, ссылка скопирована", "Room created, link copied"),
+      onlineText("Комната создана", "Room created"),
+    );
   }
 
   function connectOnline() {
@@ -1453,7 +1488,7 @@ import { createBag, makeBoard } from "./game-core.js";
       durationSec,
     } = ui.getOnlineForm();
     const room = ensureRoomCode();
-    const name = (rawName || "Игрок").slice(0, 18);
+    const name = (rawName || defaultPlayerName()).slice(0, 18);
     storage.savePlayerName(name);
     storage.saveRoomCode(room);
     ui.setOnlineRoom(room);
@@ -1461,7 +1496,7 @@ import { createBag, makeBoard } from "./game-core.js";
     try {
       state.online.room = room;
       state.online.name = name;
-      ui.setOnlineStatus("Подключение...");
+      ui.setOnlineStatus(onlineText("Подключение...", "Connecting..."));
       openOnlineSocket(onlineClient, {
         server,
         room,
@@ -1471,7 +1506,7 @@ import { createBag, makeBoard } from "./game-core.js";
       });
       state.online.connected = false;
     } catch {
-      showToast("Неверный адрес сервера");
+      showToast(onlineText("Неверный адрес сервера", "Invalid server address"));
     }
   }
 
@@ -1479,12 +1514,12 @@ import { createBag, makeBoard } from "./game-core.js";
     if (data.type === "open") {
       state.online.connected = true;
       sendOnlineUpdate(true);
-      ui.setOnlineStatus(`Комната ${data.room}`);
+      ui.setOnlineStatus(onlineText(`Комната ${data.room}`, `Room ${data.room}`));
       if (location.protocol.startsWith("http"))
         history.replaceState(null, "", roomInviteUrl(data.room));
       updateOnlineControls();
       updateLayoutMetrics();
-      showToast(`Онлайн: ${data.room}`);
+      showToast(onlineText(`Онлайн: ${data.room}`, `Online: ${data.room}`));
       return;
     }
 
@@ -1495,7 +1530,7 @@ import { createBag, makeBoard } from "./game-core.js";
 
     if (data.type === "close") {
       state.online.connected = false;
-      ui.setOnlineStatus("Отключено");
+      ui.setOnlineStatus(onlineText("Отключено", "Disconnected"));
       renderOnlinePanel();
       updateOnlineControls();
       updateLayoutMetrics();
@@ -1503,14 +1538,14 @@ import { createBag, makeBoard } from "./game-core.js";
     }
 
     if (data.type === "socketError") {
-      ui.setOnlineStatus("Ошибка подключения");
-      showToast("Сервер недоступен");
+      ui.setOnlineStatus(onlineText("Ошибка подключения", "Connection error"));
+      showToast(onlineText("Сервер недоступен", "Server unavailable"));
       return;
     }
 
     if (data.type === "error") {
-      ui.setOnlineStatus(data.message || "Ошибка комнаты");
-      showToast(data.message || "Ошибка комнаты");
+      ui.setOnlineStatus(data.message || onlineText("Ошибка комнаты", "Room error"));
+      showToast(data.message || onlineText("Ошибка комнаты", "Room error"));
       return;
     }
 
@@ -1542,12 +1577,18 @@ import { createBag, makeBoard } from "./game-core.js";
     renderOnlinePlayers();
     updateOnlineControls();
     updateLayoutMetrics();
-    if (show) showToast("Онлайн отключён");
+    if (show) showToast(onlineText("Онлайн отключён", "Online disconnected"));
   }
 
   function toggleOnlineConnection() {
-    if (state.online.connected) disconnectOnline();
+    if (state.online.connected) startOnlineGame();
     else connectOnline();
+  }
+
+  function startOnlineGame() {
+    ui.hideOverlay("onlineOverlay");
+    startGame(ui.getStartMode(), state.difficulty);
+    syncUi();
   }
 
   function updateOnlineControls() {
@@ -1678,7 +1719,7 @@ import { createBag, makeBoard } from "./game-core.js";
   function loadCurrentGame() {
     const save = storage.loadSave(null);
     if (!save) {
-      showToast("Сохранения пока нет");
+      showToast(onlineText("Сохранения пока нет", "No saved game yet"));
       return;
     }
     applySaveSnapshot(state, save, FLOW_STATE.PLAYING);
@@ -1689,7 +1730,7 @@ import { createBag, makeBoard } from "./game-core.js";
     hideOverlays();
     updateLayoutMetrics();
     syncUi();
-    showToast("Сохранение загружено");
+    showToast(onlineText("Сохранение загружено", "Save loaded"));
   }
 
   function renderStats() {
@@ -1711,31 +1752,40 @@ import { createBag, makeBoard } from "./game-core.js";
     const rank = rankInfo(state.stats.bestScore);
     const statsRows = [
       {
-        label: "Лучший счёт",
+        label: onlineText("Лучший счёт", "Best score"),
         value: state.stats.bestScore,
         note: rank.current,
       },
       {
-        label: "Всего игр",
+        label: onlineText("Всего игр", "Total games"),
         value: state.stats.games,
-        note: `${state.stats.totalLines} линий`,
+        note: onlineText(
+          `${state.stats.totalLines} линий`,
+          `${state.stats.totalLines} lines`,
+        ),
       },
       {
-        label: "Любимый режим",
-        value: favoriteMode?.[1] ? getModeConfig(favoriteMode[0]).name : "-",
+        label: onlineText("Любимый режим", "Favorite mode"),
+        value: favoriteMode?.[1]
+          ? state.settings.language === "en"
+            ? getModeConfig(favoriteMode[0]).nameEn
+            : getModeConfig(favoriteMode[0]).name
+          : "-",
         note: favoriteMode?.[1]
-          ? `${favoriteMode[1]} игр`
-          : "сыграй первую партию",
+          ? onlineText(`${favoriteMode[1]} игр`, `${favoriteMode[1]} games`)
+          : onlineText("сыграй первую партию", "play your first game"),
       },
       {
-        label: "Средняя длительность",
+        label: onlineText("Средняя длительность", "Average duration"),
         value: averageDuration,
-        note: "за партию",
+        note: onlineText("за партию", "per game"),
       },
       {
-        label: "Прогресс ранга",
+        label: onlineText("Прогресс ранга", "Rank progress"),
         value: rank.next ? `${rank.progress}%` : "100%",
-        note: rank.next ? `до ${rank.next}` : "максимальный ранг",
+        note: rank.next
+          ? onlineText(`до ${rank.next}`, `to ${rank.next}`)
+          : onlineText("максимальный ранг", "max rank"),
         progress: rank.progress,
       },
     ];
@@ -1756,7 +1806,9 @@ import { createBag, makeBoard } from "./game-core.js";
     return state.serverRecords.slice(0, 10).map((record) => ({
       name: record.name,
       mode: record.mode,
-      date: new Date(record.date).toLocaleDateString("ru-RU"),
+      date: new Date(record.date).toLocaleDateString(
+        state.settings.language === "en" ? "en-US" : "ru-RU",
+      ),
       score: record.score,
     }));
   }
@@ -1853,24 +1905,61 @@ import { createBag, makeBoard } from "./game-core.js";
   async function shareText(text) {
     try {
       if (navigator.share) {
-        await navigator.share({ title: "Тетрис", text });
-      } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-        showToast("Текст скопирован");
+        await navigator.share({ title: onlineText("Тетрис", "Tetris"), text });
       } else {
-        showToast(text);
+        await copyTextToClipboard(
+          text,
+          onlineText("Текст скопирован", "Text copied"),
+          onlineText("Не удалось поделиться", "Share failed"),
+        );
       }
     } catch {
-      showToast("Не удалось поделиться");
+      showToast(onlineText("Не удалось поделиться", "Share failed"));
+    }
+  }
+
+  async function copyTextToClipboard(text, successMessage, failureMessage) {
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const copied = document.execCommand("copy");
+        textarea.remove();
+        if (!copied) throw new Error("copy command failed");
+      }
+      showToast(successMessage);
+      return true;
+    } catch {
+      showToast(failureMessage);
+      return false;
     }
   }
 
   function resultText() {
-    return `Тетрис: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${MODES[state.mode].name}.`;
+    const modeName =
+      state.settings.language === "en"
+        ? MODES[state.mode].nameEn
+        : MODES[state.mode].name;
+    return onlineText(
+      `Тетрис: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${modeName}.`,
+      `Tetris: ${state.score} points, ${state.lines} lines, level ${state.level}, mode ${modeName}.`,
+    );
   }
 
   function statsText() {
-    return `Моя статистика в Тетрис: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`;
+    return onlineText(
+      `Моя статистика в Тетрис: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`,
+      `My Tetris stats: best ${state.stats.bestScore}, lines ${state.stats.totalLines}, games ${state.stats.games}.`,
+    );
   }
 
   function renderCoachTips() {
@@ -2737,7 +2826,7 @@ import { createBag, makeBoard } from "./game-core.js";
     if (room) {
       ui.setOnlineRoom(room);
       storage.saveRoomCode(room);
-      setTimeout(openOnline, 0);
+      setTimeout(() => openOnline({ autoConnect: true }), 0);
     }
   }
 
