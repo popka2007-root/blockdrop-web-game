@@ -62,10 +62,12 @@ const UI_IDS = [
   "friendButton",
   "aiButton",
   "menuMoreSummary",
-  "aiOptionsSummary",
+  "aiOverlay",
   "aiDifficultySelect",
   "aiStyleSelect",
   "aiPaceSelect",
+  "startAiButton",
+  "closeAiButton",
   "modeSummary",
   "menuRecords",
   "startSettingsButton",
@@ -192,7 +194,7 @@ const UI_TEXT = {
     friend: "Играть с другом",
     ai: "AI соперник",
     more: "Ещё",
-    aiOptions: "Настройки AI",
+    aiStart: "Начать с AI",
     settings: "Настройки",
     install: "Установить офлайн",
     online: "Онлайн-комната",
@@ -263,7 +265,7 @@ const UI_TEXT = {
     friend: "Play with friend",
     ai: "AI opponent",
     more: "More",
-    aiOptions: "AI settings",
+    aiStart: "Start with AI",
     settings: "Settings",
     install: "Install offline",
     online: "Online room",
@@ -453,7 +455,15 @@ export function createUi(options = {}) {
     setText(refs.friendButton, text.friend);
     setText(refs.aiButton, text.ai);
     setText(refs.menuMoreSummary, text.more);
-    setText(refs.aiOptionsSummary, text.aiOptions);
+    setText(documentRef.querySelector("#aiOverlay h2"), text.ai);
+    setText(
+      documentRef.querySelector("#aiOverlay .muted"),
+      language === "en"
+        ? "Choose bot behavior for the selected mode."
+        : "Выбери поведение бота для партии в текущем режиме.",
+    );
+    setText(refs.startAiButton, text.aiStart);
+    setText(refs.closeAiButton, text.mainMenu);
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
     setText(refs.openStatsButton, text.stats);
@@ -1143,6 +1153,7 @@ export function createUi(options = {}) {
 
   function hideOverlays() {
     refs.startOverlay.hidden = true;
+    refs.aiOverlay.hidden = true;
     refs.pauseOverlay.hidden = true;
     refs.settingsOverlay.hidden = true;
     refs.statsOverlay.hidden = true;
@@ -1514,7 +1525,9 @@ export function createUi(options = {}) {
     bindPress(refs.dailyButton, callbacks.startDailyChallenge);
     bindPress(refs.continueButton, callbacks.loadCurrentGame);
     bindPress(refs.friendButton, callbacks.playWithFriend);
-    bindPress(refs.aiButton, callbacks.startAiGame);
+    bindPress(refs.aiButton, callbacks.openAiSettings);
+    bindPress(refs.startAiButton, callbacks.startAiGame);
+    bindPress(refs.closeAiButton, callbacks.closeAiSettings);
     bindPress(refs.startSettingsButton, callbacks.openSettings);
     bindPress(refs.installButton, callbacks.installApp);
     bindPress(refs.openStatsButton, callbacks.openStats);

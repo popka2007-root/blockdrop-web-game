@@ -2581,6 +2581,15 @@ import { createBag, makeBoard } from "./game-core.js";
         startAiGame();
         syncUi();
       },
+      openAiSettings: () => {
+        ui.showOverlay("aiOverlay");
+        syncUi();
+      },
+      closeAiSettings: () => {
+        ui.hideOverlay("aiOverlay");
+        ui.showOverlay("startOverlay");
+        syncUi();
+      },
       loadCurrentGame: () => {
         loadCurrentGame();
         syncUi();
