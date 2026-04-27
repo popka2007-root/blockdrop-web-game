@@ -1767,8 +1767,10 @@ import { createBag, makeBoard } from "./game-core.js";
       const response = await fetch("/api/records", { cache: "no-store" });
       const data = await response.json();
       state.serverRecords = Array.isArray(data.records) ? data.records : [];
+      syncUi();
       if (ui.isOverlayVisible("statsOverlay")) renderStats();
     } catch {
+      syncUi();
       if (ui.isOverlayVisible("statsOverlay")) renderStats();
     }
   }

@@ -41,7 +41,7 @@ async function smokeViewport(browser, viewport) {
     `${viewport.name}: modes missing`,
   );
   assert(
-    (await page.locator("#menuRecords").innerText()).length > 0,
+    (await page.locator("#menuRecords").textContent()).trim().length > 0,
     `${viewport.name}: menu records missing`,
   );
 
@@ -57,8 +57,9 @@ async function smokeViewport(browser, viewport) {
   );
 
   await page.locator("#mainMenuButton").click();
-  await page.selectOption("#aiDifficultySelect", "hard");
   await page.locator("#aiButton").click();
+  await page.selectOption("#aiDifficultySelect", "hard");
+  await page.locator("#startAiButton").click();
   await page.waitForTimeout(250);
   assert(
     await page.locator("#startOverlay").evaluate((node) => node.hidden),
