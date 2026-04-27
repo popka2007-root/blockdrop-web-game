@@ -722,6 +722,27 @@ h3 {
   margin-top: 10px;
 }
 
+.mode-summary {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-normal);
+  background: rgba(255, 255, 255, 0.075);
+  text-align: left;
+}
+
+.mode-summary b {
+  color: var(--text);
+}
+
+.mode-summary small {
+  color: var(--muted);
+  line-height: 1.35;
+  font-weight: 800;
+}
+
 .help-stack {
   display: grid;
   gap: 8px;
