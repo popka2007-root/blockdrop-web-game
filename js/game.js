@@ -1,4 +1,11 @@
-﻿import { SOUND_EVENTS, initAudio, makeAudioSettings, playSound as playAudioSound, setVolume, toggleMute } from "./audio.js";
+﻿import {
+  SOUND_EVENTS,
+  initAudio,
+  makeAudioSettings,
+  playSound as playAudioSound,
+  setVolume,
+  toggleMute,
+} from "./audio.js";
 import {
   COLS,
   FLOW_STATE,
@@ -6,14 +13,16 @@ import {
   PHYSICS,
   PROGRESSION,
   ROWS,
-  SCORING_THRESHOLDS,
-  SCORE_TABLE,
   SHAPES,
   SRS_KICKS,
   TIMING,
-  UI as UI_CONFIG
+  UI as UI_CONFIG,
 } from "./config.js";
-import { gestureProfile, normalizeControls, swipeThresholdForPreset } from "./input.js";
+import {
+  gestureProfile,
+  normalizeControls,
+  swipeThresholdForPreset,
+} from "./input.js";
 import { GAME_MODES, getModeConfig, normalizeModeKey } from "./modes.js";
 import {
   buildRoomInviteUrl,
@@ -27,11 +36,28 @@ import {
   roomFromLocation,
   sendAttack,
   sendOnlineMessage,
-  sendScoreUpdate
+  sendScoreUpdate,
 } from "./online.js";
+import { advanceFrameClock, decayFlashes } from "./runtime-loop.js";
+import {
+  addPositiveScore,
+  attackLinesForClear,
+  rankInfo,
+  rankTextForScore,
+  resultBadgeForGame,
+  resultHighlightsForGame,
+  scoreLineClear,
+} from "./scoring.js";
+import {
+  countHoles as boardCountHoles,
+  currentHeight as boardCurrentHeight,
+  surfaceBumpiness as boardSurfaceBumpiness,
+  topDanger as boardTopDanger,
+} from "./scene-state.js";
+import { applySaveSnapshot, buildSavePayload } from "./save-load.js";
 import { createGameStorage } from "./storage.js";
 import { createUi } from "./ui.js";
-import { createBag } from "./game-core.js";
+import { createBag, makeBoard } from "./game-core.js";
 
 (() => {
   "use strict";
@@ -47,7 +73,7 @@ import { createBag } from "./game-core.js";
     achievements: "blockdrop-achievements-v2",
     ghostRun: "blockdrop-ghost-run-v1",
     lastRoom: "tetris-last-room",
-    playerName: "blockdrop-player-name"
+    playerName: "blockdrop-player-name",
   };
 
   const COLORS = {
@@ -58,7 +84,7 @@ import { createBag } from "./game-core.js";
     Z: "#ff6b6b",
     J: "#4f78ff",
     L: "#ff9a3d",
-    X: "#dfe6ee"
+    X: "#dfe6ee",
   };
 
   const THEME_COLORS = {
@@ -71,7 +97,7 @@ import { createBag } from "./game-core.js";
       Z: "#d84b42",
       J: "#2f6fbc",
       L: "#d66b22",
-      X: "#4f5f67"
+      X: "#4f5f67",
     },
     candy: {
       I: "#5ce1ff",
@@ -81,7 +107,7 @@ import { createBag } from "./game-core.js";
       Z: "#ff7aa8",
       J: "#7ca7ff",
       L: "#ffb45f",
-      X: "#fff4cc"
+      X: "#fff4cc",
     },
     mono: {
       I: "#d9d0bd",
@@ -91,8 +117,8 @@ import { createBag } from "./game-core.js";
       Z: "#c6a99c",
       J: "#9fb8b1",
       L: "#d6c28f",
-      X: "#eeeeee"
-    }
+      X: "#eeeeee",
+    },
   };
 
   const SAFE_COLORS = {
@@ -103,7 +129,7 @@ import { createBag } from "./game-core.js";
     Z: "#f94144",
     J: "#277da1",
     L: "#f8961e",
-    X: "#dfe6ee"
+    X: "#dfe6ee",
   };
 
   const MODES = GAME_MODES;
@@ -112,45 +138,146 @@ import { createBag } from "./game-core.js";
     easy: { name: "Лёгкая", startLevel: 1, speedBonus: -80, garbage: 0 },
     normal: { name: "Нормальная", startLevel: 1, speedBonus: 0, garbage: 0 },
     hard: { name: "Сложная", startLevel: 4, speedBonus: 40, garbage: 2 },
-    expert: { name: "Эксперт", startLevel: 7, speedBonus: 80, garbage: 4 }
+    expert: { name: "Эксперт", startLevel: 7, speedBonus: 80, garbage: 4 },
   };
 
   const AI_DIFFICULTY = {
-    easy: { name: "Лёгкий", scoreRate: 0.68, heightRate: 0.72, attackRate: 1.35, doubleChance: 0.08 },
-    normal: { name: "Нормальный", scoreRate: 1, heightRate: 1, attackRate: 1, doubleChance: 0.22 },
-    hard: { name: "Сильный", scoreRate: 1.35, heightRate: 1.18, attackRate: 0.78, doubleChance: 0.38 },
-    insane: { name: "Безумный", scoreRate: 1.75, heightRate: 1.36, attackRate: 0.58, doubleChance: 0.58 }
+    easy: {
+      name: "Лёгкий",
+      scoreRate: 0.68,
+      heightRate: 0.72,
+      attackRate: 1.35,
+      doubleChance: 0.08,
+    },
+    normal: {
+      name: "Нормальный",
+      scoreRate: 1,
+      heightRate: 1,
+      attackRate: 1,
+      doubleChance: 0.22,
+    },
+    hard: {
+      name: "Сильный",
+      scoreRate: 1.35,
+      heightRate: 1.18,
+      attackRate: 0.78,
+      doubleChance: 0.38,
+    },
+    insane: {
+      name: "Безумный",
+      scoreRate: 1.75,
+      heightRate: 1.36,
+      attackRate: 0.58,
+      doubleChance: 0.58,
+    },
   };
 
   const AI_STYLE = {
     balanced: { name: "Баланс", score: 1, height: 1, attack: 1, burst: 1 },
-    aggressive: { name: "Атака", score: 1.08, height: 1.08, attack: 0.78, burst: 1.25 },
-    defensive: { name: "Защита", score: 0.94, height: 0.82, attack: 1.18, burst: 0.75 }
+    aggressive: {
+      name: "Атака",
+      score: 1.08,
+      height: 1.08,
+      attack: 0.78,
+      burst: 1.25,
+    },
+    defensive: {
+      name: "Защита",
+      score: 0.94,
+      height: 0.82,
+      attack: 1.18,
+      burst: 0.75,
+    },
   };
 
   const AI_PACE = {
     calm: { name: "Спокойный", score: 0.86, attack: 1.22 },
     fair: { name: "Ровный", score: 1, attack: 1 },
-    fast: { name: "Быстрый", score: 1.16, attack: 0.84 }
+    fast: { name: "Быстрый", score: 1.16, attack: 0.84 },
   };
 
   const ACHIEVEMENTS = [
-    ["firstLine", "Первый шаг", "Очистить первую линию", (s) => s.totalLines >= 1],
-    ["tenLines", "Разогрев", "Очистить 10 линий за всё время", (s) => s.totalLines >= 10],
-    ["hundredLines", "Мастер поля", "Очистить 100 линий за всё время", (s) => s.totalLines >= 100],
+    [
+      "firstLine",
+      "Первый шаг",
+      "Очистить первую линию",
+      (s) => s.totalLines >= 1,
+    ],
+    [
+      "tenLines",
+      "Разогрев",
+      "Очистить 10 линий за всё время",
+      (s) => s.totalLines >= 10,
+    ],
+    [
+      "hundredLines",
+      "Мастер поля",
+      "Очистить 100 линий за всё время",
+      (s) => s.totalLines >= 100,
+    ],
     ["score1000", "Тысяча", "Набрать 1000 очков", (s) => s.bestScore >= 1000],
-    ["score5000", "Пять тысяч", "Набрать 5000 очков", (s) => s.bestScore >= 5000],
+    [
+      "score5000",
+      "Пять тысяч",
+      "Набрать 5000 очков",
+      (s) => s.bestScore >= 5000,
+    ],
     ["combo3", "Комбо x3", "Сделать комбо 3", (s) => s.bestCombo >= 3],
-    ["tetris", "Четыре сразу", "Очистить 4 линии одним ходом", (s) => s.bestClear >= 4],
-    ["sprinter", "Спринтер", "Закончить режим 40 линий", (s) => s.sprintWins >= 1],
+    [
+      "tetris",
+      "Четыре сразу",
+      "Очистить 4 линии одним ходом",
+      (s) => s.bestClear >= 4,
+    ],
+    [
+      "sprinter",
+      "Спринтер",
+      "Закончить режим 40 линий",
+      (s) => s.sprintWins >= 1,
+    ],
     ["survivor", "Выживший", "Дойти до 10 уровня", (s) => s.bestLevel >= 10],
-    ["collector", "Коллекционер", "Поставить 300 фигур", (s) => s.totalPieces >= 300],
-    ["hardDropper", "Без тормозов", "Сделать 100 резких сбросов", (s) => s.totalHardDrops >= 100],
-    ["keeper", "Запасливый", "Использовать запас 50 раз", (s) => s.totalHolds >= 50],
-    ["spinner", "Вертушка", "Повернуть фигуры 250 раз", (s) => s.totalRotations >= 250],
-    ["patient", "Долгая партия", "Сыграть 10 минут суммарно", (s) => s.totalTime >= 600],
-    ["chaosFan", "Друг хаоса", "Сыграть 5 партий в режиме Хаос", (s) => s.chaosGames >= 5],
-    ["relaxFan", "Спокойный ход", "Сыграть 5 партий в режиме Дзен", (s) => s.relaxGames >= 5]
+    [
+      "collector",
+      "Коллекционер",
+      "Поставить 300 фигур",
+      (s) => s.totalPieces >= 300,
+    ],
+    [
+      "hardDropper",
+      "Без тормозов",
+      "Сделать 100 резких сбросов",
+      (s) => s.totalHardDrops >= 100,
+    ],
+    [
+      "keeper",
+      "Запасливый",
+      "Использовать запас 50 раз",
+      (s) => s.totalHolds >= 50,
+    ],
+    [
+      "spinner",
+      "Вертушка",
+      "Повернуть фигуры 250 раз",
+      (s) => s.totalRotations >= 250,
+    ],
+    [
+      "patient",
+      "Долгая партия",
+      "Сыграть 10 минут суммарно",
+      (s) => s.totalTime >= 600,
+    ],
+    [
+      "chaosFan",
+      "Друг хаоса",
+      "Сыграть 5 партий в режиме Хаос",
+      (s) => s.chaosGames >= 5,
+    ],
+    [
+      "relaxFan",
+      "Спокойный ход",
+      "Сыграть 5 партий в режиме Дзен",
+      (s) => s.relaxGames >= 5,
+    ],
   ];
 
   const HAPTICS = {
@@ -162,7 +289,7 @@ import { createBag } from "./game-core.js";
     tetris: [8, 20, 8],
     attack: [7, 24, 7],
     win: [8, 22, 8],
-    gameOver: [12, 30, 14]
+    gameOver: [12, 30, 14],
   };
 
   const storage = createGameStorage(STORAGE);
@@ -223,7 +350,7 @@ import { createBag } from "./game-core.js";
       name: "",
       peers: {},
       tournament: null,
-      lastSent: 0
+      lastSent: 0,
     },
     ai: {
       enabled: false,
@@ -232,23 +359,19 @@ import { createBag } from "./game-core.js";
       height: 0,
       elapsedMs: 0,
       attackMs: 0,
-      name: "AI"
+      name: "AI",
     },
     ghostRun: storage.loadGhostRun(null),
     currentGhostRun: [],
     lastGhostSampleMs: 0,
     previousBestScore: 0,
-    daily: null
+    daily: null,
   };
 
   const audio = initAudio(() => state.settings);
 
   function ensureAudio() {
     audio.player.resume();
-  }
-
-  function makeBoard() {
-    return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   }
 
   function clamp(value, min, max) {
@@ -276,7 +399,7 @@ import { createBag } from "./game-core.js";
       lastMode: "classic",
       muted: false,
       ...makeAudioSettings(),
-      ...storage.loadSettings({})
+      ...storage.loadSettings({}),
     };
   }
 
@@ -300,10 +423,17 @@ import { createBag } from "./game-core.js";
       totalRotations: 0,
       totalMoves: 0,
       totalSoftDrops: 0,
-      modeCounts: { classic: 0, sprint: 0, hardcore: 0, timeAttack: 0, relax: 0, chaos: 0 },
+      modeCounts: {
+        classic: 0,
+        sprint: 0,
+        hardcore: 0,
+        timeAttack: 0,
+        relax: 0,
+        chaos: 0,
+      },
       daily: { date: "", score: 0, lines: 0 },
       pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
-      ...storage.loadStats({})
+      ...storage.loadStats({}),
     };
   }
 
@@ -311,18 +441,32 @@ import { createBag } from "./game-core.js";
     Object.assign(state.settings, normalizeControls(state.settings));
     state.settings.grid = true;
     state.settings.danger = true;
-    state.settings.performanceMode = ["auto", "battery", "quality"].includes(state.settings.performanceMode) ? state.settings.performanceMode : "auto";
+    state.settings.performanceMode = ["auto", "battery", "quality"].includes(
+      state.settings.performanceMode,
+    )
+      ? state.settings.performanceMode
+      : "auto";
     state.settings.particles = state.settings.performanceMode !== "battery";
     state.settings.colorBlind = false;
     state.settings.ghost = true;
     state.settings.bigButtons = false;
     state.settings.autoPause = true;
     state.settings.reducedMotion = state.settings.performanceMode === "battery";
-    state.settings.language = ["ru", "en"].includes(state.settings.language) ? state.settings.language : "ru";
-    state.settings.aiDifficulty = AI_DIFFICULTY[state.settings.aiDifficulty] ? state.settings.aiDifficulty : "normal";
-    state.settings.aiStyle = AI_STYLE[state.settings.aiStyle] ? state.settings.aiStyle : "balanced";
-    state.settings.aiPace = AI_PACE[state.settings.aiPace] ? state.settings.aiPace : "fair";
-    state.settings.lastMode = MODES[normalizeModeKey(state.settings.lastMode)] ? normalizeModeKey(state.settings.lastMode) : "classic";
+    state.settings.language = ["ru", "en"].includes(state.settings.language)
+      ? state.settings.language
+      : "ru";
+    state.settings.aiDifficulty = AI_DIFFICULTY[state.settings.aiDifficulty]
+      ? state.settings.aiDifficulty
+      : "normal";
+    state.settings.aiStyle = AI_STYLE[state.settings.aiStyle]
+      ? state.settings.aiStyle
+      : "balanced";
+    state.settings.aiPace = AI_PACE[state.settings.aiPace]
+      ? state.settings.aiPace
+      : "fair";
+    state.settings.lastMode = MODES[normalizeModeKey(state.settings.lastMode)]
+      ? normalizeModeKey(state.settings.lastMode)
+      : "classic";
     state.settings.volume = clamp(Number(state.settings.volume) || 0, 0, 100);
     state.settings.muted = Boolean(state.settings.muted);
     state.settings.moveVolume = state.settings.volume;
@@ -337,7 +481,11 @@ import { createBag } from "./game-core.js";
   }
 
   function updateLayoutMetrics() {
-    ui.updateLayoutMetrics({ cols: COLS, rows: ROWS, onlineConnected: state.online.connected });
+    ui.updateLayoutMetrics({
+      cols: COLS,
+      rows: ROWS,
+      onlineConnected: state.online.connected,
+    });
   }
 
   function refillBag() {
@@ -357,9 +505,9 @@ import { createBag } from "./game-core.js";
     return () => {
       seed += 0x6d2b79f5;
       let value = seed;
-      value = Math.imul(value ^ value >>> 15, value | 1);
-      value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-      return ((value ^ value >>> 14) >>> 0) / 4294967296;
+      value = Math.imul(value ^ (value >>> 15), value | 1);
+      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
     };
   }
 
@@ -382,7 +530,8 @@ import { createBag } from "./game-core.js";
     let modifier = PIECE_MODIFIERS.NORMAL;
     if (roll > threshold) {
       threshold += PIECE_MODIFIERS.CHANCES.danger;
-      modifier = roll <= threshold ? PIECE_MODIFIERS.DANGER : PIECE_MODIFIERS.BONUS;
+      modifier =
+        roll <= threshold ? PIECE_MODIFIERS.DANGER : PIECE_MODIFIERS.BONUS;
     }
     if (roll > 1 - PIECE_MODIFIERS.CHANCES.chaos) {
       modifier = PIECE_MODIFIERS.CHAOS;
@@ -391,10 +540,11 @@ import { createBag } from "./game-core.js";
   }
 
   function normalizePieceDraft(value) {
-    if (typeof value === "string") return { kind: value, modifier: PIECE_MODIFIERS.NORMAL };
+    if (typeof value === "string")
+      return { kind: value, modifier: PIECE_MODIFIERS.NORMAL };
     return {
       kind: value?.kind || "T",
-      modifier: value?.modifier || PIECE_MODIFIERS.NORMAL
+      modifier: value?.modifier || PIECE_MODIFIERS.NORMAL,
     };
   }
 
@@ -404,7 +554,10 @@ import { createBag } from "./game-core.js";
   }
 
   function cells(piece) {
-    return SHAPES[piece.kind][piece.rotation].map(([x, y]) => ({ x: piece.x + x, y: piece.y + y }));
+    return SHAPES[piece.kind][piece.rotation].map(([x, y]) => ({
+      x: piece.x + x,
+      y: piece.y + y,
+    }));
   }
 
   function valid(piece) {
@@ -415,7 +568,11 @@ import { createBag } from "./game-core.js";
     return true;
   }
 
-  function startGame(mode = ui.getStartMode(), difficulty = "normal", options = {}) {
+  function startGame(
+    mode = ui.getStartMode(),
+    difficulty = "normal",
+    options = {},
+  ) {
     difficulty = "normal";
     mode = normalizeModeKey(mode);
     const modeConfig = getModeConfig(mode);
@@ -432,7 +589,10 @@ import { createBag } from "./game-core.js";
     state.difficulty = difficulty;
     state.score = 0;
     state.lines = 0;
-    state.level = Math.max(modeConfig.startLevel, DIFFICULTY[difficulty].startLevel);
+    state.level = Math.max(
+      modeConfig.startLevel,
+      DIFFICULTY[difficulty].startLevel,
+    );
     state.combo = 0;
     state.bestComboRun = 0;
     state.pieces = 0;
@@ -469,10 +629,13 @@ import { createBag } from "./game-core.js";
     state.ai.height = 0;
     state.ai.elapsedMs = 0;
     state.ai.attackMs = 0;
-    state.ai.name = state.settings.language === "en"
-      ? `AI ${state.settings.aiStyle}/${state.settings.aiPace}`
-      : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name} · ${AI_STYLE[state.settings.aiStyle].name}`;
-    state.daily = options.daily ? { date: dailyKey(), seed: options.seed } : null;
+    state.ai.name =
+      state.settings.language === "en"
+        ? `AI ${state.settings.aiStyle}/${state.settings.aiPace}`
+        : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name} · ${AI_STYLE[state.settings.aiStyle].name}`;
+    state.daily = options.daily
+      ? { date: dailyKey(), seed: options.seed }
+      : null;
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
@@ -486,8 +649,15 @@ import { createBag } from "./game-core.js";
   }
 
   function startAiGame() {
-    startGame(ui.getStartMode(), "normal", { ai: true, aiDifficulty: state.settings.aiDifficulty });
-    showToast(state.settings.language === "en" ? "AI opponent joined" : `AI: ${AI_DIFFICULTY[state.settings.aiDifficulty].name}`);
+    startGame(ui.getStartMode(), "normal", {
+      ai: true,
+      aiDifficulty: state.settings.aiDifficulty,
+    });
+    showToast(
+      state.settings.language === "en"
+        ? "AI opponent joined"
+        : `AI: ${AI_DIFFICULTY[state.settings.aiDifficulty].name}`,
+    );
   }
 
   function startDailyChallenge() {
@@ -510,9 +680,12 @@ import { createBag } from "./game-core.js";
     for (let i = 0; i < count; i += 1) {
       const hole = Math.floor(random() * COLS);
       state.board.shift();
-      state.board.push(Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")));
+      state.board.push(
+        Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")),
+      );
     }
-    if (state.active && !valid(state.active)) finish(false, "Соперники вытолкнули башню мусорными линиями.");
+    if (state.active && !valid(state.active))
+      finish(false, "Соперники вытолкнули башню мусорными линиями.");
   }
 
   function receiveGarbage(count, from = "соперника") {
@@ -551,7 +724,11 @@ import { createBag } from "./game-core.js";
 
   function move(dx, dy, scoreSoft = false) {
     if (!canInput()) return false;
-    const candidate = { ...state.active, x: state.active.x + dx, y: state.active.y + dy };
+    const candidate = {
+      ...state.active,
+      x: state.active.x + dx,
+      y: state.active.y + dy,
+    };
     if (!valid(candidate)) return false;
     state.active = candidate;
     if (dx !== 0) resetLockDelayIfGrounded();
@@ -574,9 +751,12 @@ import { createBag } from "./game-core.js";
     const normalizedDirection = direction < 0 ? -1 : 1;
     const to = (from + normalizedDirection + 4) % 4;
     const rotated = { ...state.active, rotation: to };
-    const kicks = state.active.kind === "O"
-      ? [[0, 0]]
-      : (state.active.kind === "I" ? SRS_KICKS.I : SRS_KICKS.normal)[`${from}>${to}`] || [[0, 0]];
+    const kicks =
+      state.active.kind === "O"
+        ? [[0, 0]]
+        : (state.active.kind === "I" ? SRS_KICKS.I : SRS_KICKS.normal)[
+            `${from}>${to}`
+          ] || [[0, 0]];
     for (const [dx, dy] of kicks) {
       const candidate = { ...rotated, x: rotated.x + dx, y: rotated.y + dy };
       if (valid(candidate)) {
@@ -584,7 +764,12 @@ import { createBag } from "./game-core.js";
         resetLockDelayIfGrounded();
         state.rotations += 1;
         state.stats.totalRotations += 1;
-        playEvent("rotate", normalizedDirection < 0 ? { freq: SOUND_EVENTS.rotate.freq - 50 } : {});
+        playEvent(
+          "rotate",
+          normalizedDirection < 0
+            ? { freq: SOUND_EVENTS.rotate.freq - 50 }
+            : {},
+        );
         buzz("rotate");
         return true;
       }
@@ -593,7 +778,8 @@ import { createBag } from "./game-core.js";
   }
 
   function softDrop() {
-    if (!move(0, PHYSICS.SOFT_DROP_SPEED, true)) updateLockDelay(TIMING.SOFT_DROP_LOCK_MS);
+    if (!move(0, PHYSICS.SOFT_DROP_SPEED, true))
+      updateLockDelay(TIMING.SOFT_DROP_LOCK_MS);
   }
 
   function stepHorizontal(direction) {
@@ -625,7 +811,10 @@ import { createBag } from "./game-core.js";
 
   function holdPiece() {
     if (!canInput() || state.holdUsed) return;
-    const current = { kind: state.active.kind, modifier: state.active.modifier };
+    const current = {
+      kind: state.active.kind,
+      modifier: state.active.modifier,
+    };
     state.holds += 1;
     state.stats.totalHolds += 1;
     if (state.hold) {
@@ -647,9 +836,13 @@ import { createBag } from "./game-core.js";
     const beforeMetrics = {
       holes: countHoles(),
       height: currentHeight(),
-      bumpiness: surfaceBumpiness()
+      bumpiness: surfaceBumpiness(),
     };
-    for (const c of cells(state.active)) state.board[c.y][c.x] = { kind: state.active.kind, modifier: lockedModifier };
+    for (const c of cells(state.active))
+      state.board[c.y][c.x] = {
+        kind: state.active.kind,
+        modifier: lockedModifier,
+      };
     state.stats.pieceCounts[state.active.kind] += 1;
     state.pieces += 1;
     state.stats.totalPieces += 1;
@@ -658,14 +851,14 @@ import { createBag } from "./game-core.js";
     const afterMetrics = {
       holes: countHoles(),
       height: currentHeight(),
-      bumpiness: surfaceBumpiness()
+      bumpiness: surfaceBumpiness(),
     };
     state.sessionHistory.push({
       kind: lockedKind,
       clear: count,
       holesDelta: afterMetrics.holes - beforeMetrics.holes,
       heightDelta: afterMetrics.height - beforeMetrics.height,
-      bumpinessDelta: afterMetrics.bumpiness - beforeMetrics.bumpiness
+      bumpinessDelta: afterMetrics.bumpiness - beforeMetrics.bumpiness,
     });
     if (state.sessionHistory.length > 60) state.sessionHistory.shift();
     if (count > 0) {
@@ -674,11 +867,26 @@ import { createBag } from "./game-core.js";
       state.bestComboRun = Math.max(state.bestComboRun, state.combo);
       state.bestClearInGame = Math.max(state.bestClearInGame, count);
       state.lines += count;
-      addScore(lineScore(count) + state.combo * 25 + streakScoreBonus());
-      state.level = modeConfig.relaxed ? modeConfig.startLevel : Math.min(20, Math.floor(state.lines / modeConfig.levelUp) + modeConfig.startLevel + DIFFICULTY[state.difficulty].startLevel - 1);
+      addScore(
+        scoreLineClear(count, state.level) +
+          state.combo * 25 +
+          streakScoreBonus(),
+      );
+      state.level = modeConfig.relaxed
+        ? modeConfig.startLevel
+        : Math.min(
+            20,
+            Math.floor(state.lines / modeConfig.levelUp) +
+              modeConfig.startLevel +
+              DIFFICULTY[state.difficulty].startLevel -
+              1,
+          );
       playEvent(count === 4 ? "tetris" : "line");
       if (count === 4) burst(44);
-      if (state.combo >= 2) playEvent("combo", { freq: SOUND_EVENTS.combo.freq + state.combo * 18 });
+      if (state.combo >= 2)
+        playEvent("combo", {
+          freq: SOUND_EVENTS.combo.freq + state.combo * 18,
+        });
       if (state.level > previousLevel) {
         showToast(`Уровень ${state.level}`);
         playEvent("levelUp");
@@ -702,7 +910,11 @@ import { createBag } from "./game-core.js";
       return;
     }
 
-    if (modeConfig.garbageAttacks && state.pieces > 0 && state.pieces % 14 === 0) {
+    if (
+      modeConfig.garbageAttacks &&
+      state.pieces > 0 &&
+      state.pieces % 14 === 0
+    ) {
       addGarbage(1);
       showToast("Хаос добавил линию снизу");
     }
@@ -721,44 +933,42 @@ import { createBag } from "./game-core.js";
     if (!rows.length) return 0;
     state.flashes = rows.map((row) => ({ row, life: 1, width: 0 }));
     state.board = state.board.filter((_, y) => !rows.includes(y));
-    while (state.board.length < ROWS) state.board.unshift(Array(COLS).fill(null));
+    while (state.board.length < ROWS)
+      state.board.unshift(Array(COLS).fill(null));
     return rows.length;
-  }
-
-  function lineScore(count) {
-    return SCORE_TABLE[Math.min(count, 4)] * state.level;
-  }
-
-  function attackLinesForClear(count) {
-    if (count < 2) return 0;
-    if (count === 2) return 1;
-    if (count === 3) return 2;
-    return 4;
   }
 
   function sendAttackForClear(count) {
     const lines = attackLinesForClear(count);
     if (!lines || (!state.online.connected && !state.ai.enabled)) return;
     state.sentGarbage += lines;
-    if (state.online.connected) sendAttack(onlineClient, state.online.room, lines);
+    if (state.online.connected)
+      sendAttack(onlineClient, state.online.room, lines);
     if (state.ai.enabled) {
       state.ai.height = Math.max(0, state.ai.height - lines);
       state.ai.attackMs = Math.max(0, state.ai.attackMs - lines * 1200);
     }
     playEvent("attack", { duration: 0.09 });
     burst(12);
-    showToast(state.ai.enabled && !state.online.connected ? `Атака AI: +${lines}` : `Атака соперникам: +${lines}`);
+    showToast(
+      state.ai.enabled && !state.online.connected
+        ? `Атака AI: +${lines}`
+        : `Атака соперникам: +${lines}`,
+    );
   }
 
   function addScore(value) {
-    state.score += Math.max(0, Math.round(value));
+    state.score = addPositiveScore(state.score, value);
     state.stats.bestScore = Math.max(state.stats.bestScore, state.score);
     storage.saveBestScore(state.stats.bestScore);
     if (value >= 50) ui.pulseScore?.();
   }
 
   function streakScoreBonus() {
-    return Math.min(PROGRESSION.MAX_STREAK_SCORE_BONUS, state.survivalStreak * 8);
+    return Math.min(
+      PROGRESSION.MAX_STREAK_SCORE_BONUS,
+      state.survivalStreak * 8,
+    );
   }
 
   function resetStreak() {
@@ -768,12 +978,19 @@ import { createBag } from "./game-core.js";
 
   function rewardSurvivalStreak() {
     if (!state.running || state.paused || state.gameOver || topDanger()) return;
-    if (state.elapsedMs - state.lastStreakMs < PROGRESSION.SURVIVAL_STREAK_STEP_MS) return;
+    if (
+      state.elapsedMs - state.lastStreakMs <
+      PROGRESSION.SURVIVAL_STREAK_STEP_MS
+    )
+      return;
     state.lastStreakMs = state.elapsedMs;
     state.survivalStreak += 1;
     addScore(PROGRESSION.SURVIVAL_STREAK_SCORE * state.survivalStreak);
     if (state.survivalStreak > 1) {
-      playEvent("combo", { freq: SOUND_EVENTS.combo.freq + state.survivalStreak * 10, duration: 0.055 });
+      playEvent("combo", {
+        freq: SOUND_EVENTS.combo.freq + state.survivalStreak * 10,
+        duration: 0.055,
+      });
       if (state.survivalStreak % 3 === 0) burst(10);
     }
   }
@@ -783,7 +1000,9 @@ import { createBag } from "./game-core.js";
 
     if (modifier === PIECE_MODIFIERS.BONUS) {
       state.survivalStreak += 1;
-      addScore(PIECE_MODIFIERS.BONUS_SCORE + state.level * 10 + streakScoreBonus());
+      addScore(
+        PIECE_MODIFIERS.BONUS_SCORE + state.level * 10 + streakScoreBonus(),
+      );
       playEvent("combo", { freq: 1120, duration: 0.08 });
       burst(22);
       showToast(`Бонус +${PIECE_MODIFIERS.BONUS_SCORE}`);
@@ -791,7 +1010,10 @@ import { createBag } from "./game-core.js";
     }
 
     if (modifier === PIECE_MODIFIERS.CHAOS) {
-      state.chaosUntilMs = Math.max(state.chaosUntilMs, state.elapsedMs + PROGRESSION.CHAOS_BOOST_MS);
+      state.chaosUntilMs = Math.max(
+        state.chaosUntilMs,
+        state.elapsedMs + PROGRESSION.CHAOS_BOOST_MS,
+      );
       addScore(60 + streakScoreBonus());
       playEvent("levelUp", { freq: 1180, duration: 0.08 });
       shakeBoard();
@@ -809,24 +1031,28 @@ import { createBag } from "./game-core.js";
   }
 
   function resultBadge(won) {
-    if (won && state.mode === "sprint") return "Сильный спринт";
-    if (state.daily) return "Daily Challenge";
-    if (state.bestClearInGame >= 4) return "Tetris-момент";
-    if (state.bestComboRun >= 4) return "Комбо-машина";
-    if (countHoles() >= 8) return "Много дыр";
-    if (state.score >= state.stats.bestScore) return "Новый рекорд";
-    return "Стабильная партия";
+    return resultBadgeForGame({
+      won,
+      mode: state.mode,
+      daily: state.daily,
+      bestClearInGame: state.bestClearInGame,
+      bestComboRun: state.bestComboRun,
+      holes: countHoles(),
+      score: state.score,
+      bestScore: state.stats.bestScore,
+    });
   }
 
   function resultHighlights() {
-    const modeName = getModeConfig(state.mode).name;
-    const daily = state.daily ? `${state.stats.daily?.score || state.score} · ${state.daily.date}` : "—";
-    return [
-      { label: "Режим", value: modeName },
-      { label: "Лучший момент", value: state.bestClearInGame >= 4 ? "Tetris" : `Комбо x${state.bestComboRun}` },
-      { label: "APM", value: actionsPerMinute() },
-      { label: "Daily best", value: daily }
-    ];
+    return resultHighlightsForGame({
+      modeName: getModeConfig(state.mode).name,
+      dailyLabel: state.daily
+        ? `${state.stats.daily?.score || state.score} · ${state.daily.date}`
+        : "—",
+      bestClearInGame: state.bestClearInGame,
+      bestComboRun: state.bestComboRun,
+      apm: actionsPerMinute(),
+    });
   }
 
   function finish(won, text) {
@@ -840,27 +1066,50 @@ import { createBag } from "./game-core.js";
     state.stats.totalTime += Math.floor(state.elapsedMs / 1000);
     state.stats.bestLevel = Math.max(state.stats.bestLevel, state.level);
     state.stats.bestCombo = Math.max(state.stats.bestCombo, state.bestComboRun);
-    state.stats.bestClear = Math.max(state.stats.bestClear, state.bestClearInGame);
+    state.stats.bestClear = Math.max(
+      state.stats.bestClear,
+      state.bestClearInGame,
+    );
     if (won) state.stats.modeWins += 1;
     if (won && state.mode === "sprint") state.stats.sprintWins += 1;
     if (state.mode === "chaos") state.stats.chaosGames += 1;
     if (state.mode === "relax") state.stats.relaxGames += 1;
     if (state.daily) {
-      const currentDaily = state.stats.daily || { date: "", score: 0, lines: 0 };
-      if (currentDaily.date !== state.daily.date || state.score > currentDaily.score) {
-        state.stats.daily = { date: state.daily.date, score: state.score, lines: state.lines };
+      const currentDaily = state.stats.daily || {
+        date: "",
+        score: 0,
+        lines: 0,
+      };
+      if (
+        currentDaily.date !== state.daily.date ||
+        state.score > currentDaily.score
+      ) {
+        state.stats.daily = {
+          date: state.daily.date,
+          score: state.score,
+          lines: state.lines,
+        };
       }
     }
     saveGhostRunIfBest();
-    state.stats.modeCounts = { classic: 0, sprint: 0, hardcore: 0, timeAttack: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
-    state.stats.modeCounts[state.mode] = (state.stats.modeCounts[state.mode] || 0) + 1;
+    state.stats.modeCounts = {
+      classic: 0,
+      sprint: 0,
+      hardcore: 0,
+      timeAttack: 0,
+      relax: 0,
+      chaos: 0,
+      ...state.stats.modeCounts,
+    };
+    state.stats.modeCounts[state.mode] =
+      (state.stats.modeCounts[state.mode] || 0) + 1;
     state.scores.unshift({
       score: state.score,
       lines: state.lines,
       level: state.level,
       mode: MODES[state.mode].name,
       time: formatTime(state.elapsedMs),
-      date: new Date().toLocaleDateString("ru-RU")
+      date: new Date().toLocaleDateString("ru-RU"),
     });
     state.scores = state.scores.sort((a, b) => b.score - a.score).slice(0, 10);
     storage.saveStats(state.stats);
@@ -878,7 +1127,7 @@ import { createBag } from "./game-core.js";
       badge: resultBadge(won),
       highlights: resultHighlights(),
       insight: gameOverInsight(),
-      serverStatus: "Серверный рекорд отправляется..."
+      serverStatus: "Серверный рекорд отправляется...",
     });
     renderCoachTips();
     playEvent(won ? "win" : "gameOver");
@@ -931,25 +1180,40 @@ import { createBag } from "./game-core.js";
     const bonus = DIFFICULTY[state.difficulty].speedBonus;
     const modeConfig = getModeConfig(state.mode);
     const relaxed = modeConfig.relaxed ? PHYSICS.RELAXED_DROP_BONUS_MS : 0;
-    const timeSteps = Math.floor(state.elapsedMs / PROGRESSION.TIME_SPEED_STEP_MS);
-    const timePressure = Math.min(PROGRESSION.TIME_SPEED_MAX_DROP_MS, timeSteps * PROGRESSION.TIME_SPEED_STEP_DROP_MS);
-    const chaosPressure = state.chaosUntilMs > state.elapsedMs ? PROGRESSION.CHAOS_SPEED_DROP_MS : 0;
+    const timeSteps = Math.floor(
+      state.elapsedMs / PROGRESSION.TIME_SPEED_STEP_MS,
+    );
+    const timePressure = Math.min(
+      PROGRESSION.TIME_SPEED_MAX_DROP_MS,
+      timeSteps * PROGRESSION.TIME_SPEED_STEP_DROP_MS,
+    );
+    const chaosPressure =
+      state.chaosUntilMs > state.elapsedMs
+        ? PROGRESSION.CHAOS_SPEED_DROP_MS
+        : 0;
     const modeMultiplier = modeConfig.speedMultiplier || 1;
     return Math.max(
       PHYSICS.MIN_DROP_INTERVAL_MS,
-      (PHYSICS.BASE_DROP_INTERVAL_MS + relaxed - (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS - bonus - timePressure - chaosPressure) / modeMultiplier
+      (PHYSICS.BASE_DROP_INTERVAL_MS +
+        relaxed -
+        (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS -
+        bonus -
+        timePressure -
+        chaosPressure) /
+        modeMultiplier,
     );
   }
 
   function update(time) {
-    if (!state.lastTime) state.lastTime = time;
-    const delta = Math.min(TIMING.MAX_FRAME_DELTA_MS, time - state.lastTime);
-    state.lastTime = time;
+    const delta = advanceFrameClock(state, time, TIMING.MAX_FRAME_DELTA_MS);
 
     if (state.running && !state.paused && !state.gameOver) {
       state.elapsedMs += delta;
       const modeConfig = getModeConfig(state.mode);
-      if (modeConfig.timeLimit && state.elapsedMs >= modeConfig.timeLimit * 1000) {
+      if (
+        modeConfig.timeLimit &&
+        state.elapsedMs >= modeConfig.timeLimit * 1000
+      ) {
         finish(true, "Время вышло. Результат сохранён.");
         draw();
         syncUi();
@@ -967,9 +1231,7 @@ import { createBag } from "./game-core.js";
       recordGhostSample();
     }
 
-    state.flashes = state.flashes
-      .map((f) => ({ ...f, life: f.life - delta / UI_CONFIG.FLASH_DECAY_MS, width: Math.min(1, f.width + delta / UI_CONFIG.FLASH_GROW_MS) }))
-      .filter((f) => f.life > 0);
+    state.flashes = decayFlashes(state.flashes, delta, UI_CONFIG);
     draw();
     syncUi();
     requestAnimationFrame(update);
@@ -982,13 +1244,35 @@ import { createBag } from "./game-core.js";
     const pace = AI_PACE[state.settings.aiPace] || AI_PACE.fair;
     state.ai.elapsedMs += delta;
     state.ai.attackMs += delta;
-    state.ai.score += delta * (0.045 + state.level * 0.004) * ai.scoreRate * style.score * pace.score;
+    state.ai.score +=
+      delta *
+      (0.045 + state.level * 0.004) *
+      ai.scoreRate *
+      style.score *
+      pace.score;
     const wave = Math.sin(state.ai.elapsedMs / 5200) * 2;
-    state.ai.height = Math.max(2, Math.min(18, Math.round(4 + state.level * 0.35 * ai.heightRate * style.height + state.ai.elapsedMs / (42000 / ai.heightRate) + wave)));
-    const attackInterval = Math.max(6500, (21000 - state.level * 520) * ai.attackRate * style.attack * pace.attack);
+    state.ai.height = Math.max(
+      2,
+      Math.min(
+        18,
+        Math.round(
+          4 +
+            state.level * 0.35 * ai.heightRate * style.height +
+            state.ai.elapsedMs / (42000 / ai.heightRate) +
+            wave,
+        ),
+      ),
+    );
+    const attackInterval = Math.max(
+      6500,
+      (21000 - state.level * 520) * ai.attackRate * style.attack * pace.attack,
+    );
     if (state.ai.attackMs >= attackInterval) {
       state.ai.attackMs = 0;
-      const lines = state.level >= 7 && Math.random() < ai.doubleChance * style.burst ? 2 : 1;
+      const lines =
+        state.level >= 7 && Math.random() < ai.doubleChance * style.burst
+          ? 2
+          : 1;
       receiveGarbage(lines, state.ai.name);
     }
   }
@@ -1000,25 +1284,36 @@ import { createBag } from "./game-core.js";
       time: Math.floor(state.elapsedMs),
       score: state.score,
       height: currentHeight(),
-      lines: state.lines
+      lines: state.lines,
     });
     if (state.currentGhostRun.length > 240) state.currentGhostRun.shift();
   }
 
   function saveGhostRunIfBest() {
-    if (state.score < state.previousBestScore || state.currentGhostRun.length < 3) return;
+    if (
+      state.score < state.previousBestScore ||
+      state.currentGhostRun.length < 3
+    )
+      return;
     state.ghostRun = {
       score: state.score,
       mode: state.mode,
       date: new Date().toISOString(),
-      samples: state.currentGhostRun
+      samples: state.currentGhostRun,
     };
     storage.saveGhostRun(state.ghostRun);
   }
 
   function ghostRunHeight() {
-    if (!state.ghostRun || state.ghostRun.mode !== state.mode || state.running === false) return 0;
-    const samples = Array.isArray(state.ghostRun.samples) ? state.ghostRun.samples : [];
+    if (
+      !state.ghostRun ||
+      state.ghostRun.mode !== state.mode ||
+      state.running === false
+    )
+      return 0;
+    const samples = Array.isArray(state.ghostRun.samples)
+      ? state.ghostRun.samples
+      : [];
     let current = null;
     for (const sample of samples) {
       if (sample.time > state.elapsedMs) break;
@@ -1035,25 +1330,35 @@ import { createBag } from "./game-core.js";
   }
 
   function draw() {
-    ui.renderGame({
-      cols: COLS,
-      rows: ROWS,
-      board: state.board,
-      active: state.active ? { kind: state.active.kind, modifier: state.active.modifier, cells: cells(state.active) } : null,
-      ghost: state.settings.ghost && state.active ? cells(ghostPiece()) : null,
-      queue: state.queue,
-      hold: state.hold,
-      flashes: state.flashes,
-      opponentHeight: opponentHeight()
-    }, {
-      settings: state.settings,
-      shapes: SHAPES,
-      palettes: {
-        base: COLORS,
-        safe: SAFE_COLORS,
-        themes: THEME_COLORS
-      }
-    });
+    ui.renderGame(
+      {
+        cols: COLS,
+        rows: ROWS,
+        board: state.board,
+        active: state.active
+          ? {
+              kind: state.active.kind,
+              modifier: state.active.modifier,
+              cells: cells(state.active),
+            }
+          : null,
+        ghost:
+          state.settings.ghost && state.active ? cells(ghostPiece()) : null,
+        queue: state.queue,
+        hold: state.hold,
+        flashes: state.flashes,
+        opponentHeight: opponentHeight(),
+      },
+      {
+        settings: state.settings,
+        shapes: SHAPES,
+        palettes: {
+          base: COLORS,
+          safe: SAFE_COLORS,
+          themes: THEME_COLORS,
+        },
+      },
+    );
   }
 
   function syncUi() {
@@ -1061,7 +1366,9 @@ import { createBag } from "./game-core.js";
     ui.syncHud({
       score: state.score,
       level: state.level,
-      lines: modeConfig.targetLines ? `${state.lines}/${modeConfig.targetLines}` : state.lines,
+      lines: modeConfig.targetLines
+        ? `${state.lines}/${modeConfig.targetLines}`
+        : state.lines,
       record: state.stats.bestScore,
       combo: state.combo,
       streak: state.survivalStreak,
@@ -1071,15 +1378,18 @@ import { createBag } from "./game-core.js";
       height: currentHeight(),
       goal: goalText(),
       progress: progressPercent(),
-      rank: rankText(),
-      danger: state.settings.danger && topDanger()
+      rank: rankTextForScore(state.score),
+      danger: state.settings.danger && topDanger(),
     });
     ui.renderMenuRecords({
       bestScore: state.stats.bestScore,
       lastGame: state.scores[0],
-      sprintBest: state.scores.find((entry) => entry.mode === MODES.sprint.name)?.score || 0,
-      dailyBest: state.stats.daily?.date === dailyKey() ? state.stats.daily.score : 0,
-      serverTop: state.serverRecords[0]
+      sprintBest:
+        state.scores.find((entry) => entry.mode === MODES.sprint.name)?.score ||
+        0,
+      dailyBest:
+        state.stats.daily?.date === dailyKey() ? state.stats.daily.score : 0,
+      serverTop: state.serverRecords[0],
     });
     renderOnlinePanel();
     sendOnlineUpdateThrottled();
@@ -1087,44 +1397,36 @@ import { createBag } from "./game-core.js";
 
   function actionsPerMinute() {
     const minutes = Math.max(1 / 60, state.elapsedMs / 60000);
-    return Math.round((state.moves + state.rotations + state.hardDrops + state.holds + state.softDrops) / minutes);
+    return Math.round(
+      (state.moves +
+        state.rotations +
+        state.hardDrops +
+        state.holds +
+        state.softDrops) /
+        minutes,
+    );
   }
 
   function currentHeight() {
-    const first = state.board.findIndex((row) => row.some(Boolean));
-    return first === -1 ? 0 : ROWS - first;
-  }
-
-  function columnHeights() {
-    return Array.from({ length: COLS }, (_, x) => {
-      for (let y = 0; y < ROWS; y += 1) {
-        if (state.board[y][x]) return ROWS - y;
-      }
-      return 0;
-    });
+    return boardCurrentHeight(state.board);
   }
 
   function countHoles() {
-    let holes = 0;
-    for (let x = 0; x < COLS; x += 1) {
-      let seenBlock = false;
-      for (let y = 0; y < ROWS; y += 1) {
-        if (state.board[y][x]) seenBlock = true;
-        else if (seenBlock) holes += 1;
-      }
-    }
-    return holes;
+    return boardCountHoles(state.board);
   }
 
   function surfaceBumpiness() {
-    const heights = columnHeights();
-    return heights.slice(1).reduce((sum, height, index) => sum + Math.abs(height - heights[index]), 0);
+    return boardSurfaceBumpiness(state.board);
   }
 
   function goalText() {
     const modeConfig = getModeConfig(state.mode);
-    if (modeConfig.targetLines) return `${state.lines}/${modeConfig.targetLines} линий`;
-    if (modeConfig.timeLimit) return formatTime(Math.max(0, modeConfig.timeLimit * 1000 - state.elapsedMs));
+    if (modeConfig.targetLines)
+      return `${state.lines}/${modeConfig.targetLines} линий`;
+    if (modeConfig.timeLimit)
+      return formatTime(
+        Math.max(0, modeConfig.timeLimit * 1000 - state.elapsedMs),
+      );
     if (modeConfig.relaxed) return modeConfig.goalText;
     if (state.mode === "hardcore") return "Hardcore";
     if (modeConfig.garbageAttacks) return "Выжить";
@@ -1133,17 +1435,17 @@ import { createBag } from "./game-core.js";
 
   function progressPercent() {
     const modeConfig = getModeConfig(state.mode);
-    if (modeConfig.targetLines) return Math.min(100, Math.round(state.lines / modeConfig.targetLines * 100));
-    if (modeConfig.timeLimit) return Math.min(100, Math.round(state.elapsedMs / (modeConfig.timeLimit * 1000) * 100));
-    return Math.min(100, Math.round(state.level / 20 * 100));
-  }
-
-  function rankText() {
-    if (state.score >= SCORING_THRESHOLDS.LEGEND) return "Легенда";
-    if (state.score >= SCORING_THRESHOLDS.MASTER) return "Мастер";
-    if (state.score >= SCORING_THRESHOLDS.PRO) return "Профи";
-    if (state.score >= SCORING_THRESHOLDS.PLAYER) return "Игрок";
-    return "Новичок";
+    if (modeConfig.targetLines)
+      return Math.min(
+        100,
+        Math.round((state.lines / modeConfig.targetLines) * 100),
+      );
+    if (modeConfig.timeLimit)
+      return Math.min(
+        100,
+        Math.round((state.elapsedMs / (modeConfig.timeLimit * 1000)) * 100),
+      );
+    return Math.min(100, Math.round((state.level / 20) * 100));
   }
 
   function openOnline() {
@@ -1152,7 +1454,7 @@ import { createBag } from "./game-core.js";
     ui.setOnlineDefaults({
       server: form.server || defaultServerUrl(),
       room,
-      name: form.name || storage.loadPlayerName("Игрок")
+      name: form.name || storage.loadPlayerName("Игрок"),
     });
     ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
     ui.showOverlay("onlineOverlay");
@@ -1162,7 +1464,9 @@ import { createBag } from "./game-core.js";
   }
 
   function ensureRoomCode() {
-    const room = normalizeRoomId(ui.getOnlineForm().room || state.online.room) || generateRoomCode();
+    const room =
+      normalizeRoomId(ui.getOnlineForm().room || state.online.room) ||
+      generateRoomCode();
     ui.setOnlineRoom(room);
     storage.saveRoomCode(room);
     ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
@@ -1182,7 +1486,10 @@ import { createBag } from "./game-core.js";
     const room = ensureRoomCode();
     const link = roomInviteUrl(room);
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(link).then(() => showToast("Ссылка скопирована")).catch(() => shareText(link));
+      navigator.clipboard
+        .writeText(link)
+        .then(() => showToast("Ссылка скопирована"))
+        .catch(() => shareText(link));
       return;
     }
     shareText(link);
@@ -1194,14 +1501,20 @@ import { createBag } from "./game-core.js";
     storage.saveRoomCode(room);
     state.online.room = room;
     const link = roomInviteUrl(room);
-    if (location.protocol.startsWith("http")) history.replaceState(null, "", link);
+    if (location.protocol.startsWith("http"))
+      history.replaceState(null, "", link);
     openOnline();
     shareText(`Заходи в комнату Тетриса ${room}: ${link}`);
     showToast("Ссылка комнаты готова");
   }
 
   function connectOnline() {
-    const { server, name: rawName, maxPlayers, durationSec } = ui.getOnlineForm();
+    const {
+      server,
+      name: rawName,
+      maxPlayers,
+      durationSec,
+    } = ui.getOnlineForm();
     const room = ensureRoomCode();
     const name = (rawName || "Игрок").slice(0, 18);
     storage.savePlayerName(name);
@@ -1212,7 +1525,13 @@ import { createBag } from "./game-core.js";
       state.online.room = room;
       state.online.name = name;
       ui.setOnlineStatus("Подключение...");
-      openOnlineSocket(onlineClient, { server, room, name, maxPlayers, durationSec });
+      openOnlineSocket(onlineClient, {
+        server,
+        room,
+        name,
+        maxPlayers,
+        durationSec,
+      });
       state.online.connected = false;
     } catch {
       showToast("Неверный адрес сервера");
@@ -1224,7 +1543,8 @@ import { createBag } from "./game-core.js";
       state.online.connected = true;
       sendOnlineUpdate(true);
       ui.setOnlineStatus(`Комната ${data.room}`);
-      if (location.protocol.startsWith("http")) history.replaceState(null, "", roomInviteUrl(data.room));
+      if (location.protocol.startsWith("http"))
+        history.replaceState(null, "", roomInviteUrl(data.room));
       updateOnlineControls();
       updateLayoutMetrics();
       showToast(`Онлайн: ${data.room}`);
@@ -1311,13 +1631,20 @@ import { createBag } from "./game-core.js";
       receivedGarbage: state.receivedGarbage,
       mode: MODES[state.mode].name,
       time: formatTime(state.elapsedMs),
-      status: state.gameOver ? (state.won ? "Победа" : "Финиш") : state.paused ? "Пауза" : "Играет",
-      force
+      status: state.gameOver
+        ? state.won
+          ? "Победа"
+          : "Финиш"
+        : state.paused
+          ? "Пауза"
+          : "Играет",
+      force,
     });
   }
 
   function sendOnlineUpdateThrottled() {
-    if (performance.now() - state.online.lastSent > 700) sendOnlineUpdate(false);
+    if (performance.now() - state.online.lastSent > 700)
+      sendOnlineUpdate(false);
   }
 
   function startTournament() {
@@ -1326,13 +1653,20 @@ import { createBag } from "./game-core.js";
       return;
     }
     const { maxPlayers, durationSec } = ui.getOnlineForm();
-    sendOnlineMessage(onlineClient, { type: "startTournament", room: state.online.room, maxPlayers, durationSec });
+    sendOnlineMessage(onlineClient, {
+      type: "startTournament",
+      room: state.online.room,
+      maxPlayers,
+      durationSec,
+    });
     showToast("Турнир запускается");
     startGame(state.mode, state.difficulty);
   }
 
   function renderOnlinePlayers() {
-    const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score);
+    const players = Object.values(state.online.peers || {}).sort(
+      (a, b) => b.score - a.score,
+    );
     ui.renderOnlinePlayers(players, state.online.tournament, formatTime);
   }
 
@@ -1342,27 +1676,34 @@ import { createBag } from "./game-core.js";
         connected: true,
         room: "AI",
         tournament: null,
-        players: [{
-          name: state.ai.name,
-          score: Math.round(state.ai.score),
-          status: state.settings.language === "en" ? "Training" : "Тренировка"
-        }],
-        formatTime
+        players: [
+          {
+            name: state.ai.name,
+            score: Math.round(state.ai.score),
+            status:
+              state.settings.language === "en" ? "Training" : "Тренировка",
+          },
+        ],
+        formatTime,
       });
       return;
     }
-    const players = Object.values(state.online.peers || {}).sort((a, b) => b.score - a.score).slice(0, 4);
+    const players = Object.values(state.online.peers || {})
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4);
     ui.renderOnlinePanel({
       connected: state.online.connected,
       room: state.online.room,
       tournament: state.online.tournament,
       players,
-      formatTime
+      formatTime,
     });
   }
 
   function showTournamentResults(playersObject) {
-    const players = Object.values(playersObject || {}).sort((a, b) => b.score - a.score);
+    const players = Object.values(playersObject || {}).sort(
+      (a, b) => b.score - a.score,
+    );
     if (ui.renderTournamentResults(players, state.running && !state.gameOver)) {
       state.running = false;
       state.gameOver = true;
@@ -1372,13 +1713,17 @@ import { createBag } from "./game-core.js";
 
   function opponentHeight() {
     if (state.ai.enabled) return state.ai.height;
-    return Object.values(state.online.peers || {})
-      .filter((p) => p.id !== state.online.id && Number.isFinite(Number(p.height)))
-      .sort((a, b) => b.score - a.score)[0]?.height || ghostRunHeight();
+    return (
+      Object.values(state.online.peers || {})
+        .filter(
+          (p) => p.id !== state.online.id && Number.isFinite(Number(p.height)),
+        )
+        .sort((a, b) => b.score - a.score)[0]?.height || ghostRunHeight()
+    );
   }
 
   function topDanger() {
-    return state.board.slice(0, 4).some((row) => row.some(Boolean));
+    return boardTopDanger(state.board);
   }
 
   function formatTime(ms) {
@@ -1390,35 +1735,7 @@ import { createBag } from "./game-core.js";
 
   function saveCurrentGame() {
     if (!state.running || state.gameOver) return;
-    storage.saveGame({
-      board: state.board,
-      active: state.active,
-      queue: state.queue,
-      bag: state.bag,
-      hold: state.hold,
-      holdUsed: state.holdUsed,
-      mode: state.mode,
-      difficulty: state.difficulty,
-      score: state.score,
-      lines: state.lines,
-      level: state.level,
-      combo: state.combo,
-      bestComboRun: state.bestComboRun,
-      pieces: state.pieces,
-      hardDrops: state.hardDrops,
-      holds: state.holds,
-      rotations: state.rotations,
-      moves: state.moves,
-      softDrops: state.softDrops,
-      bestClearInGame: state.bestClearInGame,
-      sessionHistory: state.sessionHistory,
-      survivalStreak: state.survivalStreak,
-      lastStreakMs: state.lastStreakMs,
-      chaosUntilMs: state.chaosUntilMs,
-      currentGhostRun: state.currentGhostRun,
-      lastGhostSampleMs: state.lastGhostSampleMs,
-      elapsedMs: state.elapsedMs
-    });
+    storage.saveGame(buildSavePayload(state));
   }
 
   function loadCurrentGame() {
@@ -1427,15 +1744,9 @@ import { createBag } from "./game-core.js";
       showToast("Сохранения пока нет");
       return;
     }
-    Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, phase: FLOW_STATE.PLAYING, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
+    applySaveSnapshot(state, save, FLOW_STATE.PLAYING);
     state.mode = normalizeModeKey(state.mode);
     state.ai.enabled = false;
-    state.sessionHistory = Array.isArray(save.sessionHistory) ? save.sessionHistory : [];
-    state.survivalStreak = Number(save.survivalStreak) || 0;
-    state.lastStreakMs = Number(save.lastStreakMs) || state.elapsedMs || 0;
-    state.chaosUntilMs = Number(save.chaosUntilMs) || 0;
-    state.currentGhostRun = Array.isArray(save.currentGhostRun) ? save.currentGhostRun : [];
-    state.lastGhostSampleMs = Number(save.lastGhostSampleMs) || state.elapsedMs || 0;
     state.difficulty = "normal";
     state.rng = Math.random;
     hideOverlays();
@@ -1445,16 +1756,51 @@ import { createBag } from "./game-core.js";
   }
 
   function renderStats() {
-    const modeCounts = { classic: 0, sprint: 0, hardcore: 0, timeAttack: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
-    const favoriteMode = Object.entries(modeCounts).sort((a, b) => b[1] - a[1])[0];
-    const averageDuration = state.stats.games ? formatTime((state.stats.totalTime / state.stats.games) * 1000) : "0:00";
+    const modeCounts = {
+      classic: 0,
+      sprint: 0,
+      hardcore: 0,
+      timeAttack: 0,
+      relax: 0,
+      chaos: 0,
+      ...state.stats.modeCounts,
+    };
+    const favoriteMode = Object.entries(modeCounts).sort(
+      (a, b) => b[1] - a[1],
+    )[0];
+    const averageDuration = state.stats.games
+      ? formatTime((state.stats.totalTime / state.stats.games) * 1000)
+      : "0:00";
     const rank = rankInfo(state.stats.bestScore);
     const statsRows = [
-      { label: "Лучший счёт", value: state.stats.bestScore, note: rank.current },
-      { label: "Всего игр", value: state.stats.games, note: `${state.stats.totalLines} линий` },
-      { label: "Любимый режим", value: favoriteMode?.[1] ? getModeConfig(favoriteMode[0]).name : "-", note: favoriteMode?.[1] ? `${favoriteMode[1]} игр` : "сыграй первую партию" },
-      { label: "Средняя длительность", value: averageDuration, note: "за партию" },
-      { label: "Прогресс ранга", value: rank.next ? `${rank.progress}%` : "100%", note: rank.next ? `до ${rank.next}` : "максимальный ранг", progress: rank.progress }
+      {
+        label: "Лучший счёт",
+        value: state.stats.bestScore,
+        note: rank.current,
+      },
+      {
+        label: "Всего игр",
+        value: state.stats.games,
+        note: `${state.stats.totalLines} линий`,
+      },
+      {
+        label: "Любимый режим",
+        value: favoriteMode?.[1] ? getModeConfig(favoriteMode[0]).name : "-",
+        note: favoriteMode?.[1]
+          ? `${favoriteMode[1]} игр`
+          : "сыграй первую партию",
+      },
+      {
+        label: "Средняя длительность",
+        value: averageDuration,
+        note: "за партию",
+      },
+      {
+        label: "Прогресс ранга",
+        value: rank.next ? `${rank.progress}%` : "100%",
+        note: rank.next ? `до ${rank.next}` : "максимальный ранг",
+        progress: rank.progress,
+      },
     ];
 
     ui.renderStats({
@@ -1464,8 +1810,8 @@ import { createBag } from "./game-core.js";
       achievements: ACHIEVEMENTS.map(([id, title, description]) => ({
         title,
         description,
-        unlocked: Boolean(state.unlocked[id])
-      }))
+        unlocked: Boolean(state.unlocked[id]),
+      })),
     });
   }
 
@@ -1474,7 +1820,7 @@ import { createBag } from "./game-core.js";
       name: record.name,
       mode: record.mode,
       date: new Date(record.date).toLocaleDateString("ru-RU"),
-      score: record.score
+      score: record.score,
     }));
   }
 
@@ -1492,12 +1838,21 @@ import { createBag } from "./game-core.js";
 
   async function submitServerRecord() {
     const modeConfig = getModeConfig(state.mode);
-    if (!location.protocol.startsWith("http") || state.score <= 0 || modeConfig.relaxed) {
-      ui.setServerRecordStatus(location.protocol.startsWith("http") ? "" : "Серверные рекорды доступны на онлайн-версии.");
+    if (
+      !location.protocol.startsWith("http") ||
+      state.score <= 0 ||
+      modeConfig.relaxed
+    ) {
+      ui.setServerRecordStatus(
+        location.protocol.startsWith("http")
+          ? ""
+          : "Серверные рекорды доступны на онлайн-версии.",
+      );
       return;
     }
     try {
-      const name = storage.loadPlayerName("Игрок") || state.online.name || "Игрок";
+      const name =
+        storage.loadPlayerName("Игрок") || state.online.name || "Игрок";
       const response = await fetch("/api/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1507,15 +1862,26 @@ import { createBag } from "./game-core.js";
           lines: state.lines,
           level: state.level,
           mode: MODES[state.mode].name,
-          time: formatTime(state.elapsedMs)
-        })
+          time: formatTime(state.elapsedMs),
+        }),
       });
       const data = await response.json();
       state.serverRecords = Array.isArray(data.records) ? data.records : [];
-      const place = state.serverRecords.findIndex((record) => record.score === state.score && record.lines === state.lines && record.time === formatTime(state.elapsedMs));
-      ui.setServerRecordStatus(place >= 0 && place < 10 ? `Серверный топ: место ${place + 1}` : "Результат сохранён на сервере");
+      const place = state.serverRecords.findIndex(
+        (record) =>
+          record.score === state.score &&
+          record.lines === state.lines &&
+          record.time === formatTime(state.elapsedMs),
+      );
+      ui.setServerRecordStatus(
+        place >= 0 && place < 10
+          ? `Серверный топ: место ${place + 1}`
+          : "Результат сохранён на сервере",
+      );
     } catch {
-      ui.setServerRecordStatus("Офлайн: результат сохранён только на устройстве");
+      ui.setServerRecordStatus(
+        "Офлайн: результат сохранён только на устройстве",
+      );
     }
   }
 
@@ -1524,39 +1890,25 @@ import { createBag } from "./game-core.js";
     const height = currentHeight();
     const worstPlacement = state.sessionHistory
       .filter((step) => step.clear === 0)
-      .sort((a, b) => (b.holesDelta * 4 + b.heightDelta * 2 + b.bumpinessDelta) - (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta))[0];
+      .sort(
+        (a, b) =>
+          b.holesDelta * 4 +
+          b.heightDelta * 2 +
+          b.bumpinessDelta -
+          (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta),
+      )[0];
     if (worstPlacement && worstPlacement.holesDelta >= 2) {
       return `<b>Ключевая ошибка: ${worstPlacement.kind}-фигура</b><small>После неё добавилось дыр: +${worstPlacement.holesDelta}. В похожей ситуации лучше играть в край или убрать фигуру в запас.</small>`;
     }
-    if (holes >= 7) return `<b>Главная проблема: дыры</b><small>На поле осталось ${holes}. Играй ровнее и не закрывай пустые клетки, особенно S/Z фигурами.</small>`;
-    if (height >= 13) return `<b>Главная проблема: высота</b><small>Башня поднялась до ${height}. Держи рабочую зону ниже середины поля и чаще чисти 2+ линии.</small>`;
-    if (state.holds < 1 && state.pieces > 10) return `<b>Не использован запас</b><small>Кнопка "Запас" помогает пережить неудобную фигуру и подготовить место под I.</small>`;
-    if (state.bestClearInGame < 2 && state.lines >= 4) return `<b>Мало сильных очисток</b><small>Попробуй строить под 2-4 линии. В онлайне это ещё и отправляет мусор сопернику.</small>`;
+    if (holes >= 7)
+      return `<b>Главная проблема: дыры</b><small>На поле осталось ${holes}. Играй ровнее и не закрывай пустые клетки, особенно S/Z фигурами.</small>`;
+    if (height >= 13)
+      return `<b>Главная проблема: высота</b><small>Башня поднялась до ${height}. Держи рабочую зону ниже середины поля и чаще чисти 2+ линии.</small>`;
+    if (state.holds < 1 && state.pieces > 10)
+      return `<b>Не использован запас</b><small>Кнопка "Запас" помогает пережить неудобную фигуру и подготовить место под I.</small>`;
+    if (state.bestClearInGame < 2 && state.lines >= 4)
+      return `<b>Мало сильных очисток</b><small>Попробуй строить под 2-4 линии. В онлайне это ещё и отправляет мусор сопернику.</small>`;
     return `<b>Хорошая база</b><small>Следующий шаг: заранее смотреть 2-3 фигуры вперёд и держать один ровный колодец сбоку.</small>`;
-  }
-
-  function rankInfo(score) {
-    const ranks = [
-      ["Новичок", 0],
-      ["Игрок", 1200],
-      ["Профи", 3500],
-      ["Мастер", 7000],
-      ["Легенда", 12000]
-    ];
-    let index = 0;
-    for (let i = 0; i < ranks.length; i += 1) {
-      if (score >= ranks[i][1]) index = i;
-    }
-    const current = ranks[index][0];
-    const next = ranks[index + 1]?.[0] || "";
-    if (!next) return { current, next: "", progress: 100 };
-    const from = ranks[index][1];
-    const to = ranks[index + 1][1];
-    return {
-      current,
-      next,
-      progress: Math.round((score - from) / Math.max(1, to - from) * 100)
-    };
   }
 
   async function shareText(text) {
@@ -1587,25 +1939,79 @@ import { createBag } from "./game-core.js";
     const holes = countHoles();
     const bumpiness = surfaceBumpiness();
     const badPlacements = state.sessionHistory
-      .filter((step) => step.clear === 0 && (step.holesDelta > 1 || step.heightDelta > 1 || step.bumpinessDelta > 3))
-      .sort((a, b) => (b.holesDelta * 4 + b.heightDelta * 2 + b.bumpinessDelta) - (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta))
+      .filter(
+        (step) =>
+          step.clear === 0 &&
+          (step.holesDelta > 1 ||
+            step.heightDelta > 1 ||
+            step.bumpinessDelta > 3),
+      )
+      .sort(
+        (a, b) =>
+          b.holesDelta * 4 +
+          b.heightDelta * 2 +
+          b.bumpinessDelta -
+          (a.holesDelta * 4 + a.heightDelta * 2 + a.bumpinessDelta),
+      )
       .slice(0, 2);
     for (const step of badPlacements) {
       const parts = [];
-      if (step.holesDelta > 0) parts.push(`дыр стало больше на ${step.holesDelta}`);
-      if (step.heightDelta > 0) parts.push(`высота выросла на ${step.heightDelta}`);
+      if (step.holesDelta > 0)
+        parts.push(`дыр стало больше на ${step.holesDelta}`);
+      if (step.heightDelta > 0)
+        parts.push(`высота выросла на ${step.heightDelta}`);
       if (step.bumpinessDelta > 0) parts.push("поверхность стала неровнее");
-      tips.push([`Неудачная ${step.kind}-фигура`, `После этой постановки ${parts.join(", ")}. В похожей ситуации лучше играть в край, в колодец или увести фигуру в запас.`]);
+      tips.push([
+        `Неудачная ${step.kind}-фигура`,
+        `После этой постановки ${parts.join(", ")}. В похожей ситуации лучше играть в край, в колодец или увести фигуру в запас.`,
+      ]);
     }
-    if (holes >= 6) tips.push(["Слишком много дыр", `Под блоками осталось ${holes} пустых клеток. Сначала закрывай низ ровными фигурами, а неудобные S/Z убирай в запас или на край.`]);
-    if (bumpiness >= 18) tips.push(["Неровная поверхность", "Поле стало зубчатым. Старайся ставить фигуры так, чтобы соседние столбцы отличались на 1-2 клетки."]);
-    if (state.receivedGarbage > 0) tips.push(["Онлайн-давление", `Ты получил ${state.receivedGarbage} мусорных линий. В PvP старайся отвечать очисткой 2+ линий, а не просто выживать.`]);
-    if (currentHeight() >= 12) tips.push(["Высокая башня", "Поле стало слишком высоким. Оставляй один ровный колодец сбоку и не закрывай его S/Z фигурами."]);
-    if (state.holds < 2 && state.pieces > 12) tips.push(["Запас почти не использовался", "Запас нужен не только для I-фигуры. Убирай туда неудобную фигуру, если она ломает поверхность поля."]);
-    if (state.bestComboRun < 2 && state.lines > 3) tips.push(["Мало серий", "После очистки линии попробуй сразу готовить следующую. Даже комбо x2 уже заметно ускоряет набор очков."]);
-    if (state.hardDrops < 5 && state.elapsedMs > 60000) tips.push(["Слишком осторожно", "Резкий сброс экономит время. Используй призрачную фигуру, чтобы быстрее принимать решения."]);
-    if (state.rotations > state.pieces * 4 && state.pieces > 8) tips.push(["Много лишних поворотов", "Если фигура крутится 4+ раз, ты поздно решил, куда её ставить. Смотри на следующую фигуру заранее."]);
-    tips.push(["Следующая цель", state.mode === "sprint" ? "В режиме 40 линий цель не рекорд, а чистое поле и скорость. Не копи слишком высокую башню." : "Попробуй играть через 2-3 линии за раз: это уже включает PvP-атаки и тренирует контроль поля."]);
+    if (holes >= 6)
+      tips.push([
+        "Слишком много дыр",
+        `Под блоками осталось ${holes} пустых клеток. Сначала закрывай низ ровными фигурами, а неудобные S/Z убирай в запас или на край.`,
+      ]);
+    if (bumpiness >= 18)
+      tips.push([
+        "Неровная поверхность",
+        "Поле стало зубчатым. Старайся ставить фигуры так, чтобы соседние столбцы отличались на 1-2 клетки.",
+      ]);
+    if (state.receivedGarbage > 0)
+      tips.push([
+        "Онлайн-давление",
+        `Ты получил ${state.receivedGarbage} мусорных линий. В PvP старайся отвечать очисткой 2+ линий, а не просто выживать.`,
+      ]);
+    if (currentHeight() >= 12)
+      tips.push([
+        "Высокая башня",
+        "Поле стало слишком высоким. Оставляй один ровный колодец сбоку и не закрывай его S/Z фигурами.",
+      ]);
+    if (state.holds < 2 && state.pieces > 12)
+      tips.push([
+        "Запас почти не использовался",
+        "Запас нужен не только для I-фигуры. Убирай туда неудобную фигуру, если она ломает поверхность поля.",
+      ]);
+    if (state.bestComboRun < 2 && state.lines > 3)
+      tips.push([
+        "Мало серий",
+        "После очистки линии попробуй сразу готовить следующую. Даже комбо x2 уже заметно ускоряет набор очков.",
+      ]);
+    if (state.hardDrops < 5 && state.elapsedMs > 60000)
+      tips.push([
+        "Слишком осторожно",
+        "Резкий сброс экономит время. Используй призрачную фигуру, чтобы быстрее принимать решения.",
+      ]);
+    if (state.rotations > state.pieces * 4 && state.pieces > 8)
+      tips.push([
+        "Много лишних поворотов",
+        "Если фигура крутится 4+ раз, ты поздно решил, куда её ставить. Смотри на следующую фигуру заранее.",
+      ]);
+    tips.push([
+      "Следующая цель",
+      state.mode === "sprint"
+        ? "В режиме 40 линий цель не рекорд, а чистое поле и скорость. Не копи слишком высокую башню."
+        : "Попробуй играть через 2-3 линии за раз: это уже включает PvP-атаки и тренирует контроль поля.",
+    ]);
     ui.renderCoachTips(tips.slice(0, 3));
   }
 
@@ -1616,7 +2022,7 @@ import { createBag } from "./game-core.js";
         state.unlocked[id] = true;
         changed = true;
         showToast(`Достижение: ${title}`);
-        playEvent("levelUp", { duration: 0.10 });
+        playEvent("levelUp", { duration: 0.1 });
       }
     }
     if (changed) storage.saveAchievements(state.unlocked);
@@ -1631,28 +2037,33 @@ import { createBag } from "./game-core.js";
       themed.freq,
       themed.duration,
       themed.type,
-      themed.category
+      themed.category,
     );
   }
 
   function themedSound(event, overrides = {}) {
-    const profile = {
-      ember: { freq: 1, duration: 1, type: null },
-      day: { freq: 0.94, duration: 0.92, type: "triangle" },
-      candy: { freq: 1.14, duration: 1.06, type: "triangle" },
-      mono: { freq: 0.8, duration: 0.86, type: "sine" }
-    }[state.settings.theme] || {};
+    const profile =
+      {
+        ember: { freq: 1, duration: 1, type: null },
+        day: { freq: 0.94, duration: 0.92, type: "triangle" },
+        candy: { freq: 1.14, duration: 1.06, type: "triangle" },
+        mono: { freq: 0.8, duration: 0.86, type: "sine" },
+      }[state.settings.theme] || {};
     return {
       freq: (overrides.freq ?? event.freq) * (profile.freq || 1),
-      duration: (overrides.duration ?? event.duration) * (profile.duration || 1),
+      duration:
+        (overrides.duration ?? event.duration) * (profile.duration || 1),
       type: overrides.type ?? profile.type ?? event.type,
-      category: overrides.category ?? event.category
+      category: overrides.category ?? event.category,
     };
   }
 
   function buzz(pattern = "move") {
     if (!state.settings.vibration || !navigator.vibrate) return;
-    const value = Array.isArray(pattern) || typeof pattern === "number" ? pattern : HAPTICS[pattern] || HAPTICS.move;
+    const value =
+      Array.isArray(pattern) || typeof pattern === "number"
+        ? pattern
+        : HAPTICS[pattern] || HAPTICS.move;
     navigator.vibrate(value);
   }
 
@@ -1669,7 +2080,7 @@ import { createBag } from "./game-core.js";
       count,
       reducedMotion: state.settings.reducedMotion,
       particles: state.settings.particles,
-      colors: Object.values(state.settings.colorBlind ? SAFE_COLORS : COLORS)
+      colors: Object.values(state.settings.colorBlind ? SAFE_COLORS : COLORS),
     });
   }
 
@@ -1715,7 +2126,7 @@ import { createBag } from "./game-core.js";
     moved: false,
     hardDropped: false,
     softDropped: false,
-    holdTriggered: false
+    holdTriggered: false,
   };
   const pointerState = {
     active: false,
@@ -1728,7 +2139,7 @@ import { createBag } from "./game-core.js";
     lastTapAt: 0,
     moved: false,
     hardDropped: false,
-    softDropped: false
+    softDropped: false,
   };
 
   function openStats() {
@@ -1829,6 +2240,7 @@ import { createBag } from "./game-core.js";
   function handleKeyDown(event) {
     if (shouldIgnoreKeyboardTarget(event.target)) return;
     const key = event.key.toLowerCase();
+    const code = event.code;
     if (key === "arrowleft" || key === "a") {
       event.preventDefault();
       startHorizontal(key, -1);
@@ -1847,7 +2259,15 @@ import { createBag } from "./game-core.js";
       event.preventDefault();
       hardDrop();
       syncUi();
-    } else if (key === "c" || key === "h" || key === "e" || key === "shift") {
+    } else if (
+      key === "c" ||
+      code === "KeyC" ||
+      key === "h" ||
+      code === "KeyH" ||
+      key === "e" ||
+      code === "KeyE" ||
+      key === "shift"
+    ) {
       event.preventDefault();
       holdPiece();
       syncUi();
@@ -1870,7 +2290,12 @@ import { createBag } from "./game-core.js";
   function shouldIgnoreKeyboardTarget(target) {
     if (!target) return false;
     const tag = target.tagName;
-    return target.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    return (
+      target.isContentEditable ||
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT"
+    );
   }
 
   function handleTouchStart(event) {
@@ -1889,7 +2314,13 @@ import { createBag } from "./game-core.js";
     touchState.holdTriggered = false;
     clearTouchHold();
     touchState.holdTimer = setTimeout(() => {
-      if (touchState.moved || touchState.softDropped || touchState.hardDropped || touchState.holdTriggered) return;
+      if (
+        touchState.moved ||
+        touchState.softDropped ||
+        touchState.hardDropped ||
+        touchState.holdTriggered
+      )
+        return;
       if (!canInput()) return;
       holdPiece();
       touchState.holdTriggered = true;
@@ -1906,23 +2337,36 @@ import { createBag } from "./game-core.js";
     const dx = touch.clientX - touchState.lastX;
     const totalDy = touch.clientY - touchState.startY;
     const totalDx = touch.clientX - touchState.startX;
-    if (Math.abs(totalDx) > threshold * 0.4 || Math.abs(totalDy) > threshold * 0.4) {
+    if (
+      Math.abs(totalDx) > threshold * 0.4 ||
+      Math.abs(totalDy) > threshold * 0.4
+    ) {
       touchState.moved = true;
       clearTouchHold();
       clearPendingTap();
     }
 
-    if (Math.abs(dx) >= threshold * 0.88 && Math.abs(totalDx) > Math.abs(totalDy) * 0.7) {
-      const steps = Math.max(1, Math.min(3, Math.floor(Math.abs(dx) / threshold)));
+    if (
+      Math.abs(dx) >= threshold * 0.88 &&
+      Math.abs(totalDx) > Math.abs(totalDy) * 0.7
+    ) {
+      const steps = Math.max(
+        1,
+        Math.min(3, Math.floor(Math.abs(dx) / threshold)),
+      );
       let moved = false;
-      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(dx < 0 ? -1 : 1) || moved;
+      for (let i = 0; i < steps; i += 1)
+        moved = stepHorizontal(dx < 0 ? -1 : 1) || moved;
       touchState.lastX = touch.clientX;
       if (moved) syncUi();
       return;
     }
 
     if (totalDy > threshold && totalDy > Math.abs(totalDx) * 1.04) {
-      const targetSteps = Math.max(1, Math.min(6, Math.floor(totalDy / threshold)));
+      const targetSteps = Math.max(
+        1,
+        Math.min(6, Math.floor(totalDy / threshold)),
+      );
       const pendingSteps = targetSteps - touchState.softSteps;
       if (pendingSteps > 0) {
         for (let i = 0; i < pendingSteps; i += 1) softDrop();
@@ -1955,9 +2399,13 @@ import { createBag } from "./game-core.js";
     }
 
     if (gesture.direction && !touchState.softDropped) {
-      const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
+      const steps = Math.max(
+        1,
+        Math.min(6, Math.round(Math.abs(dx) / threshold)),
+      );
       let moved = false;
-      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(gesture.direction === "left" ? -1 : 1) || moved;
+      for (let i = 0; i < steps; i += 1)
+        moved = stepHorizontal(gesture.direction === "left" ? -1 : 1) || moved;
       clearPendingTap();
       if (moved) syncUi();
       return;
@@ -1999,7 +2447,11 @@ import { createBag } from "./game-core.js";
   }
 
   function handlePointerStart(event) {
-    if (state.settings.controlMode === "buttons" || event.pointerType === "touch") return;
+    if (
+      state.settings.controlMode === "buttons" ||
+      event.pointerType === "touch"
+    )
+      return;
     if (event.button === 2) {
       event.preventDefault();
       holdPiece();
@@ -2022,18 +2474,30 @@ import { createBag } from "./game-core.js";
   }
 
   function handlePointerMove(event) {
-    if (!pointerState.active || event.pointerId !== pointerState.pointerId) return;
+    if (!pointerState.active || event.pointerId !== pointerState.pointerId)
+      return;
     event.preventDefault();
     const threshold = swipeThresholdForPreset(state.settings.sensitivityPreset);
     const dx = event.clientX - pointerState.lastX;
     const totalDx = event.clientX - pointerState.startX;
     const totalDy = event.clientY - pointerState.startY;
-    if (Math.abs(totalDx) > threshold * 0.45 || Math.abs(totalDy) > threshold * 0.45) pointerState.moved = true;
+    if (
+      Math.abs(totalDx) > threshold * 0.45 ||
+      Math.abs(totalDy) > threshold * 0.45
+    )
+      pointerState.moved = true;
 
-    if (Math.abs(dx) >= threshold && Math.abs(totalDx) > Math.abs(totalDy) * 0.75) {
-      const steps = Math.max(1, Math.min(4, Math.floor(Math.abs(dx) / threshold)));
+    if (
+      Math.abs(dx) >= threshold &&
+      Math.abs(totalDx) > Math.abs(totalDy) * 0.75
+    ) {
+      const steps = Math.max(
+        1,
+        Math.min(4, Math.floor(Math.abs(dx) / threshold)),
+      );
       let moved = false;
-      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(dx < 0 ? -1 : 1) || moved;
+      for (let i = 0; i < steps; i += 1)
+        moved = stepHorizontal(dx < 0 ? -1 : 1) || moved;
       pointerState.lastX = event.clientX;
       if (moved) syncUi();
       return;
@@ -2048,7 +2512,8 @@ import { createBag } from "./game-core.js";
   }
 
   function handlePointerEnd(event) {
-    if (!pointerState.active || event.pointerId !== pointerState.pointerId) return;
+    if (!pointerState.active || event.pointerId !== pointerState.pointerId)
+      return;
     event.preventDefault();
     event.currentTarget?.releasePointerCapture?.(event.pointerId);
     pointerState.active = false;
@@ -2066,9 +2531,13 @@ import { createBag } from "./game-core.js";
     }
 
     if (gesture.direction && !pointerState.softDropped) {
-      const steps = Math.max(1, Math.min(6, Math.round(Math.abs(dx) / threshold)));
+      const steps = Math.max(
+        1,
+        Math.min(6, Math.round(Math.abs(dx) / threshold)),
+      );
       let moved = false;
-      for (let i = 0; i < steps; i += 1) moved = stepHorizontal(gesture.direction === "left" ? -1 : 1) || moved;
+      for (let i = 0; i < steps; i += 1)
+        moved = stepHorizontal(gesture.direction === "left" ? -1 : 1) || moved;
       if (moved) syncUi();
       return;
     }
@@ -2104,53 +2573,152 @@ import { createBag } from "./game-core.js";
   function bindUi() {
     ui.bindControls({
       startGame: () => startGame(),
-      startDailyChallenge: () => { startDailyChallenge(); syncUi(); },
-      startAiGame: () => { startAiGame(); syncUi(); },
-      loadCurrentGame: () => { loadCurrentGame(); syncUi(); },
-      playWithFriend: () => { createFriendRoom(); syncUi(); },
-      openSettings: () => { openSettings(); syncUi(); },
+      startDailyChallenge: () => {
+        startDailyChallenge();
+        syncUi();
+      },
+      startAiGame: () => {
+        startAiGame();
+        syncUi();
+      },
+      loadCurrentGame: () => {
+        loadCurrentGame();
+        syncUi();
+      },
+      playWithFriend: () => {
+        createFriendRoom();
+        syncUi();
+      },
+      openSettings: () => {
+        openSettings();
+        syncUi();
+      },
       installApp,
-      openStats: () => { openStats(); syncUi(); },
-      openReplay: () => { openReplay(); syncUi(); },
+      openStats: () => {
+        openStats();
+        syncUi();
+      },
+      openReplay: () => {
+        openReplay();
+        syncUi();
+      },
       closeReplay,
       startGhostRun,
-      openHelp: () => { ui.showOverlay("helpOverlay"); syncUi(); },
-      closeHelp: () => { ui.hideOverlay("helpOverlay"); syncUi(); },
-      openTutorial: () => { ui.hideOverlay("helpOverlay"); ui.showOverlay("tutorialOverlay"); syncUi(); },
-      closeTutorial: () => { ui.hideOverlay("tutorialOverlay"); syncUi(); },
-      startTutorialGame: () => { ui.hideOverlay("tutorialOverlay"); startGame("classic", "normal"); showToast("Тренировка началась"); syncUi(); },
-      closeCoach: () => { ui.hideOverlay("coachOverlay"); syncUi(); },
-      openOnline: () => { openOnline(); syncUi(); },
-      toggleOnlineConnection: () => { toggleOnlineConnection(); syncUi(); },
+      openHelp: () => {
+        ui.showOverlay("helpOverlay");
+        syncUi();
+      },
+      closeHelp: () => {
+        ui.hideOverlay("helpOverlay");
+        syncUi();
+      },
+      openTutorial: () => {
+        ui.hideOverlay("helpOverlay");
+        ui.showOverlay("tutorialOverlay");
+        syncUi();
+      },
+      closeTutorial: () => {
+        ui.hideOverlay("tutorialOverlay");
+        syncUi();
+      },
+      startTutorialGame: () => {
+        ui.hideOverlay("tutorialOverlay");
+        startGame("classic", "normal");
+        showToast("Тренировка началась");
+        syncUi();
+      },
+      closeCoach: () => {
+        ui.hideOverlay("coachOverlay");
+        syncUi();
+      },
+      openOnline: () => {
+        openOnline();
+        syncUi();
+      },
+      toggleOnlineConnection: () => {
+        toggleOnlineConnection();
+        syncUi();
+      },
       copyRoomLink,
       shareRoomLink,
-      startTournament: () => { startTournament(); syncUi(); },
-      closeOnline: () => { ui.hideOverlay("onlineOverlay"); syncUi(); },
-      closeTournament: () => { ui.hideOverlay("tournamentOverlay"); syncUi(); },
-      rematch: () => { startTournament(); syncUi(); },
-      resume: () => { resume(); syncUi(); },
+      startTournament: () => {
+        startTournament();
+        syncUi();
+      },
+      closeOnline: () => {
+        ui.hideOverlay("onlineOverlay");
+        syncUi();
+      },
+      closeTournament: () => {
+        ui.hideOverlay("tournamentOverlay");
+        syncUi();
+      },
+      rematch: () => {
+        startTournament();
+        syncUi();
+      },
+      resume: () => {
+        resume();
+        syncUi();
+      },
       playAgain: () => startGame(state.mode, state.difficulty),
-      togglePause: () => { togglePause(); syncUi(); },
+      togglePause: () => {
+        togglePause();
+        syncUi();
+      },
       returnToMainMenu,
       restartGame: () => startGame(state.mode, state.difficulty),
-      closeSettings: () => { ui.hideOverlay("settingsOverlay"); syncUi(); },
-      closeStats: () => { closeStats(); syncUi(); },
+      closeSettings: () => {
+        ui.hideOverlay("settingsOverlay");
+        syncUi();
+      },
+      closeStats: () => {
+        closeStats();
+        syncUi();
+      },
       shareStats: () => shareText(statsText()),
-      openCoach: () => { ui.showOverlay("coachOverlay"); syncUi(); },
+      openCoach: () => {
+        ui.showOverlay("coachOverlay");
+        syncUi();
+      },
       shareResult: () => shareText(resultText()),
-      holdPiece: () => { holdPiece(); syncUi(); },
-      moveLeft: () => { stepHorizontal(-1); syncUi(); },
-      moveRight: () => { stepHorizontal(1); syncUi(); },
-      softDrop: () => { softDrop(); syncUi(); },
-      rotate: () => { rotateClockwise(); syncUi(); },
-      hardDrop: () => { hardDrop(); syncUi(); },
+      holdPiece: () => {
+        holdPiece();
+        syncUi();
+      },
+      moveLeft: () => {
+        stepHorizontal(-1);
+        syncUi();
+      },
+      moveRight: () => {
+        stepHorizontal(1);
+        syncUi();
+      },
+      softDrop: () => {
+        softDrop();
+        syncUi();
+      },
+      rotate: () => {
+        rotateClockwise();
+        syncUi();
+      },
+      hardDrop: () => {
+        hardDrop();
+        syncUi();
+      },
       toggleMute: toggleSoundMute,
-      changeSetting
+      changeSetting,
     });
 
     state.layoutObserver = ui.bindWindowEvents({
       visibilityChange: () => {
-        if (state.settings.autoPause && document.hidden && state.running && !state.paused) pause();
+        if (
+          state.settings.autoPause &&
+          document.hidden &&
+          state.running &&
+          !state.paused
+        )
+          pause();
       },
       offline: () => showToast("Офлайн: одиночная игра доступна"),
       online: () => {
@@ -2169,30 +2737,36 @@ import { createBag } from "./game-core.js";
         clearHorizontalInputs();
         clearTouchHold();
         clearPendingTap();
-      }
+      },
     });
 
     ui.bindBoardTouch({
       touchstart: handleTouchStart,
       touchmove: handleTouchMove,
       touchend: handleTouchEnd,
-      touchcancel: handleTouchCancel
+      touchcancel: handleTouchCancel,
     });
     ui.bindBoardPointer({
       pointerdown: handlePointerStart,
       pointermove: handlePointerMove,
       pointerup: handlePointerEnd,
       pointercancel: handlePointerCancel,
-      contextmenu: handlePointerContextMenu
+      contextmenu: handlePointerContextMenu,
     });
   }
 
   function bootPwa() {
-    const canUsePwa = "serviceWorker" in navigator && (window.isSecureContext || /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
+    const canUsePwa =
+      "serviceWorker" in navigator &&
+      (window.isSecureContext ||
+        /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
     if (canUsePwa) {
-      navigator.serviceWorker.register("/sw.js").then(() => {
-        showToast("Офлайн-кэш готовится");
-      }).catch(() => undefined);
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then(() => {
+          showToast("Офлайн-кэш готовится");
+        })
+        .catch(() => undefined);
     }
     window.addEventListener("beforeinstallprompt", (event) => {
       event.preventDefault();
@@ -2209,7 +2783,8 @@ import { createBag } from "./game-core.js";
   function applyUrlParams() {
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
-    if (mode && MODES[normalizeModeKey(mode)]) ui.setStartMode(normalizeModeKey(mode));
+    if (mode && MODES[normalizeModeKey(mode)])
+      ui.setStartMode(normalizeModeKey(mode));
     const room = roomFromLocation(location);
     if (room) {
       ui.setOnlineRoom(room);

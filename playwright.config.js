@@ -5,17 +5,17 @@ module.exports = defineConfig({
   timeout: 30000,
   use: {
     baseURL: "http://127.0.0.1:8787",
-    trace: "on-first-retry"
+    trace: "on-first-retry",
   },
   webServer: {
     command: "npm start",
     url: "http://127.0.0.1:8787",
-    reuseExistingServer: !process.env.CI
+    reuseExistingServer: !process.env.CI,
   },
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] }
-    }
-  ]
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
 });

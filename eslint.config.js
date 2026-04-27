@@ -7,8 +7,8 @@ module.exports = [
       "node_modules/**",
       "playwright-report/**",
       "test-results/**",
-      "screenshots/**"
-    ]
+      "screenshots/**",
+    ],
   },
   js.configs.recommended,
   {
@@ -18,20 +18,26 @@ module.exports = [
       sourceType: "module",
       globals: {
         ...globals.browser,
-        ...globals.node
-      }
+        ...globals.node,
+      },
     },
     rules: {
-      "no-unused-vars": ["error", { argsIgnorePattern: "^_" }]
-    }
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+    },
   },
   {
-    files: ["server.js", "scripts/**/*.js", "playwright.config.js", "vitest.config.js", "eslint.config.js"],
+    files: [
+      "server.js",
+      "scripts/**/*.js",
+      "playwright.config.js",
+      "vitest.config.js",
+      "eslint.config.js",
+    ],
     languageOptions: {
       sourceType: "commonjs",
       globals: {
-        ...globals.node
-      }
-    }
-  }
+        ...globals.node,
+      },
+    },
+  },
 ];

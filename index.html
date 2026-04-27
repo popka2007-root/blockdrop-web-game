@@ -1,423 +1,593 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Тетрис">
-  <meta name="theme-color" content="#182033">
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <title>Тетрис</title>
-  <link rel="stylesheet" href="/styles.css">
-</head>
-<body>
-  <main class="app" id="app">
-    <section class="topbar" id="topbar">
-      <div class="stat"><div class="stat-label">Счёт</div><div class="stat-value" id="scoreValue">0</div></div>
-      <div class="stat"><div class="stat-label">Уровень</div><div class="stat-value" id="levelValue">1</div></div>
-      <div class="stat"><div class="stat-label">Линии</div><div class="stat-value" id="linesValue">0</div></div>
-      <button class="icon-button" id="pauseButton" aria-label="Пауза">II</button>
-    </section>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Тетрис" />
+    <meta name="theme-color" content="#182033" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <title>Тетрис</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app" id="app">
+      <section class="topbar" id="topbar">
+        <div class="stat">
+          <div class="stat-label">Счёт</div>
+          <div class="stat-value" id="scoreValue">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Уровень</div>
+          <div class="stat-value" id="levelValue">1</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Линии</div>
+          <div class="stat-value" id="linesValue">0</div>
+        </div>
+        <button class="icon-button" id="pauseButton" aria-label="Пауза">
+          II
+        </button>
+      </section>
 
-    <section class="status-strip" id="statusStrip">
-      <div class="status-card">
-        <span>Цель</span>
-        <b id="goalValue">Выжить</b>
-        <div class="progress"><i id="progressFill"></i></div>
-      </div>
-      <div class="status-card"><span>Ранг</span><b id="rankValue">Новичок</b></div>
-    </section>
+      <section class="status-strip" id="statusStrip">
+        <div class="status-card">
+          <span>Цель</span>
+          <b id="goalValue">Выжить</b>
+          <div class="progress"><i id="progressFill"></i></div>
+        </div>
+        <div class="status-card">
+          <span>Ранг</span><b id="rankValue">Новичок</b>
+        </div>
+      </section>
 
-    <section class="game-layout" id="gameLayout">
-      <div class="board-shell" id="boardShell">
-        <div class="danger-band"></div>
-        <canvas id="board" width="320" height="640"></canvas>
-      </div>
-
-      <aside class="side" id="sidePanel">
-        <div class="panel" id="nextPanel">
-          <div class="panel-title">Дальше</div>
-          <canvas class="preview" id="next1" width="76" height="76"></canvas>
-          <canvas class="preview" id="next2" width="58" height="58"></canvas>
-          <canvas class="preview" id="next3" width="58" height="58"></canvas>
+      <section class="game-layout" id="gameLayout">
+        <div class="board-shell" id="boardShell">
+          <div class="danger-band"></div>
+          <canvas id="board" width="320" height="640"></canvas>
         </div>
 
-        <div class="panel" id="holdPanel">
-          <div class="panel-title">Запас</div>
-          <canvas class="preview" id="hold" width="76" height="76"></canvas>
-        </div>
-
-        <div class="panel tiny-grid" id="statsPanel">
-        <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
-        <div class="mini-stat"><b id="comboValue">0</b><span>Комбо/стрик</span></div>
-        <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
-        <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
-        <div class="mini-stat hidden"><b id="apmValue">0</b><span>APM</span></div>
-        <div class="mini-stat hidden"><b id="heightValue">0</b><span>Высота</span></div>
-        </div>
-
-        <div class="online-panel" id="onlinePanel"></div>
-      </aside>
-    </section>
-
-    <section class="controls" id="controls">
-      <div class="controls-row control-buttons">
-        <button class="button" id="leftButton">←</button>
-        <button class="button" id="rotateButton">Поворот</button>
-        <button class="button" id="rightButton">→</button>
-      </div>
-      <div class="controls-row bottom control-buttons">
-        <button class="button" id="downButton">Вниз</button>
-        <button class="button" id="dropButton">Сброс</button>
-      </div>
-      <div class="controls-row mobile-main">
-        <button class="button warn" id="holdButton">Запас</button>
-        <button class="button" id="mainMenuButton">Меню</button>
-      </div>
-    </section>
-  </main>
-
-  <section class="overlay" id="startOverlay">
-    <div class="modal">
-      <div class="logo" aria-hidden="true">
-        <span style="background:#21d3f5"></span><span style="background:transparent;border-color:transparent"></span><span style="background:transparent;border-color:transparent"></span>
-        <span style="background:#ffd166"></span><span style="background:#ff6b6b"></span><span style="background:#7c4dff"></span>
-        <span style="background:transparent;border-color:transparent"></span><span style="background:#22d699"></span><span style="background:transparent;border-color:transparent"></span>
-      </div>
-      <h1>Тетрис</h1>
-      <p class="muted">Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы, рекорды, офлайн-режим и онлайн-комнаты.</p>
-      <div class="settings-grid">
-        <div class="setting">
-          <label for="startMode">Режим</label>
-          <select class="select" id="startMode">
-            <option value="classic">Классика</option>
-            <option value="sprint">40 линий</option>
-            <option value="hardcore">Hardcore</option>
-            <option value="timeAttack">Time Attack</option>
-            <option value="relax">Дзен</option>
-            <option value="chaos">Хаос</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="aiDifficultySelect">AI</label>
-          <select class="select" id="aiDifficultySelect">
-            <option value="easy">Лёгкий</option>
-            <option value="normal" selected>Нормальный</option>
-            <option value="hard">Сильный</option>
-            <option value="insane">Безумный</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="aiStyleSelect">Стиль AI</label>
-          <select class="select" id="aiStyleSelect">
-            <option value="balanced" selected>Баланс</option>
-            <option value="aggressive">Атака</option>
-            <option value="defensive">Защита</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="aiPaceSelect">Темп AI</label>
-          <select class="select" id="aiPaceSelect">
-            <option value="calm">Спокойный</option>
-            <option value="fair" selected>Ровный</option>
-            <option value="fast">Быстрый</option>
-          </select>
-        </div>
-      </div>
-      <div class="mode-summary" id="modeSummary"></div>
-      <div class="menu-records" id="menuRecords"></div>
-      <div class="modal-actions">
-        <button class="button primary" id="startButton">Начать игру</button>
-        <button class="button warn" id="dailyButton">Daily Challenge</button>
-        <button class="button" id="continueButton">Продолжить</button>
-        <button class="button warn" id="friendButton">Играть с другом</button>
-        <button class="button" id="aiButton">AI соперник</button>
-        <button class="button" id="startSettingsButton">Настройки</button>
-        <button class="button hidden" id="installButton">Установить офлайн</button>
-        <button class="button" id="openStatsButton">Статистика</button>
-        <button class="button" id="replayButton">Повтор лучшей</button>
-        <button class="button" id="helpButton">Как играть</button>
-      </div>
-    </div>
-  </section>
-
-  <section class="overlay" id="pauseOverlay" hidden>
-    <div class="modal">
-      <h2>Пауза</h2>
-      <p class="muted">Партия сохранена автоматически. Можно закрыть вкладку и вернуться позже.</p>
-      <div class="modal-actions">
-        <button class="button primary" id="resumeButton">Продолжить</button>
-        <button class="button" id="pauseSettingsButton">Настройки</button>
-        <button class="button" id="pauseRestartButton">Рестарт</button>
-        <button class="button" id="pauseMenuButton">Главное меню</button>
-      </div>
-    </div>
-  </section>
-
-  <section class="overlay" id="settingsOverlay" hidden>
-    <div class="modal">
-      <h2>Настройки</h2>
-      <div class="settings-grid">
-        <div class="setting">
-          <label for="themeSelect">Тема</label>
-          <select class="select" id="themeSelect">
-            <option value="ember">Графит и мята</option>
-            <option value="day">Светлая</option>
-            <option value="candy">Аркада</option>
-            <option value="mono">Минимализм</option>
-          </select>
-          <div class="theme-swatches" id="themeSwatches">
-            <button type="button" class="theme-swatch" data-theme-choice="ember" aria-label="Графит"><i></i></button>
-            <button type="button" class="theme-swatch" data-theme-choice="day" aria-label="День"><i></i></button>
-            <button type="button" class="theme-swatch" data-theme-choice="candy" aria-label="Аркада"><i></i></button>
-            <button type="button" class="theme-swatch" data-theme-choice="mono" aria-label="Моно"><i></i></button>
+        <aside class="side" id="sidePanel">
+          <div class="panel" id="nextPanel">
+            <div class="panel-title">Дальше</div>
+            <canvas class="preview" id="next1" width="76" height="76"></canvas>
+            <canvas class="preview" id="next2" width="58" height="58"></canvas>
+            <canvas class="preview" id="next3" width="58" height="58"></canvas>
           </div>
-        </div>
-        <div class="setting">
-          <label for="languageSelect">Язык</label>
-          <select class="select" id="languageSelect">
-            <option value="ru">Русский</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="controlModeSelect">Управление</label>
-          <select class="select" id="controlModeSelect">
-            <option value="gestures">Свайпы</option>
-            <option value="hybrid">Свайпы + кнопки</option>
-            <option value="buttons">Только кнопки</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="sensitivitySelect">Чувствительность</label>
-          <select class="select" id="sensitivitySelect">
-            <option value="low">Низкая</option>
-            <option value="medium">Средняя</option>
-            <option value="high">Высокая</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="handednessSelect">Рука</label>
-          <select class="select" id="handednessSelect">
-            <option value="right">Правая</option>
-            <option value="left">Левая</option>
-          </select>
-        </div>
-        <div class="setting">
-          <label for="performanceSelect">Производительность</label>
-          <select class="select" id="performanceSelect">
-            <option value="auto">Авто</option>
-            <option value="battery">Экономия</option>
-            <option value="quality">Качество</option>
-          </select>
-        </div>
-        <label class="check-row">Вибрация <input id="vibrationToggle" type="checkbox" checked></label>
-        <div class="setting">
-          <label for="volumeRange">Звук</label>
-          <div class="range-row"><input id="volumeRange" type="range" min="0" max="100" value="70"><span id="volumeValue">70</span></div>
-        </div>
-        <button class="button" id="muteButton" type="button">Выключить звук</button>
-      </div>
-      <div class="modal-actions">
-        <button class="button primary" id="closeSettingsButton">Готово</button>
-      </div>
-    </div>
-  </section>
 
-  <section class="overlay" id="statsOverlay" hidden>
-    <div class="modal">
-      <h2>Статистика</h2>
-      <div class="result-grid" id="statsGrid"></div>
-      <h3>Лучшие игры</h3>
-      <div class="leaderboard" id="leaderboard"></div>
-      <h3>Серверные рекорды</h3>
-      <div class="leaderboard" id="serverLeaderboard"></div>
-      <h3>Достижения</h3>
-      <div class="achievements" id="achievementsList"></div>
-      <div class="modal-actions">
-        <button class="button primary" id="closeStatsButton">Закрыть</button>
-        <button class="button" id="shareStatsButton">Поделиться статистикой</button>
-      </div>
-    </div>
-  </section>
+          <div class="panel" id="holdPanel">
+            <div class="panel-title">Запас</div>
+            <canvas class="preview" id="hold" width="76" height="76"></canvas>
+          </div>
 
-  <section class="overlay" id="coachOverlay" hidden>
-    <div class="modal">
-      <h2>Бот-тренер</h2>
-      <p class="muted">Короткий разбор партии и 2-3 совета для следующей попытки.</p>
-      <div class="result-grid" id="coachTips"></div>
-      <div class="modal-actions">
-        <button class="button primary" id="closeCoachButton">Понятно</button>
-      </div>
-    </div>
-  </section>
+          <div class="panel tiny-grid" id="statsPanel">
+            <div class="mini-stat">
+              <b id="recordValue">0</b><span>Рекорд</span>
+            </div>
+            <div class="mini-stat">
+              <b id="comboValue">0</b><span>Комбо/стрик</span>
+            </div>
+            <div class="mini-stat">
+              <b id="piecesValue">0</b><span>Фигур</span>
+            </div>
+            <div class="mini-stat">
+              <b id="timeValue">0:00</b><span>Время</span>
+            </div>
+            <div class="mini-stat hidden">
+              <b id="apmValue">0</b><span>APM</span>
+            </div>
+            <div class="mini-stat hidden">
+              <b id="heightValue">0</b><span>Высота</span>
+            </div>
+          </div>
 
-  <section class="overlay" id="helpOverlay" hidden>
-    <div class="modal">
-      <h2>Как играть</h2>
-      <div class="help-stack">
-        <div class="help-card">
-          <b>Быстрый старт</b>
-          <small>Быстрая игра запускает последний режим. Daily Challenge каждый день даёт одинаковую последовательность фигур.</small>
-        </div>
-        <div class="help-card">
-          <b>Против AI-бота</b>
-          <small>Выбери AI сложность в главном меню, затем нажми “AI соперник”. Бот играет рядом, набирает очки и периодически отправляет мусорные линии.</small>
-        </div>
-        <div class="help-card">
-          <b>С другом и QR лобби</b>
-          <small>Нажми “Играть с другом” или “Онлайн-комната”. Вверху окна появятся крупный код комнаты, ссылка и QR. Друг сканирует QR или открывает ссылку /room/CODE.</small>
-        </div>
-        <div class="help-card">
-          <b>Режимы</b>
-          <small>Классика — рекорд. 40 линий — спринт. Дзен — спокойная игра. Хаос — периодические мусорные линии.</small>
-        </div>
-      </div>
-      <div class="result-grid compact-help">
-        <div class="result-row"><span>Двигать</span><span>Свайп / ← → / A D</span></div>
-        <div class="result-row"><span>Повернуть</span><span>Тап / ↑ / W / X</span></div>
-        <div class="result-row"><span>Поворот назад</span><span>Двойной тап / Q</span></div>
-        <div class="result-row"><span>Сброс</span><span>Быстрый свайп вниз / Space</span></div>
-        <div class="result-row"><span>Запас</span><span>Долгое нажатие / C / Shift</span></div>
-        <div class="result-row"><span>Пауза</span><span>P / Esc</span></div>
-      </div>
-      <div class="modal-actions">
-        <button class="button" id="tutorialButton">Обучение</button>
-        <button class="button primary" id="closeHelpButton">Понятно</button>
-      </div>
-    </div>
-  </section>
+          <div class="online-panel" id="onlinePanel"></div>
+        </aside>
+      </section>
 
-  <section class="overlay" id="tutorialOverlay" hidden>
-    <div class="modal tutorial-modal">
-      <h2>Обучение</h2>
-      <p class="muted" id="tutorialText">Шаг 1 из 5: двигай фигуру свайпом влево или вправо. На клавиатуре работают стрелки.</p>
-      <div class="result-grid tutorial-steps" id="tutorialSteps"></div>
-      <div class="modal-actions">
-        <button class="button" id="tutorialNextButton">Дальше</button>
-        <button class="button primary" id="tutorialPlayButton">Попробовать</button>
-        <button class="button" id="closeTutorialButton">Закрыть</button>
-      </div>
-    </div>
-  </section>
+      <section class="controls" id="controls">
+        <div class="controls-row control-buttons">
+          <button class="button" id="leftButton">←</button>
+          <button class="button" id="rotateButton">Поворот</button>
+          <button class="button" id="rightButton">→</button>
+        </div>
+        <div class="controls-row bottom control-buttons">
+          <button class="button" id="downButton">Вниз</button>
+          <button class="button" id="dropButton">Сброс</button>
+        </div>
+        <div class="controls-row mobile-main">
+          <button class="button warn" id="holdButton">Запас</button>
+          <button class="button" id="mainMenuButton">Меню</button>
+        </div>
+      </section>
+    </main>
 
-  <section class="overlay" id="onlineOverlay" hidden>
-    <div class="modal">
-      <h2>Онлайн-комната</h2>
-      <div class="room-card">
-        <div>
-          <span>Код комнаты</span>
-          <b id="roomCodeValue">----</b>
-          <small id="roomInviteLink">Ссылка появится после генерации</small>
+    <section class="overlay" id="startOverlay">
+      <div class="modal">
+        <div class="logo" aria-hidden="true">
+          <span style="background: #21d3f5"></span
+          ><span
+            style="background: transparent; border-color: transparent"
+          ></span
+          ><span
+            style="background: transparent; border-color: transparent"
+          ></span>
+          <span style="background: #ffd166"></span
+          ><span style="background: #ff6b6b"></span
+          ><span style="background: #7c4dff"></span>
+          <span
+            style="background: transparent; border-color: transparent"
+          ></span
+          ><span style="background: #22d699"></span
+          ><span
+            style="background: transparent; border-color: transparent"
+          ></span>
         </div>
-        <img id="roomQr" alt="QR комнаты">
-      </div>
-      <div class="settings-grid">
-        <div class="setting">
-          <label for="onlineRoomInput">Комната</label>
-          <input class="input" id="onlineRoomInput" maxlength="16" placeholder="Например: FRIENDS">
-        </div>
-        <div class="setting">
-          <label for="onlineNameInput">Имя</label>
-          <input class="input" id="onlineNameInput" maxlength="18" placeholder="Игрок">
-        </div>
-      </div>
-      <div class="result-grid" id="onlinePlayers"></div>
-      <p class="muted" id="onlineStatus">Не подключено</p>
-      <details class="advanced-online">
-        <summary>Турнир и сервер</summary>
+        <h1>Тетрис</h1>
+        <p class="muted">
+          Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы,
+          рекорды, офлайн-режим и онлайн-комнаты.
+        </p>
         <div class="settings-grid">
           <div class="setting">
-            <label for="onlineServerInput">Сервер</label>
-            <input class="input" id="onlineServerInput" placeholder="ws://localhost:8787">
-          </div>
-          <div class="setting">
-            <label for="onlineMaxPlayersSelect">Игроков</label>
-            <select class="select" id="onlineMaxPlayersSelect">
-              <option value="2" selected>1v1</option>
-              <option value="3">3 игрока</option>
-              <option value="4">4 игрока</option>
-              <option value="5">5 игроков</option>
-              <option value="6">6 игроков</option>
-              <option value="7">7 игроков</option>
-              <option value="8">8 игроков</option>
+            <label for="startMode">Режим</label>
+            <select class="select" id="startMode">
+              <option value="classic">Классика</option>
+              <option value="sprint">40 линий</option>
+              <option value="hardcore">Hardcore</option>
+              <option value="timeAttack">Time Attack</option>
+              <option value="relax">Дзен</option>
+              <option value="chaos">Хаос</option>
             </select>
           </div>
           <div class="setting">
-            <label for="onlineDurationSelect">Таймер</label>
-            <select class="select" id="onlineDurationSelect">
-              <option value="120">2 минуты</option>
-              <option value="180" selected>3 минуты</option>
-              <option value="300">5 минут</option>
-              <option value="600">10 минут</option>
+            <label for="aiDifficultySelect">AI</label>
+            <select class="select" id="aiDifficultySelect">
+              <option value="easy">Лёгкий</option>
+              <option value="normal" selected>Нормальный</option>
+              <option value="hard">Сильный</option>
+              <option value="insane">Безумный</option>
             </select>
           </div>
-          <button class="button" id="startTournamentButton">Старт турнира</button>
+          <div class="setting">
+            <label for="aiStyleSelect">Стиль AI</label>
+            <select class="select" id="aiStyleSelect">
+              <option value="balanced" selected>Баланс</option>
+              <option value="aggressive">Атака</option>
+              <option value="defensive">Защита</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="aiPaceSelect">Темп AI</label>
+            <select class="select" id="aiPaceSelect">
+              <option value="calm">Спокойный</option>
+              <option value="fair" selected>Ровный</option>
+              <option value="fast">Быстрый</option>
+            </select>
+          </div>
         </div>
-      </details>
-      <div class="modal-actions">
-        <button class="button primary" id="connectOnlineButton">Подключиться</button>
-        <button class="button" id="copyRoomButton">Скопировать</button>
-        <button class="button" id="shareRoomButton">Ссылка другу</button>
-        <button class="button" id="closeOnlineButton">Закрыть</button>
+        <div class="mode-summary" id="modeSummary"></div>
+        <div class="menu-records" id="menuRecords"></div>
+        <div class="modal-actions">
+          <button class="button primary" id="startButton">Начать игру</button>
+          <button class="button warn" id="dailyButton">Daily Challenge</button>
+          <button class="button" id="continueButton">Продолжить</button>
+          <button class="button warn" id="friendButton">Играть с другом</button>
+          <button class="button" id="aiButton">AI соперник</button>
+          <button class="button" id="startSettingsButton">Настройки</button>
+          <button class="button hidden" id="installButton">
+            Установить офлайн
+          </button>
+          <button class="button" id="openStatsButton">Статистика</button>
+          <button class="button" id="replayButton">Повтор лучшей</button>
+          <button class="button" id="helpButton">Как играть</button>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="overlay" id="tournamentOverlay" hidden>
-    <div class="modal">
-      <h2>Турнир завершён</h2>
-      <p class="muted">Финальная таблица комнаты.</p>
-      <div class="result-grid" id="tournamentResults"></div>
-      <div class="modal-actions">
-        <button class="button primary" id="closeTournamentButton">Закрыть</button>
-        <button class="button" id="rematchButton">Реванш</button>
+    <section class="overlay" id="pauseOverlay" hidden>
+      <div class="modal">
+        <h2>Пауза</h2>
+        <p class="muted">
+          Партия сохранена автоматически. Можно закрыть вкладку и вернуться
+          позже.
+        </p>
+        <div class="modal-actions">
+          <button class="button primary" id="resumeButton">Продолжить</button>
+          <button class="button" id="pauseSettingsButton">Настройки</button>
+          <button class="button" id="pauseRestartButton">Рестарт</button>
+          <button class="button" id="pauseMenuButton">Главное меню</button>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="overlay" id="replayOverlay" hidden>
-    <div class="modal">
-      <h2>Повтор лучшей</h2>
-      <p class="muted" id="replaySummary">Запись появится после нового рекорда.</p>
-      <div class="replay-track" id="replayTimeline"></div>
-      <div class="modal-actions">
-        <button class="button primary" id="startGhostButton">Играть против призрака</button>
-        <button class="button" id="closeReplayButton">Закрыть</button>
+    <section class="overlay" id="settingsOverlay" hidden>
+      <div class="modal">
+        <h2>Настройки</h2>
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="themeSelect">Тема</label>
+            <select class="select" id="themeSelect">
+              <option value="ember">Графит и мята</option>
+              <option value="day">Светлая</option>
+              <option value="candy">Аркада</option>
+              <option value="mono">Минимализм</option>
+            </select>
+            <div class="theme-swatches" id="themeSwatches">
+              <button
+                type="button"
+                class="theme-swatch"
+                data-theme-choice="ember"
+                aria-label="Графит"
+              >
+                <i></i>
+              </button>
+              <button
+                type="button"
+                class="theme-swatch"
+                data-theme-choice="day"
+                aria-label="День"
+              >
+                <i></i>
+              </button>
+              <button
+                type="button"
+                class="theme-swatch"
+                data-theme-choice="candy"
+                aria-label="Аркада"
+              >
+                <i></i>
+              </button>
+              <button
+                type="button"
+                class="theme-swatch"
+                data-theme-choice="mono"
+                aria-label="Моно"
+              >
+                <i></i>
+              </button>
+            </div>
+          </div>
+          <div class="setting">
+            <label for="languageSelect">Язык</label>
+            <select class="select" id="languageSelect">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="controlModeSelect">Управление</label>
+            <select class="select" id="controlModeSelect">
+              <option value="gestures">Свайпы</option>
+              <option value="hybrid">Свайпы + кнопки</option>
+              <option value="buttons">Только кнопки</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="sensitivitySelect">Чувствительность</label>
+            <select class="select" id="sensitivitySelect">
+              <option value="low">Низкая</option>
+              <option value="medium">Средняя</option>
+              <option value="high">Высокая</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="handednessSelect">Рука</label>
+            <select class="select" id="handednessSelect">
+              <option value="right">Правая</option>
+              <option value="left">Левая</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="performanceSelect">Производительность</label>
+            <select class="select" id="performanceSelect">
+              <option value="auto">Авто</option>
+              <option value="battery">Экономия</option>
+              <option value="quality">Качество</option>
+            </select>
+          </div>
+          <label class="check-row"
+            >Вибрация <input id="vibrationToggle" type="checkbox" checked
+          /></label>
+          <div class="setting">
+            <label for="volumeRange">Звук</label>
+            <div class="range-row">
+              <input
+                id="volumeRange"
+                type="range"
+                min="0"
+                max="100"
+                value="70"
+              /><span id="volumeValue">70</span>
+            </div>
+          </div>
+          <button class="button" id="muteButton" type="button">
+            Выключить звук
+          </button>
+        </div>
+        <div class="modal-actions">
+          <button class="button primary" id="closeSettingsButton">
+            Готово
+          </button>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="overlay" id="gameOverOverlay" hidden>
-    <div class="modal">
-      <h2 id="gameOverTitle">Игра окончена</h2>
-      <p class="muted" id="gameOverText">Башня дошла до верхней границы.</p>
-      <div class="result-badge" id="resultBadge">Стабильная партия</div>
-      <div class="result-grid">
-        <div class="result-row"><span>Счёт</span><span id="finalScore">0</span></div>
-        <div class="result-row"><span>Уровень</span><span id="finalLevel">1</span></div>
-        <div class="result-row"><span>Линии</span><span id="finalLines">0</span></div>
-        <div class="result-row"><span>Комбо</span><span id="finalCombo">0</span></div>
-        <div class="result-row"><span>Рекорд</span><span id="finalRecord">0</span></div>
+    <section class="overlay" id="statsOverlay" hidden>
+      <div class="modal">
+        <h2>Статистика</h2>
+        <div class="result-grid" id="statsGrid"></div>
+        <h3>Лучшие игры</h3>
+        <div class="leaderboard" id="leaderboard"></div>
+        <h3>Серверные рекорды</h3>
+        <div class="leaderboard" id="serverLeaderboard"></div>
+        <h3>Достижения</h3>
+        <div class="achievements" id="achievementsList"></div>
+        <div class="modal-actions">
+          <button class="button primary" id="closeStatsButton">Закрыть</button>
+          <button class="button" id="shareStatsButton">
+            Поделиться статистикой
+          </button>
+        </div>
       </div>
-      <div class="result-highlights" id="resultHighlights"></div>
-      <div class="achievement" id="gameOverInsight"></div>
-      <p class="muted" id="serverRecordStatus"></p>
-      <div class="modal-actions">
-        <button class="button primary" id="playAgainButton">Играть снова</button>
-        <button class="button" id="gameOverMenuButton">Главное меню</button>
-        <button class="button" id="gameOverCoachButton">Советы тренера</button>
-        <button class="button" id="gameOverReplayButton">Повтор лучшей</button>
-        <button class="button" id="shareResultButton">Поделиться результатом</button>
-        <button class="button" id="gameOverStatsButton">Статистика</button>
+    </section>
+
+    <section class="overlay" id="coachOverlay" hidden>
+      <div class="modal">
+        <h2>Бот-тренер</h2>
+        <p class="muted">
+          Короткий разбор партии и 2-3 совета для следующей попытки.
+        </p>
+        <div class="result-grid" id="coachTips"></div>
+        <div class="modal-actions">
+          <button class="button primary" id="closeCoachButton">Понятно</button>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <div class="fx-layer" id="fxLayer"></div>
-  <div class="toast" id="toast"></div>
+    <section class="overlay" id="helpOverlay" hidden>
+      <div class="modal">
+        <h2>Как играть</h2>
+        <div class="help-stack">
+          <div class="help-card">
+            <b>Быстрый старт</b>
+            <small
+              >Быстрая игра запускает последний режим. Daily Challenge каждый
+              день даёт одинаковую последовательность фигур.</small
+            >
+          </div>
+          <div class="help-card">
+            <b>Против AI-бота</b>
+            <small
+              >Выбери AI сложность в главном меню, затем нажми “AI соперник”.
+              Бот играет рядом, набирает очки и периодически отправляет мусорные
+              линии.</small
+            >
+          </div>
+          <div class="help-card">
+            <b>С другом и QR лобби</b>
+            <small
+              >Нажми “Играть с другом” или “Онлайн-комната”. Вверху окна
+              появятся крупный код комнаты, ссылка и QR. Друг сканирует QR или
+              открывает ссылку /room/CODE.</small
+            >
+          </div>
+          <div class="help-card">
+            <b>Режимы</b>
+            <small
+              >Классика — рекорд. 40 линий — спринт. Дзен — спокойная игра. Хаос
+              — периодические мусорные линии.</small
+            >
+          </div>
+        </div>
+        <div class="result-grid compact-help">
+          <div class="result-row">
+            <span>Двигать</span><span>Свайп / ← → / A D / кнопки</span>
+          </div>
+          <div class="result-row">
+            <span>Повернуть</span><span>Тап / ↑ / W / X / кнопка</span>
+          </div>
+          <div class="result-row">
+            <span>Поворот назад</span><span>Двойной тап / Q</span>
+          </div>
+          <div class="result-row">
+            <span>Мягко вниз</span><span>Свайп вниз / ↓ / S / кнопка</span>
+          </div>
+          <div class="result-row">
+            <span>Сброс</span><span>Быстрый свайп вниз / Space / Z</span>
+          </div>
+          <div class="result-row">
+            <span>Запас</span><span>Долгое нажатие / C / H / E / Shift</span>
+          </div>
+          <div class="result-row"><span>Пауза</span><span>P / Esc</span></div>
+        </div>
+        <div class="modal-actions">
+          <button class="button" id="tutorialButton">Обучение</button>
+          <button class="button primary" id="closeHelpButton">Понятно</button>
+        </div>
+      </div>
+    </section>
 
-  <script type="module" src="/js/game.js"></script>
-</body>
+    <section class="overlay" id="tutorialOverlay" hidden>
+      <div class="modal tutorial-modal">
+        <h2>Обучение</h2>
+        <p class="muted" id="tutorialText">
+          Шаг 1 из 5: двигай фигуру свайпом влево или вправо. На клавиатуре
+          работают стрелки.
+        </p>
+        <div class="result-grid tutorial-steps" id="tutorialSteps"></div>
+        <div class="modal-actions">
+          <button class="button" id="tutorialNextButton">Дальше</button>
+          <button class="button primary" id="tutorialPlayButton">
+            Попробовать
+          </button>
+          <button class="button" id="closeTutorialButton">Закрыть</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="onlineOverlay" hidden>
+      <div class="modal">
+        <h2>Онлайн-комната</h2>
+        <div class="room-card">
+          <div>
+            <span>Код комнаты</span>
+            <b id="roomCodeValue">----</b>
+            <small id="roomInviteLink">Ссылка появится после генерации</small>
+          </div>
+          <img id="roomQr" alt="QR комнаты" />
+        </div>
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="onlineRoomInput">Комната</label>
+            <input
+              class="input"
+              id="onlineRoomInput"
+              maxlength="16"
+              placeholder="Например: FRIENDS"
+            />
+          </div>
+          <div class="setting">
+            <label for="onlineNameInput">Имя</label>
+            <input
+              class="input"
+              id="onlineNameInput"
+              maxlength="18"
+              placeholder="Игрок"
+            />
+          </div>
+        </div>
+        <div class="result-grid" id="onlinePlayers"></div>
+        <p class="muted" id="onlineStatus">Не подключено</p>
+        <details class="advanced-online">
+          <summary>Турнир и сервер</summary>
+          <div class="settings-grid">
+            <div class="setting">
+              <label for="onlineServerInput">Сервер</label>
+              <input
+                class="input"
+                id="onlineServerInput"
+                placeholder="ws://localhost:8787"
+              />
+            </div>
+            <div class="setting">
+              <label for="onlineMaxPlayersSelect">Игроков</label>
+              <select class="select" id="onlineMaxPlayersSelect">
+                <option value="2" selected>1v1</option>
+                <option value="3">3 игрока</option>
+                <option value="4">4 игрока</option>
+                <option value="5">5 игроков</option>
+                <option value="6">6 игроков</option>
+                <option value="7">7 игроков</option>
+                <option value="8">8 игроков</option>
+              </select>
+            </div>
+            <div class="setting">
+              <label for="onlineDurationSelect">Таймер</label>
+              <select class="select" id="onlineDurationSelect">
+                <option value="120">2 минуты</option>
+                <option value="180" selected>3 минуты</option>
+                <option value="300">5 минут</option>
+                <option value="600">10 минут</option>
+              </select>
+            </div>
+            <button class="button" id="startTournamentButton">
+              Старт турнира
+            </button>
+          </div>
+        </details>
+        <div class="modal-actions">
+          <button class="button primary" id="connectOnlineButton">
+            Подключиться
+          </button>
+          <button class="button" id="copyRoomButton">Скопировать</button>
+          <button class="button" id="shareRoomButton">Ссылка другу</button>
+          <button class="button" id="closeOnlineButton">Закрыть</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="tournamentOverlay" hidden>
+      <div class="modal">
+        <h2>Турнир завершён</h2>
+        <p class="muted">Финальная таблица комнаты.</p>
+        <div class="result-grid" id="tournamentResults"></div>
+        <div class="modal-actions">
+          <button class="button primary" id="closeTournamentButton">
+            Закрыть
+          </button>
+          <button class="button" id="rematchButton">Реванш</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="replayOverlay" hidden>
+      <div class="modal">
+        <h2>Повтор лучшей</h2>
+        <p class="muted" id="replaySummary">
+          Запись появится после нового рекорда.
+        </p>
+        <div class="replay-track" id="replayTimeline"></div>
+        <div class="modal-actions">
+          <button class="button primary" id="startGhostButton">
+            Играть против призрака
+          </button>
+          <button class="button" id="closeReplayButton">Закрыть</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="gameOverOverlay" hidden>
+      <div class="modal">
+        <h2 id="gameOverTitle">Игра окончена</h2>
+        <p class="muted" id="gameOverText">Башня дошла до верхней границы.</p>
+        <div class="result-badge" id="resultBadge">Стабильная партия</div>
+        <div class="result-grid">
+          <div class="result-row">
+            <span>Счёт</span><span id="finalScore">0</span>
+          </div>
+          <div class="result-row">
+            <span>Уровень</span><span id="finalLevel">1</span>
+          </div>
+          <div class="result-row">
+            <span>Линии</span><span id="finalLines">0</span>
+          </div>
+          <div class="result-row">
+            <span>Комбо</span><span id="finalCombo">0</span>
+          </div>
+          <div class="result-row">
+            <span>Рекорд</span><span id="finalRecord">0</span>
+          </div>
+        </div>
+        <div class="result-highlights" id="resultHighlights"></div>
+        <div class="achievement" id="gameOverInsight"></div>
+        <p class="muted" id="serverRecordStatus"></p>
+        <div class="modal-actions">
+          <button class="button primary" id="playAgainButton">
+            Играть снова
+          </button>
+          <button class="button" id="gameOverMenuButton">Главное меню</button>
+          <button class="button" id="gameOverCoachButton">
+            Советы тренера
+          </button>
+          <button class="button" id="gameOverReplayButton">
+            Повтор лучшей
+          </button>
+          <button class="button" id="shareResultButton">
+            Поделиться результатом
+          </button>
+          <button class="button" id="gameOverStatsButton">Статистика</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="fx-layer" id="fxLayer"></div>
+    <div class="toast" id="toast"></div>
+
+    <script type="module" src="/js/game.js"></script>
+  </body>
 </html>

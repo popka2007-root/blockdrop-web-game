@@ -28,7 +28,7 @@ export class GameState {
       pieces: 0,
       time: 0,
       maxHeight: 0,
-      lineClears: 0
+      lineClears: 0,
     };
     bus.emit("game:stateReset", this.snapshot());
     return this;
@@ -38,7 +38,10 @@ export class GameState {
     const oldScore = this.score;
     this.score = Math.max(0, this.score + delta);
     if (this.score !== oldScore) {
-      bus.emit("game:scoreChanged", { score: this.score, delta: this.score - oldScore });
+      bus.emit("game:scoreChanged", {
+        score: this.score,
+        delta: this.score - oldScore,
+      });
     }
     return this;
   }
@@ -74,7 +77,7 @@ export class GameState {
       score: this.score,
       level: this.level,
       lines: this.lines,
-      stats: { ...this.stats }
+      stats: { ...this.stats },
     };
   }
 
@@ -87,7 +90,7 @@ export class GameState {
       hold: this.hold,
       holdUsed: this.holdUsed,
       combo: this.combo,
-      savedAt: new Date().toISOString()
+      savedAt: new Date().toISOString(),
     };
   }
 
