@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -9,6 +11,11 @@ afterEach(() => {
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
+  }
+  try {
+    fs.unlinkSync(path.join(process.cwd(), "records.json"));
+  } catch {
+    // no records were written
   }
 });
 
@@ -104,6 +111,47 @@ describe("server hardening", () => {
     expect(payload.service).toBe("blockdrop-web-game");
     expect(payload.rooms).toBe(0);
     expect(Number.isInteger(payload.uptimeSec)).toBe(true);
+  });
+
+  it("rejects impossible server records", async () => {
+    const port = 18905;
+    await startServer(port);
+    const response = await fetch(`http://127.0.0.1:${port}/api/records`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Cheater",
+        score: 99999999,
+        lines: 1,
+        level: 1,
+        mode: "Классика",
+        time: "0:03"
+      })
+    });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ error: "Record rejected by server authority" });
+  });
+
+  it("accepts plausible server records", async () => {
+    const port = 18906;
+    await startServer(port);
+    const response = await fetch(`http://127.0.0.1:${port}/api/records`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Player",
+        score: 1200,
+        lines: 4,
+        level: 2,
+        mode: "Классика",
+        time: "1:05"
+      })
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.records[0].score).toBe(1200);
   });
 
   it("closes suspicious WebSocket clients instead of accepting bad payloads", async () => {

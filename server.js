@@ -11,6 +11,7 @@ const MAX_WS_FRAME_BYTES = 4096;
 const MAX_MESSAGES_PER_10S = 90;
 const MAX_UPDATES_PER_SECOND = 8;
 const MAX_ATTACKS_PER_SECOND = 4;
+const MAX_RECORD_SCORE = 99999999;
 const rooms = new Map();
 const startedAt = Date.now();
 
@@ -144,6 +145,11 @@ function handleRecordsApi(req, res) {
       return;
     }
 
+    if (!isPlausibleRecord(record)) {
+      sendJson(res, { error: "Record rejected by server authority", records: readRecords() }, 422);
+      return;
+    }
+
     const records = readRecords()
       .concat(record)
       .sort((a, b) => b.score - a.score || b.lines - a.lines || a.date.localeCompare(b.date))
@@ -156,13 +162,35 @@ function handleRecordsApi(req, res) {
 function sanitizeRecord(data) {
   return {
     name: cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
-    score: clamp(safeNumber(data.score), 0, 99999999),
+    score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
     mode: String(data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430").replace(/[<>]/g, "").slice(0, 24),
     time: String(data.time || "0:00").replace(/[<>]/g, "").slice(0, 12),
     date: new Date().toISOString()
   };
+}
+
+function isPlausibleRecord(record) {
+  if (!record.score || record.score > MAX_RECORD_SCORE) return false;
+  if (!record.time || !/^\d{1,3}:\d{2}$/.test(record.time)) return false;
+  const seconds = parseTimeSeconds(record.time);
+  if (seconds < 2 || seconds > 60 * 60 * 3) return false;
+  if (record.level > Math.max(1, Math.floor(record.lines / 8) + 14)) return false;
+
+  const mode = record.mode.toLowerCase();
+  const sprintCap = mode.includes("40") || mode.includes("sprint") ? 40 : 9999;
+  if (record.lines > sprintCap) return false;
+
+  const lineScoreCap = Math.max(1, record.lines) * Math.max(1, record.level) * 1100;
+  const timeScoreCap = seconds * 520;
+  const modifierCap = 9000 + record.level * 900;
+  return record.score <= lineScoreCap + timeScoreCap + modifierCap;
+}
+
+function parseTimeSeconds(value) {
+  const [minutes, seconds] = String(value).split(":").map((part) => Number(part));
+  return (Number.isFinite(minutes) ? minutes : 0) * 60 + (Number.isFinite(seconds) ? seconds : 0);
 }
 
 function readRecords() {

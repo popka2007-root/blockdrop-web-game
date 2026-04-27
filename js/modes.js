@@ -7,6 +7,14 @@ const MODE_COPY = {
     ru: { name: "40 \u043b\u0438\u043d\u0438\u0439", goal: "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c 40 \u043b\u0438\u043d\u0438\u0439", description: "\u0421\u043f\u0440\u0438\u043d\u0442 \u0434\u043e 40 \u043e\u0447\u0438\u0449\u0435\u043d\u043d\u044b\u0445 \u043b\u0438\u043d\u0438\u0439." },
     en: { name: "40 Lines", goal: "Clear 40 lines", description: "Sprint to 40 cleared lines." }
   },
+  hardcore: {
+    ru: { name: "Hardcore", goal: "\u0412\u044b\u0436\u0438\u0442\u044c \u043d\u0430 \u0441\u043a\u043e\u0440\u043e\u0441\u0442\u0438", description: "\u0411\u044b\u0441\u0442\u0440\u043e\u0435 \u0443\u0441\u043a\u043e\u0440\u0435\u043d\u0438\u0435, \u0440\u0430\u043d\u043d\u0438\u0439 \u0432\u044b\u0441\u043e\u043a\u0438\u0439 \u0443\u0440\u043e\u0432\u0435\u043d\u044c \u0438 \u043c\u0435\u043d\u044c\u0448\u0435 \u043f\u0440\u0430\u0432\u0430 \u043d\u0430 \u043e\u0448\u0438\u0431\u043a\u0443." },
+    en: { name: "Hardcore", goal: "Survive the speed", description: "Faster acceleration, higher start level, and less room for mistakes." }
+  },
+  timeAttack: {
+    ru: { name: "Time Attack", goal: "\u041d\u0430\u0431\u0440\u0430\u0442\u044c \u043e\u0447\u043a\u0438 \u0437\u0430 2 \u043c\u0438\u043d\u0443\u0442\u044b", description: "\u0414\u0432\u0435 \u043c\u0438\u043d\u0443\u0442\u044b \u043d\u0430 \u043c\u0430\u043a\u0441\u0438\u043c\u0443\u043c \u043e\u0447\u043a\u043e\u0432." },
+    en: { name: "Time Attack", goal: "Score for 2 minutes", description: "Two minutes to score as much as possible." }
+  },
   relax: {
     ru: { name: "\u0414\u0437\u0435\u043d", goal: "\u0411\u0435\u0437 \u0441\u043f\u0435\u0448\u043a\u0438", description: "\u0420\u0435\u0436\u0438\u043c \u0431\u0435\u0437 \u0434\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u0438 \u0443\u0441\u043a\u043e\u0440\u0435\u043d\u0438\u044f." },
     en: { name: "Zen", goal: "No rush", description: "Relaxed play without pressure." }
@@ -58,6 +66,47 @@ export const GAME_MODES = {
     relaxed: false,
     chaos: false
   },
+  hardcore: {
+    key: "hardcore",
+    statKey: "hardcore",
+    name: MODE_COPY.hardcore.ru.name,
+    nameEn: MODE_COPY.hardcore.en.name,
+    goal: 0,
+    goalText: MODE_COPY.hardcore.ru.goal,
+    goalTextEn: MODE_COPY.hardcore.en.goal,
+    levelUp: 4,
+    startLevel: 6,
+    startLines: 0,
+    gravity: true,
+    garbageAttacks: false,
+    timeLimit: null,
+    targetLines: null,
+    description: MODE_COPY.hardcore.ru.description,
+    descriptionEn: MODE_COPY.hardcore.en.description,
+    relaxed: false,
+    chaos: false,
+    speedMultiplier: 1.35
+  },
+  timeAttack: {
+    key: "timeAttack",
+    statKey: "timeAttack",
+    name: MODE_COPY.timeAttack.ru.name,
+    nameEn: MODE_COPY.timeAttack.en.name,
+    goal: 120,
+    goalText: MODE_COPY.timeAttack.ru.goal,
+    goalTextEn: MODE_COPY.timeAttack.en.goal,
+    levelUp: 8,
+    startLevel: 2,
+    startLines: 0,
+    gravity: true,
+    garbageAttacks: false,
+    timeLimit: 120,
+    targetLines: null,
+    description: MODE_COPY.timeAttack.ru.description,
+    descriptionEn: MODE_COPY.timeAttack.en.description,
+    relaxed: false,
+    chaos: false
+  },
   relax: {
     key: "relax",
     statKey: "relax",
@@ -101,10 +150,12 @@ export const GAME_MODES = {
 };
 
 const MODE_ALIASES = {
-  zen: "relax"
+  zen: "relax",
+  timeattack: "timeAttack",
+  time: "timeAttack"
 };
 
-export const GAME_MODE_KEYS = ["classic", "sprint", "relax", "chaos"];
+export const GAME_MODE_KEYS = ["classic", "sprint", "hardcore", "timeAttack", "relax", "chaos"];
 
 export function normalizeModeKey(modeKey) {
   const key = MODE_ALIASES[modeKey] || modeKey;

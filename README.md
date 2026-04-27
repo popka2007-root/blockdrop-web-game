@@ -1,57 +1,66 @@
 # BlockDrop Web Game
 
-Browser Tetris-style game with multilingual UI, solo modes, AI practice, local saves, server records, and online PvP rooms.
+Browser Tetris-style game with solo modes, AI practice, local saves, server records, online PvP rooms, mobile controls, replay/ghost run, and PWA-friendly assets.
 
 Live demo: [http://45.148.117.119/](http://45.148.117.119/)
 
-## Features
-
-- 10x20 playfield with ghost piece, hold, next queue, 7-bag randomizer, SRS wall kicks, DAS/ARR, and lock delay.
-- Classic, 40 Lines, Zen, and Chaos modes.
-- Local stats, best score, autosave, achievements, and server leaderboard.
-- Web Audio API sound effects for move, rotate, hard drop, line clear, Tetris, combo, level up, game over, and PvP attacks, with subtle theme variations.
-- Online rooms with shareable `/room/CODE` links, garbage attacks, tournament timer, and opponent progress silhouette.
-- AI opponent for offline practice when online PvP is inconvenient.
-- Russian and English UI from the settings menu.
-- Interactive beginner tutorial in the How to Play section.
-- Mobile rendering optimization: canvas resize caching plus a battery performance mode.
-- Offline-friendly assets plus PWA files for secure hosts.
-
-Current mobile screenshots:
+## Screenshots
 
 ![Mobile menu](screenshots/menu-mobile.png)
 ![Mobile gameplay](screenshots/game-mobile.png)
+![Gameplay GIF](screenshots/gameplay.gif)
+
+## Features
+
+- 10x20 playfield with 7-bag randomizer, SRS wall kicks, ghost piece, hold, next queue, DAS/ARR, and lock delay.
+- Game flow: menu, playing, pause, game over, resume, restart, and main menu.
+- Modes: Classic, 40 Lines, Hardcore, Time Attack, Zen, and Chaos.
+- Score, level, lines, timer, high score, local stats, achievements, and server leaderboard.
+- Gradual speed progression with a cap.
+- Special pieces: normal, danger, bonus, and rare chaos.
+- Survival streak and score bonuses for stable play.
+- Web Audio API sounds, mute toggle, screen shake, particles, score flash, and game over effect.
+- AI opponent with difficulty, style, and pace settings.
+- Replay/Ghost run: the best local run is saved, shown as a timeline, and used as a ghost silhouette in later attempts.
+- Online rooms with shareable `/room/CODE` links, QR invite, WebSocket PvP garbage attacks, opponent progress silhouette, and tournament room.
+- Russian and English UI.
+- Mobile controls with touch gestures, buttons, handedness, sensitivity, and performance settings.
+- Offline-friendly/PWA files for secure hosts.
 
 ## Controls
 
-- Keyboard: arrows or WASD to move, Up/W/X to rotate, Q to rotate back, Space/Z for hard drop, C/H/E/Shift for hold, P/Esc for pause.
+- Keyboard: arrows or WASD to move, `Up/W/X` to rotate, `Q` to rotate back, `Space/Z` for hard drop, `C/H/E/Shift` for hold, `P/Esc` for pause.
 - Mouse/trackpad on the board: click to rotate, double click to rotate back, drag left/right to move, drag down to drop, right click for hold.
-- Touch: tap to rotate, double tap to rotate back, swipe left or right to move, swipe down for soft drop, fast swipe down for hard drop, long press for hold.
-- Main menu includes quick access to Stats and How to Play.
-- Settings include language, performance mode, swipe sensitivity, handedness, theme, soft vibration, and one volume slider.
+- Touch: tap to rotate, double tap to rotate back, swipe left/right to move, swipe down for soft drop, fast swipe down for hard drop, long press for hold.
+- Mobile buttons can be enabled from settings.
 
-## Installation
+## Run Locally
 
 ```bash
 npm install
 npm start
 ```
 
-Open [http://localhost:8787](http://localhost:8787).
+Open:
 
-`index.html` still works for static solo play. Online rooms and server records require `server.js`.
+```text
+http://localhost:8787
+```
 
-For a static live demo on GitHub Pages:
+`index.html` can still run static solo play. Online rooms and server records require `server.js`.
 
-1. Push the repository to GitHub.
-2. Enable Pages from the `master` branch.
-3. Open the generated Pages URL.
+## Scripts
 
-GitHub Pages cannot run `server.js`, so multiplayer and server records need a VPS or another Node host.
+```bash
+npm start
+npm run lint
+npm test
+npm run test:e2e
+npm run capture:media
+npm run verify
+```
 
-## Development
-
-Project structure:
+## Project Structure
 
 ```text
 index.html
@@ -64,110 +73,25 @@ js/input.js
 js/audio.js
 js/online.js
 js/storage.js
+js/modes.js
 server.js
 tests/
 e2e/
 screenshots/
-```
-
-Refactor status:
-
-- `js/game.js` now coordinates state, loop, and module orchestration.
-- `js/ui.js` owns DOM rendering, overlays, HUD, and control bindings.
-- `js/audio.js` owns sound setup and playback helpers.
-- `js/online.js` owns WebSocket/PvP helpers and message handling utilities.
-- `js/storage.js` owns local persistence helpers.
-- `js/ui.js` also applies lightweight runtime translations for Russian and English.
-
-## Module Architecture
-
-### Game Logic Layer
-
-- **`js/game-core.js`**: pure Tetris logic for piece generation, collision checks, line clears, and SRS helpers.
-- **`js/config.js`**: shared constants for board dimensions, pieces, scoring, timing, physics, UI timing, and score thresholds.
-- **`js/modes.js`**: single source of truth for Classic, 40 Lines, Zen, and Chaos mode configuration.
-
-### State Layer
-
-- **`js/game-state.js`**: small state-manager module with event notifications, serialization helpers, and a migration path for future autosave cleanup.
-
-### Interaction Layer
-
-- **`js/game.js`**: main runtime loop and orchestration between modules.
-- **`js/input.js`**: keyboard, mouse, and touch input normalization.
-- **`js/ui.js`**: DOM cache, canvas rendering, HUD updates, overlays, settings controls, and runtime translations.
-- **`js/audio.js`**: Web Audio playback and haptic helpers.
-- **`js/online.js`**: WebSocket rooms, PvP messages, and room URL helpers.
-- **`js/storage.js`**: local persistence helpers.
-
-### Utility Layer
-
-- **`js/event-bus.js`**: lightweight event system for looser module coupling.
-- **`js/utils.js`**: formatting, validation, and math helpers.
-
-Useful scripts:
-
-```bash
-npm start
-npm run dev
-npm run lint
-npm test
-npm run test:e2e
-npm run format
+scripts/
 ```
 
 ## Testing
 
-Run checks locally:
+- Vitest covers game logic, scoring, modes, storage helpers, online helpers, audio config, and server hardening.
+- Playwright covers game startup, pause, game over overlay, mobile layout, room links, online rooms, modes, and replay menu.
+- `npm run capture:media` refreshes mobile screenshots and gameplay GIF.
 
-```bash
-npm run lint
-npm test
-npm run test:e2e
-```
+## Online Rooms
 
-One-command checks:
-
-```bash
-npm run verify
-npm run smoke:prod
-```
-
-`verify` runs lint, unit tests, and Playwright e2e before a push or deploy. `smoke:prod` opens the public server in desktop and mobile Chromium, checks `/health`, start game, AI game, room invite QR, and Daily Challenge. Set `TARGET_URL` to smoke another host.
-
-Current automated coverage:
-
-- Vitest: piece generation, 7-bag randomizer, collisions, SRS kicks, line clears, scoring, hold, game over, garbage and attack logic.
-- Playwright: app loads, game starts, piece input works, pause works, game over overlay can be shown.
-- Screenshot smoke checks are used before releases to refresh `screenshots/menu-mobile.png` and `screenshots/game-mobile.png`.
-
-## Online
-
-Example room URL:
+Example room URLs:
 
 - Local: [http://localhost:8787/room/DUEL](http://localhost:8787/room/DUEL)
 - Public: [http://45.148.117.119/room/DUEL](http://45.148.117.119/room/DUEL)
 
-Use **Play with friend / Играть с другом** from the main menu to generate a room URL automatically and share it.
-
-Server notes:
-
-- WebSocket messages are validated.
-- Oversized and suspicious payloads are closed.
-- Update and attack messages are rate-limited.
-- The current system is room-safe, but not fully server-authoritative for competitive anti-cheat yet.
-
-## Roadmap
-
-- Split `js/game.js` further into smaller runtime modules such as scene, HUD state, coach logic, and PWA bootstrap.
-- Expand Playwright coverage for mobile layouts and online flows.
-- Add stricter server-side score authority for ranked rooms.
-- Add richer tournament views, replay tools, and a deeper AI difficulty selector.
-- Add more media such as a short gameplay GIF.
-
-## Known Issues
-
-- The public IP URL is plain HTTP, so full install/PWA behavior is limited by browser security rules.
-- Competitive multiplayer still trusts some client-reported values; this is fine for casual rooms, but not ideal for ranked play.
-- Playwright needs browser binaries available in the environment.
-- Vite shows a deprecation warning for the CJS Node API in the current test config; tests still pass.
+Use **Play with friend / Играть с другом** from the main menu to generate a room URL and QR invite.

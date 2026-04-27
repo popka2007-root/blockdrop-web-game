@@ -14,6 +14,8 @@ describe("mode configuration", () => {
   it("defines sprint and chaos gameplay parameters", () => {
     expect(getModeConfig("sprint").targetLines).toBe(40);
     expect(getModeConfig("chaos").garbageAttacks).toBe(true);
+    expect(getModeConfig("hardcore").speedMultiplier).toBeGreaterThan(1);
+    expect(getModeConfig("timeAttack").timeLimit).toBe(120);
     expect(getModeOptions("en").map((mode) => mode.name)).toContain("40 Lines");
   });
 });
