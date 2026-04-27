@@ -766,6 +766,7 @@ h3 {
 }
 
 .secondary-menu summary,
+.ai-options summary,
 .advanced-online summary {
   min-height: 42px;
   display: grid;
@@ -780,6 +781,20 @@ h3 {
 }
 
 .secondary-actions {
+  margin-top: 8px;
+}
+
+.ai-options {
+  margin-top: 2px;
+}
+
+.ai-options summary {
+  min-height: 38px;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.compact-settings {
   margin-top: 8px;
 }
 

@@ -62,6 +62,7 @@ const UI_IDS = [
   "friendButton",
   "aiButton",
   "menuMoreSummary",
+  "aiOptionsSummary",
   "aiDifficultySelect",
   "aiStyleSelect",
   "aiPaceSelect",
@@ -191,6 +192,7 @@ const UI_TEXT = {
     friend: "Играть с другом",
     ai: "AI соперник",
     more: "Ещё",
+    aiOptions: "Настройки AI",
     settings: "Настройки",
     install: "Установить офлайн",
     online: "Онлайн-комната",
@@ -261,6 +263,7 @@ const UI_TEXT = {
     friend: "Play with friend",
     ai: "AI opponent",
     more: "More",
+    aiOptions: "AI settings",
     settings: "Settings",
     install: "Install offline",
     online: "Online room",
@@ -450,6 +453,7 @@ export function createUi(options = {}) {
     setText(refs.friendButton, text.friend);
     setText(refs.aiButton, text.ai);
     setText(refs.menuMoreSummary, text.more);
+    setText(refs.aiOptionsSummary, text.aiOptions);
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
     setText(refs.openStatsButton, text.stats);
