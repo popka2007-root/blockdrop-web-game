@@ -22,14 +22,14 @@ const UI_IDS = [
   "app", "topbar", "statusStrip", "gameLayout", "sidePanel", "controls", "nextPanel", "holdPanel", "statsPanel",
   "board", "boardShell", "next1", "next2", "next3", "hold", "scoreValue", "levelValue", "linesValue", "recordValue",
   "comboValue", "piecesValue", "timeValue", "goalValue", "progressFill", "rankValue", "apmValue", "heightValue",
-  "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "quickStartButton", "startButton",
+  "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "startButton",
   "dailyButton", "continueButton", "friendButton", "aiButton", "aiDifficultySelect", "menuRecords", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
   "pauseButton", "mainMenuButton", "pauseMenuButton", "gameOverMenuButton", "pauseRestartButton", "pauseSettingsButton",
   "holdButton", "leftButton", "rightButton", "rotateButton", "downButton", "dropButton", "startMode", "themeSelect",
   "themeSwatches", "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
   "volumeRange", "volumeValue", "closeSettingsButton", "closeStatsButton",
   "shareStatsButton", "gameOverStatsButton", "statsGrid", "leaderboard", "serverLeaderboard", "achievementsList",
-  "helpButton", "onlineButton", "helpOverlay", "helpOnlineButton", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
+  "helpButton", "helpOverlay", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
   "onlineServerInput", "onlineRoomInput", "onlineNameInput", "onlineMaxPlayersSelect", "onlineDurationSelect",
   "onlinePlayers", "onlineStatus", "roomCodeValue", "roomInviteLink", "roomQr", "connectOnlineButton", "copyRoomButton", "shareRoomButton", "startTournamentButton", "closeOnlineButton",
   "tournamentOverlay", "tournamentResults", "closeTournamentButton", "rematchButton", "closeHelpButton", "shareResultButton",
@@ -166,7 +166,6 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#startOverlay .muted"), text.intro);
     setLabel('label[for="startMode"]', language === "en" ? "Mode" : "Режим");
     setLabel('label[for="aiDifficultySelect"]', language === "en" ? "AI difficulty" : "AI сложность");
-    setText(refs.quickStartButton, language === "en" ? "Quick game" : "Быстрая игра");
     setText(refs.startButton, text.start);
     setText(refs.dailyButton, language === "en" ? "Daily Challenge" : "Испытание дня");
     setText(refs.continueButton, text.continue);
@@ -174,7 +173,6 @@ export function createUi(options = {}) {
     setText(refs.aiButton, text.ai);
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
-    setText(refs.onlineButton, text.online);
     setText(refs.openStatsButton, text.stats);
     setText(refs.helpButton, text.help);
 
@@ -208,7 +206,6 @@ export function createUi(options = {}) {
     setText(refs.shareStatsButton, text.shareStats);
 
     setText(documentRef.querySelector("#helpOverlay h2"), text.help);
-    setText(refs.helpOnlineButton, language === "en" ? "Open room QR" : "Открыть комнату с QR");
     setText(refs.tutorialButton, text.tutorial);
     setText(refs.closeHelpButton, text.understood);
     setText(documentRef.querySelector("#tutorialOverlay h2"), text.tutorial);
@@ -793,7 +790,6 @@ export function createUi(options = {}) {
   }
 
   function bindControls(callbacks) {
-    bindPress(refs.quickStartButton, callbacks.quickStart);
     bindPress(refs.startButton, callbacks.startGame);
     bindPress(refs.dailyButton, callbacks.startDailyChallenge);
     bindPress(refs.continueButton, callbacks.loadCurrentGame);
@@ -803,7 +799,6 @@ export function createUi(options = {}) {
     bindPress(refs.installButton, callbacks.installApp);
     bindPress(refs.openStatsButton, callbacks.openStats);
     bindPress(refs.helpButton, callbacks.openHelp);
-    bindPress(refs.helpOnlineButton, callbacks.openOnlineFromHelp);
     bindPress(refs.closeHelpButton, callbacks.closeHelp);
     bindPress(refs.tutorialButton, callbacks.openTutorial);
     bindPress(refs.tutorialNextButton, () => {
@@ -814,7 +809,6 @@ export function createUi(options = {}) {
     bindPress(refs.tutorialPlayButton, callbacks.startTutorialGame);
     bindPress(refs.closeTutorialButton, callbacks.closeTutorial);
     bindPress(refs.closeCoachButton, callbacks.closeCoach);
-    bindPress(refs.onlineButton, callbacks.openOnline);
     bindPress(refs.connectOnlineButton, callbacks.toggleOnlineConnection);
     bindPress(refs.copyRoomButton, callbacks.copyRoomLink);
     bindPress(refs.shareRoomButton, callbacks.shareRoomLink);

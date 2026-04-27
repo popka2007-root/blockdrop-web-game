@@ -33,7 +33,7 @@ async function smokeViewport(browser, viewport) {
   assert((await page.locator("#startMode option").count()) >= 4, `${viewport.name}: modes missing`);
   assert((await page.locator("#menuRecords").innerText()).length > 0, `${viewport.name}: menu records missing`);
 
-  await page.locator("#quickStartButton").click();
+  await page.locator("#startButton").click();
   await page.waitForTimeout(250);
   assert(await page.locator("#startOverlay").evaluate((node) => node.hidden), `${viewport.name}: quick start did not enter game`);
   assert(await page.locator("#board").isVisible(), `${viewport.name}: board not visible`);
@@ -45,7 +45,7 @@ async function smokeViewport(browser, viewport) {
   assert(await page.locator("#startOverlay").evaluate((node) => node.hidden), `${viewport.name}: AI game did not start`);
 
   await page.locator("#mainMenuButton").click();
-  await page.locator("#onlineButton").click();
+  await page.locator("#friendButton").click();
   const roomCode = await page.locator("#roomCodeValue").innerText();
   const qrSrc = await page.locator("#roomQr").getAttribute("src");
   assert(/^[A-Z0-9]{4,16}$/.test(roomCode), `${viewport.name}: room code invalid`);

@@ -30,10 +30,8 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await page.locator("#helpButton").click();
   await expect(page.locator("#helpOverlay")).toContainText("AI");
   await expect(page.locator("#helpOverlay")).toContainText("QR");
-  await page.locator("#helpOnlineButton").click();
-  await expect(page.locator("#onlineOverlay")).toBeVisible();
-  await expect(page.locator("#roomCodeValue")).not.toHaveText("----");
-  await page.locator("#closeOnlineButton").click();
+  await expect(page.locator("#helpOverlay")).not.toContainText("Открыть комнату");
+  await page.locator("#closeHelpButton").click();
 
   await expect(page.locator("#menuRecords")).toContainText("Рекорд");
   await page.selectOption("#aiDifficultySelect", "hard");
@@ -41,7 +39,7 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await expect(page.locator("#startOverlay")).toBeHidden();
 
   await page.locator("#mainMenuButton").click();
-  await page.locator("#onlineButton").click();
+  await page.locator("#friendButton").click();
   await expect(page.locator("#roomCodeValue")).not.toHaveText("----");
   await expect(page.locator("#roomQr")).toHaveAttribute("src", /create-qr-code/);
   await page.locator("#closeOnlineButton").click();
