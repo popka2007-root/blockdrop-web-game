@@ -155,6 +155,12 @@ select {
   font-size: 18px;
   font-weight: 900;
   line-height: 1;
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.stat-value.score-pop {
+  color: var(--accent);
+  animation: score-pop 220ms ease-out;
 }
 
 .icon-button,
@@ -172,6 +178,8 @@ select {
   display: grid;
   place-items: center;
   font-weight: 900;
+  min-width: 46px;
+  min-height: 46px;
 }
 
 .button {
@@ -641,6 +649,7 @@ body.layout-wide .app {
   padding: 18px;
   background: rgba(6, 10, 16, 0.68);
   backdrop-filter: blur(14px);
+  animation: overlay-in 160ms ease-out;
 }
 
 .overlay[hidden] {
@@ -666,6 +675,7 @@ body.layout-wide .app {
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
   text-align: center;
   overflow-wrap: anywhere;
+  animation: modal-in 180ms ease-out;
 }
 
 .logo {
@@ -1086,6 +1096,53 @@ input[type="checkbox"] {
   background: rgba(6, 19, 24, 0.16);
 }
 
+.replay-track {
+  min-height: 170px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18px, 1fr));
+  align-items: end;
+  gap: 5px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-normal);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.replay-step {
+  position: relative;
+  min-height: 142px;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  gap: 2px;
+}
+
+.replay-step span {
+  position: absolute;
+  inset: auto 50% -2px auto;
+  transform: translateX(50%) rotate(-70deg);
+  transform-origin: center;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.replay-step i,
+.replay-step b {
+  width: 7px;
+  border-radius: 999px 999px 2px 2px;
+}
+
+.replay-step i {
+  background: rgba(255, 194, 87, 0.58);
+}
+
+.replay-step b {
+  background: color-mix(in srgb, var(--accent) 78%, white);
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -1131,6 +1188,18 @@ input[type="checkbox"] {
   animation: shake 190ms linear;
 }
 
+#gameOverOverlay .modal {
+  animation: game-over-in 260ms ease-out;
+}
+
+#gameOverOverlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 38%, rgba(255, 91, 91, 0.18), transparent 34%);
+  pointer-events: none;
+}
+
 @keyframes pop {
   from {
     opacity: 1;
@@ -1147,6 +1216,28 @@ input[type="checkbox"] {
   25% { transform: translateX(-4px); }
   50% { transform: translateX(4px); }
   75% { transform: translateX(-2px); }
+}
+
+@keyframes score-pop {
+  0% { transform: scale(1); }
+  48% { transform: scale(1.16); }
+  100% { transform: scale(1); }
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes game-over-in {
+  0% { opacity: 0; transform: scale(0.96) rotate(-0.5deg); }
+  60% { opacity: 1; transform: scale(1.015) rotate(0); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 body.reduced-motion *,
@@ -1182,7 +1273,7 @@ body.reduced-motion *::after {
 
   .topbar {
     gap: 5px;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) 38px;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 46px;
   }
 
   .stat {
@@ -1229,6 +1320,10 @@ body.reduced-motion *::after {
   .select {
     min-height: 42px;
     font-size: 13px;
+  }
+
+  .icon-button {
+    min-height: 46px;
   }
 
   .controls {

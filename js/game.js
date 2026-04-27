@@ -1,7 +1,10 @@
 ﻿import { SOUND_EVENTS, initAudio, makeAudioSettings, playSound as playAudioSound, setVolume, toggleMute } from "./audio.js";
 import {
   COLS,
+  FLOW_STATE,
+  PIECE_MODIFIERS,
   PHYSICS,
+  PROGRESSION,
   ROWS,
   SCORING_THRESHOLDS,
   SCORE_TABLE,
@@ -42,6 +45,7 @@ import { createBag } from "./game-core.js";
     save: "blockdrop-save-v2",
     scores: "blockdrop-scoreboard-v2",
     achievements: "blockdrop-achievements-v2",
+    ghostRun: "blockdrop-ghost-run-v1",
     lastRoom: "tetris-last-room",
     playerName: "blockdrop-player-name"
   };
@@ -118,6 +122,18 @@ import { createBag } from "./game-core.js";
     insane: { name: "Безумный", scoreRate: 1.75, heightRate: 1.36, attackRate: 0.58, doubleChance: 0.58 }
   };
 
+  const AI_STYLE = {
+    balanced: { name: "Баланс", score: 1, height: 1, attack: 1, burst: 1 },
+    aggressive: { name: "Атака", score: 1.08, height: 1.08, attack: 0.78, burst: 1.25 },
+    defensive: { name: "Защита", score: 0.94, height: 0.82, attack: 1.18, burst: 0.75 }
+  };
+
+  const AI_PACE = {
+    calm: { name: "Спокойный", score: 0.86, attack: 1.22 },
+    fair: { name: "Ровный", score: 1, attack: 1 },
+    fast: { name: "Быстрый", score: 1.16, attack: 0.84 }
+  };
+
   const ACHIEVEMENTS = [
     ["firstLine", "Первый шаг", "Очистить первую линию", (s) => s.totalLines >= 1],
     ["tenLines", "Разогрев", "Очистить 10 линий за всё время", (s) => s.totalLines >= 10],
@@ -174,6 +190,10 @@ import { createBag } from "./game-core.js";
     incomingGarbage: 0,
     receivedGarbage: 0,
     sentGarbage: 0,
+    phase: FLOW_STATE.MENU,
+    survivalStreak: 0,
+    lastStreakMs: 0,
+    chaosUntilMs: 0,
     holds: 0,
     rotations: 0,
     moves: 0,
@@ -214,6 +234,10 @@ import { createBag } from "./game-core.js";
       attackMs: 0,
       name: "AI"
     },
+    ghostRun: storage.loadGhostRun(null),
+    currentGhostRun: [],
+    lastGhostSampleMs: 0,
+    previousBestScore: 0,
     daily: null
   };
 
@@ -247,7 +271,10 @@ import { createBag } from "./game-core.js";
       language: "ru",
       performanceMode: "auto",
       aiDifficulty: "normal",
+      aiStyle: "balanced",
+      aiPace: "fair",
       lastMode: "classic",
+      muted: false,
       ...makeAudioSettings(),
       ...storage.loadSettings({})
     };
@@ -273,7 +300,7 @@ import { createBag } from "./game-core.js";
       totalRotations: 0,
       totalMoves: 0,
       totalSoftDrops: 0,
-      modeCounts: { classic: 0, sprint: 0, relax: 0, chaos: 0 },
+      modeCounts: { classic: 0, sprint: 0, hardcore: 0, timeAttack: 0, relax: 0, chaos: 0 },
       daily: { date: "", score: 0, lines: 0 },
       pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
       ...storage.loadStats({})
@@ -293,14 +320,17 @@ import { createBag } from "./game-core.js";
     state.settings.reducedMotion = state.settings.performanceMode === "battery";
     state.settings.language = ["ru", "en"].includes(state.settings.language) ? state.settings.language : "ru";
     state.settings.aiDifficulty = AI_DIFFICULTY[state.settings.aiDifficulty] ? state.settings.aiDifficulty : "normal";
+    state.settings.aiStyle = AI_STYLE[state.settings.aiStyle] ? state.settings.aiStyle : "balanced";
+    state.settings.aiPace = AI_PACE[state.settings.aiPace] ? state.settings.aiPace : "fair";
     state.settings.lastMode = MODES[normalizeModeKey(state.settings.lastMode)] ? normalizeModeKey(state.settings.lastMode) : "classic";
     state.settings.volume = clamp(Number(state.settings.volume) || 0, 0, 100);
+    state.settings.muted = Boolean(state.settings.muted);
     state.settings.moveVolume = state.settings.volume;
     state.settings.clearVolume = state.settings.volume;
     state.settings.alertVolume = state.settings.volume;
-    state.settings.sound = state.settings.volume > 0;
     setVolume(audio, state.settings.volume);
-    toggleMute(audio, !state.settings.sound);
+    state.settings.sound = state.settings.volume > 0 && !state.settings.muted;
+    toggleMute(audio, state.settings.muted || !state.settings.sound);
     ui.applySettings(state.settings);
     storage.saveSettings(state.settings);
     updateLayoutMetrics();
@@ -343,11 +373,34 @@ import { createBag } from "./game-core.js";
   }
 
   function fillQueue() {
-    while (state.queue.length < 3) state.queue.push(takeKind());
+    while (state.queue.length < 3) state.queue.push(makePieceDraft(takeKind()));
   }
 
-  function makePiece(kind) {
-    return { kind, rotation: 0, x: 3, y: 0 };
+  function makePieceDraft(kind) {
+    const roll = random();
+    let threshold = PIECE_MODIFIERS.CHANCES.normal;
+    let modifier = PIECE_MODIFIERS.NORMAL;
+    if (roll > threshold) {
+      threshold += PIECE_MODIFIERS.CHANCES.danger;
+      modifier = roll <= threshold ? PIECE_MODIFIERS.DANGER : PIECE_MODIFIERS.BONUS;
+    }
+    if (roll > 1 - PIECE_MODIFIERS.CHANCES.chaos) {
+      modifier = PIECE_MODIFIERS.CHAOS;
+    }
+    return { kind, modifier };
+  }
+
+  function normalizePieceDraft(value) {
+    if (typeof value === "string") return { kind: value, modifier: PIECE_MODIFIERS.NORMAL };
+    return {
+      kind: value?.kind || "T",
+      modifier: value?.modifier || PIECE_MODIFIERS.NORMAL
+    };
+  }
+
+  function makePiece(draft) {
+    const normalized = normalizePieceDraft(draft);
+    return { ...normalized, rotation: 0, x: 3, y: 0 };
   }
 
   function cells(piece) {
@@ -387,6 +440,13 @@ import { createBag } from "./game-core.js";
     state.incomingGarbage = 0;
     state.receivedGarbage = 0;
     state.sentGarbage = 0;
+    state.phase = FLOW_STATE.PLAYING;
+    state.survivalStreak = 0;
+    state.lastStreakMs = 0;
+    state.chaosUntilMs = 0;
+    state.currentGhostRun = [];
+    state.lastGhostSampleMs = 0;
+    state.previousBestScore = state.stats.bestScore;
     state.holds = 0;
     state.rotations = 0;
     state.moves = 0;
@@ -409,12 +469,15 @@ import { createBag } from "./game-core.js";
     state.ai.height = 0;
     state.ai.elapsedMs = 0;
     state.ai.attackMs = 0;
-    state.ai.name = state.settings.language === "en" ? `AI ${AI_DIFFICULTY[state.ai.difficulty].name}` : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name}`;
+    state.ai.name = state.settings.language === "en"
+      ? `AI ${state.settings.aiStyle}/${state.settings.aiPace}`
+      : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name} · ${AI_STYLE[state.settings.aiStyle].name}`;
     state.daily = options.daily ? { date: dailyKey(), seed: options.seed } : null;
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
     if (modeConfig.garbageAttacks) addGarbage(4);
+    if (mode === "hardcore") addGarbage(2);
     spawn();
     ensureAudio();
     buzz("move");
@@ -456,6 +519,7 @@ import { createBag } from "./game-core.js";
     if (!state.running || state.gameOver || count <= 0) return;
     state.incomingGarbage += count;
     state.receivedGarbage += count;
+    resetStreak();
     addGarbage(count);
     shakeBoard();
     playEvent("attack");
@@ -561,7 +625,7 @@ import { createBag } from "./game-core.js";
 
   function holdPiece() {
     if (!canInput() || state.holdUsed) return;
-    const current = state.active.kind;
+    const current = { kind: state.active.kind, modifier: state.active.modifier };
     state.holds += 1;
     state.stats.totalHolds += 1;
     if (state.hold) {
@@ -579,12 +643,13 @@ import { createBag } from "./game-core.js";
     if (!state.active) return;
     const modeConfig = getModeConfig(state.mode);
     const lockedKind = state.active.kind;
+    const lockedModifier = state.active.modifier || PIECE_MODIFIERS.NORMAL;
     const beforeMetrics = {
       holes: countHoles(),
       height: currentHeight(),
       bumpiness: surfaceBumpiness()
     };
-    for (const c of cells(state.active)) state.board[c.y][c.x] = state.active.kind;
+    for (const c of cells(state.active)) state.board[c.y][c.x] = { kind: state.active.kind, modifier: lockedModifier };
     state.stats.pieceCounts[state.active.kind] += 1;
     state.pieces += 1;
     state.stats.totalPieces += 1;
@@ -609,8 +674,8 @@ import { createBag } from "./game-core.js";
       state.bestComboRun = Math.max(state.bestComboRun, state.combo);
       state.bestClearInGame = Math.max(state.bestClearInGame, count);
       state.lines += count;
-      addScore(lineScore(count) + state.combo * 25);
-      state.level = modeConfig.relaxed ? modeConfig.startLevel : Math.min(20, Math.floor(state.lines / modeConfig.levelUp) + DIFFICULTY[state.difficulty].startLevel);
+      addScore(lineScore(count) + state.combo * 25 + streakScoreBonus());
+      state.level = modeConfig.relaxed ? modeConfig.startLevel : Math.min(20, Math.floor(state.lines / modeConfig.levelUp) + modeConfig.startLevel + DIFFICULTY[state.difficulty].startLevel - 1);
       playEvent(count === 4 ? "tetris" : "line");
       if (count === 4) burst(44);
       if (state.combo >= 2) playEvent("combo", { freq: SOUND_EVENTS.combo.freq + state.combo * 18 });
@@ -630,8 +695,10 @@ import { createBag } from "./game-core.js";
       state.combo = 0;
     }
 
+    applyPieceModifier(lockedModifier, count);
+
     if (modeConfig.targetLines && state.lines >= modeConfig.targetLines) {
-      finish(true, "Цель выполнена. 40 линий очищены.");
+      finish(true, `${modeConfig.goalText} выполнено.`);
       return;
     }
 
@@ -684,9 +751,61 @@ import { createBag } from "./game-core.js";
   }
 
   function addScore(value) {
-    state.score += value;
+    state.score += Math.max(0, Math.round(value));
     state.stats.bestScore = Math.max(state.stats.bestScore, state.score);
     storage.saveBestScore(state.stats.bestScore);
+    if (value >= 50) ui.pulseScore?.();
+  }
+
+  function streakScoreBonus() {
+    return Math.min(PROGRESSION.MAX_STREAK_SCORE_BONUS, state.survivalStreak * 8);
+  }
+
+  function resetStreak() {
+    state.survivalStreak = 0;
+    state.lastStreakMs = state.elapsedMs;
+  }
+
+  function rewardSurvivalStreak() {
+    if (!state.running || state.paused || state.gameOver || topDanger()) return;
+    if (state.elapsedMs - state.lastStreakMs < PROGRESSION.SURVIVAL_STREAK_STEP_MS) return;
+    state.lastStreakMs = state.elapsedMs;
+    state.survivalStreak += 1;
+    addScore(PROGRESSION.SURVIVAL_STREAK_SCORE * state.survivalStreak);
+    if (state.survivalStreak > 1) {
+      playEvent("combo", { freq: SOUND_EVENTS.combo.freq + state.survivalStreak * 10, duration: 0.055 });
+      if (state.survivalStreak % 3 === 0) burst(10);
+    }
+  }
+
+  function applyPieceModifier(modifier, clearedLines) {
+    if (modifier === PIECE_MODIFIERS.NORMAL) return;
+
+    if (modifier === PIECE_MODIFIERS.BONUS) {
+      state.survivalStreak += 1;
+      addScore(PIECE_MODIFIERS.BONUS_SCORE + state.level * 10 + streakScoreBonus());
+      playEvent("combo", { freq: 1120, duration: 0.08 });
+      burst(22);
+      showToast(`Бонус +${PIECE_MODIFIERS.BONUS_SCORE}`);
+      return;
+    }
+
+    if (modifier === PIECE_MODIFIERS.CHAOS) {
+      state.chaosUntilMs = Math.max(state.chaosUntilMs, state.elapsedMs + PROGRESSION.CHAOS_BOOST_MS);
+      addScore(60 + streakScoreBonus());
+      playEvent("levelUp", { freq: 1180, duration: 0.08 });
+      shakeBoard();
+      showToast("Хаос: ускорение на 7 секунд");
+      return;
+    }
+
+    if (modifier === PIECE_MODIFIERS.DANGER && clearedLines === 0) {
+      resetStreak();
+      addGarbage(PIECE_MODIFIERS.DANGER_GARBAGE_LINES);
+      playEvent("attack", { duration: 0.09 });
+      shakeBoard();
+      showToast("Опасная фигура: +1 линия");
+    }
   }
 
   function resultBadge(won) {
@@ -713,6 +832,7 @@ import { createBag } from "./game-core.js";
   function finish(won, text) {
     state.running = false;
     state.gameOver = true;
+    state.phase = FLOW_STATE.GAME_OVER;
     state.won = won;
     state.stats.games += 1;
     state.stats.totalScore += state.score;
@@ -731,7 +851,8 @@ import { createBag } from "./game-core.js";
         state.stats.daily = { date: state.daily.date, score: state.score, lines: state.lines };
       }
     }
-    state.stats.modeCounts = { classic: 0, sprint: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
+    saveGhostRunIfBest();
+    state.stats.modeCounts = { classic: 0, sprint: 0, hardcore: 0, timeAttack: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
     state.stats.modeCounts[state.mode] = (state.stats.modeCounts[state.mode] || 0) + 1;
     state.scores.unshift({
       score: state.score,
@@ -762,6 +883,7 @@ import { createBag } from "./game-core.js";
     renderCoachTips();
     playEvent(won ? "win" : "gameOver");
     buzz(won ? "win" : "gameOver");
+    shakeBoard();
     if (won) burst(50);
     sendOnlineUpdate(true);
     submitServerRecord();
@@ -770,6 +892,7 @@ import { createBag } from "./game-core.js";
   function pause() {
     if (!state.running || state.gameOver) return;
     state.paused = true;
+    state.phase = FLOW_STATE.PAUSED;
     saveCurrentGame();
     ui.setPauseVisible(true);
   }
@@ -777,6 +900,7 @@ import { createBag } from "./game-core.js";
   function resume() {
     if (!state.running || state.gameOver) return;
     state.paused = false;
+    state.phase = FLOW_STATE.PLAYING;
     state.lastTime = 0;
     ui.setPauseVisible(false);
   }
@@ -790,6 +914,7 @@ import { createBag } from "./game-core.js";
     }
     hideOverlays();
     ui.showOverlay("startOverlay");
+    state.phase = FLOW_STATE.MENU;
     showToast(saved ? "Партия сохранена" : "Главное меню");
   }
 
@@ -806,7 +931,14 @@ import { createBag } from "./game-core.js";
     const bonus = DIFFICULTY[state.difficulty].speedBonus;
     const modeConfig = getModeConfig(state.mode);
     const relaxed = modeConfig.relaxed ? PHYSICS.RELAXED_DROP_BONUS_MS : 0;
-    return Math.max(PHYSICS.MIN_DROP_INTERVAL_MS, PHYSICS.BASE_DROP_INTERVAL_MS + relaxed - (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS - bonus);
+    const timeSteps = Math.floor(state.elapsedMs / PROGRESSION.TIME_SPEED_STEP_MS);
+    const timePressure = Math.min(PROGRESSION.TIME_SPEED_MAX_DROP_MS, timeSteps * PROGRESSION.TIME_SPEED_STEP_DROP_MS);
+    const chaosPressure = state.chaosUntilMs > state.elapsedMs ? PROGRESSION.CHAOS_SPEED_DROP_MS : 0;
+    const modeMultiplier = modeConfig.speedMultiplier || 1;
+    return Math.max(
+      PHYSICS.MIN_DROP_INTERVAL_MS,
+      (PHYSICS.BASE_DROP_INTERVAL_MS + relaxed - (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS - bonus - timePressure - chaosPressure) / modeMultiplier
+    );
   }
 
   function update(time) {
@@ -816,6 +948,14 @@ import { createBag } from "./game-core.js";
 
     if (state.running && !state.paused && !state.gameOver) {
       state.elapsedMs += delta;
+      const modeConfig = getModeConfig(state.mode);
+      if (modeConfig.timeLimit && state.elapsedMs >= modeConfig.timeLimit * 1000) {
+        finish(true, "Время вышло. Результат сохранён.");
+        draw();
+        syncUi();
+        requestAnimationFrame(update);
+        return;
+      }
       state.dropMs += delta;
       if (state.dropMs >= dropInterval()) {
         state.dropMs = 0;
@@ -823,6 +963,8 @@ import { createBag } from "./game-core.js";
       }
       updateLockDelay(delta);
       updateAiOpponent(delta);
+      rewardSurvivalStreak(delta);
+      recordGhostSample();
     }
 
     state.flashes = state.flashes
@@ -836,17 +978,53 @@ import { createBag } from "./game-core.js";
   function updateAiOpponent(delta) {
     if (!state.ai.enabled) return;
     const ai = AI_DIFFICULTY[state.ai.difficulty] || AI_DIFFICULTY.normal;
+    const style = AI_STYLE[state.settings.aiStyle] || AI_STYLE.balanced;
+    const pace = AI_PACE[state.settings.aiPace] || AI_PACE.fair;
     state.ai.elapsedMs += delta;
     state.ai.attackMs += delta;
-    state.ai.score += delta * (0.045 + state.level * 0.004) * ai.scoreRate;
+    state.ai.score += delta * (0.045 + state.level * 0.004) * ai.scoreRate * style.score * pace.score;
     const wave = Math.sin(state.ai.elapsedMs / 5200) * 2;
-    state.ai.height = Math.max(2, Math.min(18, Math.round(4 + state.level * 0.35 * ai.heightRate + state.ai.elapsedMs / (42000 / ai.heightRate) + wave)));
-    const attackInterval = Math.max(6500, (21000 - state.level * 520) * ai.attackRate);
+    state.ai.height = Math.max(2, Math.min(18, Math.round(4 + state.level * 0.35 * ai.heightRate * style.height + state.ai.elapsedMs / (42000 / ai.heightRate) + wave)));
+    const attackInterval = Math.max(6500, (21000 - state.level * 520) * ai.attackRate * style.attack * pace.attack);
     if (state.ai.attackMs >= attackInterval) {
       state.ai.attackMs = 0;
-      const lines = state.level >= 7 && Math.random() < ai.doubleChance ? 2 : 1;
+      const lines = state.level >= 7 && Math.random() < ai.doubleChance * style.burst ? 2 : 1;
       receiveGarbage(lines, state.ai.name);
     }
+  }
+
+  function recordGhostSample() {
+    if (state.elapsedMs - state.lastGhostSampleMs < 2000) return;
+    state.lastGhostSampleMs = state.elapsedMs;
+    state.currentGhostRun.push({
+      time: Math.floor(state.elapsedMs),
+      score: state.score,
+      height: currentHeight(),
+      lines: state.lines
+    });
+    if (state.currentGhostRun.length > 240) state.currentGhostRun.shift();
+  }
+
+  function saveGhostRunIfBest() {
+    if (state.score < state.previousBestScore || state.currentGhostRun.length < 3) return;
+    state.ghostRun = {
+      score: state.score,
+      mode: state.mode,
+      date: new Date().toISOString(),
+      samples: state.currentGhostRun
+    };
+    storage.saveGhostRun(state.ghostRun);
+  }
+
+  function ghostRunHeight() {
+    if (!state.ghostRun || state.ghostRun.mode !== state.mode || state.running === false) return 0;
+    const samples = Array.isArray(state.ghostRun.samples) ? state.ghostRun.samples : [];
+    let current = null;
+    for (const sample of samples) {
+      if (sample.time > state.elapsedMs) break;
+      current = sample;
+    }
+    return current?.height || 0;
   }
 
   function ghostPiece() {
@@ -861,7 +1039,7 @@ import { createBag } from "./game-core.js";
       cols: COLS,
       rows: ROWS,
       board: state.board,
-      active: state.active ? { kind: state.active.kind, cells: cells(state.active) } : null,
+      active: state.active ? { kind: state.active.kind, modifier: state.active.modifier, cells: cells(state.active) } : null,
       ghost: state.settings.ghost && state.active ? cells(ghostPiece()) : null,
       queue: state.queue,
       hold: state.hold,
@@ -886,6 +1064,7 @@ import { createBag } from "./game-core.js";
       lines: modeConfig.targetLines ? `${state.lines}/${modeConfig.targetLines}` : state.lines,
       record: state.stats.bestScore,
       combo: state.combo,
+      streak: state.survivalStreak,
       pieces: state.pieces,
       time: formatTime(state.elapsedMs),
       apm: actionsPerMinute(),
@@ -945,7 +1124,9 @@ import { createBag } from "./game-core.js";
   function goalText() {
     const modeConfig = getModeConfig(state.mode);
     if (modeConfig.targetLines) return `${state.lines}/${modeConfig.targetLines} линий`;
+    if (modeConfig.timeLimit) return formatTime(Math.max(0, modeConfig.timeLimit * 1000 - state.elapsedMs));
     if (modeConfig.relaxed) return modeConfig.goalText;
+    if (state.mode === "hardcore") return "Hardcore";
     if (modeConfig.garbageAttacks) return "Выжить";
     return "Рекорд";
   }
@@ -953,6 +1134,7 @@ import { createBag } from "./game-core.js";
   function progressPercent() {
     const modeConfig = getModeConfig(state.mode);
     if (modeConfig.targetLines) return Math.min(100, Math.round(state.lines / modeConfig.targetLines * 100));
+    if (modeConfig.timeLimit) return Math.min(100, Math.round(state.elapsedMs / (modeConfig.timeLimit * 1000) * 100));
     return Math.min(100, Math.round(state.level / 20 * 100));
   }
 
@@ -1192,7 +1374,7 @@ import { createBag } from "./game-core.js";
     if (state.ai.enabled) return state.ai.height;
     return Object.values(state.online.peers || {})
       .filter((p) => p.id !== state.online.id && Number.isFinite(Number(p.height)))
-      .sort((a, b) => b.score - a.score)[0]?.height || 0;
+      .sort((a, b) => b.score - a.score)[0]?.height || ghostRunHeight();
   }
 
   function topDanger() {
@@ -1230,6 +1412,11 @@ import { createBag } from "./game-core.js";
       softDrops: state.softDrops,
       bestClearInGame: state.bestClearInGame,
       sessionHistory: state.sessionHistory,
+      survivalStreak: state.survivalStreak,
+      lastStreakMs: state.lastStreakMs,
+      chaosUntilMs: state.chaosUntilMs,
+      currentGhostRun: state.currentGhostRun,
+      lastGhostSampleMs: state.lastGhostSampleMs,
       elapsedMs: state.elapsedMs
     });
   }
@@ -1240,10 +1427,15 @@ import { createBag } from "./game-core.js";
       showToast("Сохранения пока нет");
       return;
     }
-    Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
+    Object.assign(state, save, { running: true, paused: false, gameOver: false, won: false, phase: FLOW_STATE.PLAYING, lastTime: 0, dropMs: 0, lockDelayMs: 0, lockResets: 0, flashes: [] });
     state.mode = normalizeModeKey(state.mode);
     state.ai.enabled = false;
     state.sessionHistory = Array.isArray(save.sessionHistory) ? save.sessionHistory : [];
+    state.survivalStreak = Number(save.survivalStreak) || 0;
+    state.lastStreakMs = Number(save.lastStreakMs) || state.elapsedMs || 0;
+    state.chaosUntilMs = Number(save.chaosUntilMs) || 0;
+    state.currentGhostRun = Array.isArray(save.currentGhostRun) ? save.currentGhostRun : [];
+    state.lastGhostSampleMs = Number(save.lastGhostSampleMs) || state.elapsedMs || 0;
     state.difficulty = "normal";
     state.rng = Math.random;
     hideOverlays();
@@ -1253,7 +1445,7 @@ import { createBag } from "./game-core.js";
   }
 
   function renderStats() {
-    const modeCounts = { classic: 0, sprint: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
+    const modeCounts = { classic: 0, sprint: 0, hardcore: 0, timeAttack: 0, relax: 0, chaos: 0, ...state.stats.modeCounts };
     const favoriteMode = Object.entries(modeCounts).sort((a, b) => b[1] - a[1])[0];
     const averageDuration = state.stats.games ? formatTime((state.stats.totalTime / state.stats.games) * 1000) : "0:00";
     const rank = rankInfo(state.stats.bestScore);
@@ -1299,7 +1491,8 @@ import { createBag } from "./game-core.js";
   }
 
   async function submitServerRecord() {
-    if (!location.protocol.startsWith("http") || state.score <= 0) {
+    const modeConfig = getModeConfig(state.mode);
+    if (!location.protocol.startsWith("http") || state.score <= 0 || modeConfig.relaxed) {
       ui.setServerRecordStatus(location.protocol.startsWith("http") ? "" : "Серверные рекорды доступны на онлайн-версии.");
       return;
     }
@@ -1552,6 +1745,25 @@ import { createBag } from "./game-core.js";
     statsReturnOverlay = null;
   }
 
+  function openReplay() {
+    ui.renderReplay(state.ghostRun, formatTime);
+  }
+
+  function closeReplay() {
+    ui.hideOverlay("replayOverlay");
+    syncUi();
+  }
+
+  function startGhostRun() {
+    if (!state.ghostRun?.mode) {
+      showToast("Сначала поставь локальный рекорд");
+      return;
+    }
+    ui.hideOverlay("replayOverlay");
+    startGame(state.ghostRun.mode, "normal");
+    showToast("Призрак лучшей партии включён");
+  }
+
   function changeSetting(key, value) {
     state.settings[key] = value;
     if (key === "volume") {
@@ -1559,6 +1771,12 @@ import { createBag } from "./game-core.js";
       state.settings.clearVolume = value;
       state.settings.alertVolume = value;
     }
+    applySettings();
+    syncUi();
+  }
+
+  function toggleSoundMute() {
+    state.settings.muted = !state.settings.muted;
     applySettings();
     syncUi();
   }
@@ -1893,6 +2111,9 @@ import { createBag } from "./game-core.js";
       openSettings: () => { openSettings(); syncUi(); },
       installApp,
       openStats: () => { openStats(); syncUi(); },
+      openReplay: () => { openReplay(); syncUi(); },
+      closeReplay,
+      startGhostRun,
       openHelp: () => { ui.showOverlay("helpOverlay"); syncUi(); },
       closeHelp: () => { ui.hideOverlay("helpOverlay"); syncUi(); },
       openTutorial: () => { ui.hideOverlay("helpOverlay"); ui.showOverlay("tutorialOverlay"); syncUi(); },
@@ -1923,6 +2144,7 @@ import { createBag } from "./game-core.js";
       softDrop: () => { softDrop(); syncUi(); },
       rotate: () => { rotateClockwise(); syncUi(); },
       hardDrop: () => { hardDrop(); syncUi(); },
+      toggleMute: toggleSoundMute,
       changeSetting
     });
 
@@ -1968,7 +2190,7 @@ import { createBag } from "./game-core.js";
   function bootPwa() {
     const canUsePwa = "serviceWorker" in navigator && (window.isSecureContext || /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
     if (canUsePwa) {
-      navigator.serviceWorker.register("sw.js").then(() => {
+      navigator.serviceWorker.register("/sw.js").then(() => {
         showToast("Офлайн-кэш готовится");
       }).catch(() => undefined);
     }

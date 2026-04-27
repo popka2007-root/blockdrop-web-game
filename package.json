@@ -12,6 +12,7 @@
     "verify": "npm run lint && npm test && npm run test:e2e",
     "smoke:prod": "node scripts/prod-smoke.js",
     "release:check": "npm run verify && npm run smoke:prod",
+    "capture:media": "node scripts/capture-media.js",
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""
   },
   "engines": {

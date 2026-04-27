@@ -6,10 +6,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Тетрис">
   <meta name="theme-color" content="#182033">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>Тетрис</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="app" id="app">
@@ -50,7 +50,7 @@
 
         <div class="panel tiny-grid" id="statsPanel">
         <div class="mini-stat"><b id="recordValue">0</b><span>Рекорд</span></div>
-        <div class="mini-stat hidden"><b id="comboValue">0</b><span>Комбо</span></div>
+        <div class="mini-stat"><b id="comboValue">0</b><span>Комбо/стрик</span></div>
         <div class="mini-stat"><b id="piecesValue">0</b><span>Фигур</span></div>
         <div class="mini-stat"><b id="timeValue">0:00</b><span>Время</span></div>
         <div class="mini-stat hidden"><b id="apmValue">0</b><span>APM</span></div>
@@ -93,6 +93,8 @@
           <select class="select" id="startMode">
             <option value="classic">Классика</option>
             <option value="sprint">40 линий</option>
+            <option value="hardcore">Hardcore</option>
+            <option value="timeAttack">Time Attack</option>
             <option value="relax">Дзен</option>
             <option value="chaos">Хаос</option>
           </select>
@@ -104,6 +106,22 @@
             <option value="normal" selected>Нормальный</option>
             <option value="hard">Сильный</option>
             <option value="insane">Безумный</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="aiStyleSelect">Стиль AI</label>
+          <select class="select" id="aiStyleSelect">
+            <option value="balanced" selected>Баланс</option>
+            <option value="aggressive">Атака</option>
+            <option value="defensive">Защита</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label for="aiPaceSelect">Темп AI</label>
+          <select class="select" id="aiPaceSelect">
+            <option value="calm">Спокойный</option>
+            <option value="fair" selected>Ровный</option>
+            <option value="fast">Быстрый</option>
           </select>
         </div>
       </div>
@@ -118,6 +136,7 @@
         <button class="button" id="startSettingsButton">Настройки</button>
         <button class="button hidden" id="installButton">Установить офлайн</button>
         <button class="button" id="openStatsButton">Статистика</button>
+        <button class="button" id="replayButton">Повтор лучшей</button>
         <button class="button" id="helpButton">Как играть</button>
       </div>
     </div>
@@ -198,6 +217,7 @@
           <label for="volumeRange">Звук</label>
           <div class="range-row"><input id="volumeRange" type="range" min="0" max="100" value="70"><span id="volumeValue">70</span></div>
         </div>
+        <button class="button" id="muteButton" type="button">Выключить звук</button>
       </div>
       <div class="modal-actions">
         <button class="button primary" id="closeSettingsButton">Готово</button>
@@ -357,6 +377,18 @@
     </div>
   </section>
 
+  <section class="overlay" id="replayOverlay" hidden>
+    <div class="modal">
+      <h2>Повтор лучшей</h2>
+      <p class="muted" id="replaySummary">Запись появится после нового рекорда.</p>
+      <div class="replay-track" id="replayTimeline"></div>
+      <div class="modal-actions">
+        <button class="button primary" id="startGhostButton">Играть против призрака</button>
+        <button class="button" id="closeReplayButton">Закрыть</button>
+      </div>
+    </div>
+  </section>
+
   <section class="overlay" id="gameOverOverlay" hidden>
     <div class="modal">
       <h2 id="gameOverTitle">Игра окончена</h2>
@@ -376,6 +408,7 @@
         <button class="button primary" id="playAgainButton">Играть снова</button>
         <button class="button" id="gameOverMenuButton">Главное меню</button>
         <button class="button" id="gameOverCoachButton">Советы тренера</button>
+        <button class="button" id="gameOverReplayButton">Повтор лучшей</button>
         <button class="button" id="shareResultButton">Поделиться результатом</button>
         <button class="button" id="gameOverStatsButton">Статистика</button>
       </div>
@@ -385,6 +418,6 @@
   <div class="fx-layer" id="fxLayer"></div>
   <div class="toast" id="toast"></div>
 
-  <script type="module" src="js/game.js"></script>
+  <script type="module" src="/js/game.js"></script>
 </body>
 </html>

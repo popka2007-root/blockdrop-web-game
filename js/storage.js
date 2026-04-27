@@ -53,6 +53,12 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     saveScores(value) {
       saveJson(keys.scores, value, storage);
     },
+    loadGhostRun(fallback = null) {
+      return loadJson(keys.ghostRun, fallback, storage);
+    },
+    saveGhostRun(value) {
+      saveJson(keys.ghostRun, value, storage);
+    },
     loadAchievements(fallback = {}) {
       return loadJson(keys.achievements, fallback, storage);
     },

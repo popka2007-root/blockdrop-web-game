@@ -23,18 +23,18 @@ const UI_IDS = [
   "board", "boardShell", "next1", "next2", "next3", "hold", "scoreValue", "levelValue", "linesValue", "recordValue",
   "comboValue", "piecesValue", "timeValue", "goalValue", "progressFill", "rankValue", "apmValue", "heightValue",
   "onlinePanel", "startOverlay", "pauseOverlay", "settingsOverlay", "statsOverlay", "gameOverOverlay", "startButton",
-  "dailyButton", "continueButton", "friendButton", "aiButton", "aiDifficultySelect", "modeSummary", "menuRecords", "startSettingsButton", "installButton", "openStatsButton", "resumeButton", "playAgainButton",
+  "dailyButton", "continueButton", "friendButton", "aiButton", "aiDifficultySelect", "aiStyleSelect", "aiPaceSelect", "modeSummary", "menuRecords", "startSettingsButton", "installButton", "openStatsButton", "replayButton", "resumeButton", "playAgainButton",
   "pauseButton", "mainMenuButton", "pauseMenuButton", "gameOverMenuButton", "pauseRestartButton", "pauseSettingsButton",
   "holdButton", "leftButton", "rightButton", "rotateButton", "downButton", "dropButton", "startMode", "themeSelect",
   "themeSwatches", "languageSelect", "controlModeSelect", "vibrationToggle", "sensitivitySelect", "handednessSelect", "performanceSelect",
-  "volumeRange", "volumeValue", "closeSettingsButton", "closeStatsButton",
+  "volumeRange", "volumeValue", "muteButton", "closeSettingsButton", "closeStatsButton",
   "shareStatsButton", "gameOverStatsButton", "statsGrid", "leaderboard", "serverLeaderboard", "achievementsList",
   "helpButton", "helpOverlay", "coachOverlay", "coachTips", "closeCoachButton", "onlineOverlay",
   "onlineServerInput", "onlineRoomInput", "onlineNameInput", "onlineMaxPlayersSelect", "onlineDurationSelect",
   "onlinePlayers", "onlineStatus", "roomCodeValue", "roomInviteLink", "roomQr", "connectOnlineButton", "copyRoomButton", "shareRoomButton", "startTournamentButton", "closeOnlineButton",
-  "tournamentOverlay", "tournamentResults", "closeTournamentButton", "rematchButton", "closeHelpButton", "shareResultButton",
+  "tournamentOverlay", "tournamentResults", "closeTournamentButton", "rematchButton", "replayOverlay", "replaySummary", "replayTimeline", "startGhostButton", "closeReplayButton", "closeHelpButton", "shareResultButton",
   "finalScore", "finalLevel", "finalLines", "finalCombo", "finalRecord", "resultBadge", "resultHighlights", "gameOverTitle", "gameOverText",
-  "gameOverInsight", "gameOverCoachButton", "serverRecordStatus", "tutorialButton", "tutorialOverlay", "tutorialText",
+  "gameOverInsight", "gameOverCoachButton", "gameOverReplayButton", "serverRecordStatus", "tutorialButton", "tutorialOverlay", "tutorialText",
   "tutorialSteps", "tutorialNextButton", "tutorialPlayButton", "closeTutorialButton", "toast", "fxLayer"
 ];
 
@@ -112,6 +112,8 @@ export function createUi(options = {}) {
 
     refs.themeSelect.value = settings.theme;
     refs.aiDifficultySelect.value = settings.aiDifficulty || "normal";
+    refs.aiStyleSelect.value = settings.aiStyle || "balanced";
+    refs.aiPaceSelect.value = settings.aiPace || "fair";
     refs.languageSelect.value = settings.language;
     refs.controlModeSelect.value = settings.controlMode;
     refs.vibrationToggle.checked = settings.vibration;
@@ -122,6 +124,10 @@ export function createUi(options = {}) {
     refs.volumeValue.textContent = settings.volume;
     updateThemeSwatches(settings.theme);
     applyLanguage(settings.language);
+    refs.muteButton.textContent = settings.muted
+      ? (settings.language === "en" ? "Unmute" : "Включить звук")
+      : (settings.language === "en" ? "Mute" : "Выключить звук");
+    refs.muteButton.classList.toggle("warn", settings.muted);
   }
 
   function textFor(language) {
@@ -166,6 +172,8 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#startOverlay .muted"), text.intro);
     setLabel('label[for="startMode"]', language === "en" ? "Mode" : "Режим");
     setLabel('label[for="aiDifficultySelect"]', language === "en" ? "AI difficulty" : "AI сложность");
+    setLabel('label[for="aiStyleSelect"]', language === "en" ? "AI style" : "Стиль AI");
+    setLabel('label[for="aiPaceSelect"]', language === "en" ? "AI pace" : "Темп AI");
     setText(refs.startButton, text.start);
     setText(refs.dailyButton, language === "en" ? "Daily Challenge" : "Испытание дня");
     setText(refs.continueButton, text.continue);
@@ -174,6 +182,7 @@ export function createUi(options = {}) {
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
     setText(refs.openStatsButton, text.stats);
+    setText(refs.replayButton, language === "en" ? "Best replay" : "Повтор лучшей");
     setText(refs.helpButton, text.help);
 
     setText(documentRef.querySelector("#settingsOverlay h2"), text.settings);
@@ -189,6 +198,7 @@ export function createUi(options = {}) {
       vibrationRow.appendChild(refs.vibrationToggle);
     }
     setLabel('label[for="volumeRange"]', text.sound);
+    setText(refs.muteButton, language === "en" ? "Mute" : "Выключить звук");
     setText(refs.closeSettingsButton, text.done);
 
     setText(documentRef.querySelector("#pauseOverlay h2"), text.pauseTitle);
@@ -242,8 +252,12 @@ export function createUi(options = {}) {
     setText(refs.playAgainButton, text.playAgain);
     setText(refs.gameOverMenuButton, text.mainMenu);
     setText(refs.gameOverCoachButton, text.coachTips);
+    setText(refs.gameOverReplayButton, language === "en" ? "Best replay" : "Повтор лучшей");
     setText(refs.shareResultButton, text.shareResult);
     setText(refs.gameOverStatsButton, text.stats);
+    setText(documentRef.querySelector("#replayOverlay h2"), language === "en" ? "Best replay" : "Повтор лучшей");
+    setText(refs.startGhostButton, language === "en" ? "Play ghost run" : "Играть против призрака");
+    setText(refs.closeReplayButton, text.close);
     populateModeSelect(language);
   }
 
@@ -421,8 +435,15 @@ export function createUi(options = {}) {
     return `rgb(${r},${g},${b})`;
   }
 
-  function drawCell(context, x, y, size, kind, alpha, renderConfig) {
+  function normalizeCell(value) {
+    if (!value) return { kind: null, modifier: "normal" };
+    if (typeof value === "string") return { kind: value, modifier: "normal" };
+    return { kind: value.kind || null, modifier: value.modifier || "normal" };
+  }
+
+  function drawCell(context, x, y, size, value, alpha, renderConfig) {
     const { settings, palettes } = renderConfig;
+    const { kind, modifier } = normalizeCell(value);
     const palette = settings.colorBlind ? palettes.safe : (palettes.themes[settings.theme] || palettes.base);
     const color = palette[kind] || palette.X || palettes.base.X;
     const theme = settings.theme;
@@ -452,10 +473,19 @@ export function createUi(options = {}) {
     }
     context.strokeStyle = theme === "mono" ? "rgba(255,255,255,0.40)" : theme === "day" ? "rgba(23,32,51,0.18)" : "rgba(255,255,255,0.18)";
     drawBlockShape(context, theme, x + pad, y + pad, side, radius, false, true);
+    if (modifier === "bonus" || modifier === "danger" || modifier === "chaos") {
+      context.fillStyle = modifier === "bonus" ? "rgba(94, 234, 212, 0.9)" : modifier === "danger" ? "rgba(255, 91, 91, 0.9)" : "rgba(255, 194, 87, 0.95)";
+      context.beginPath();
+      context.arc(x + size * 0.72, y + size * 0.28, Math.max(2, size * 0.1), 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = "rgba(11,15,25,0.7)";
+      context.stroke();
+    }
     context.globalAlpha = 1;
   }
 
-  function drawPreview(context, canvas, kind, renderConfig) {
+  function drawPreview(context, canvas, value, renderConfig) {
+    const { kind, modifier } = normalizeCell(value);
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     context.clearRect(0, 0, width, height);
@@ -463,7 +493,7 @@ export function createUi(options = {}) {
     for (let y = 0; y < 4; y += 1) {
       for (let x = 0; x < 4; x += 1) {
         const filled = kind && renderConfig.shapes[kind][0].some(([sx, sy]) => sx === x && sy === y);
-        drawCell(context, x * size + 2, y * size + 2, size - 2, filled ? kind : null, filled ? 1 : 0.5, renderConfig);
+        drawCell(context, x * size + 2, y * size + 2, size - 2, filled ? { kind, modifier } : null, filled ? 1 : 0.5, renderConfig);
       }
     }
   }
@@ -501,11 +531,11 @@ export function createUi(options = {}) {
     }
 
     if (renderConfig.settings.ghost && ghost) {
-      for (const cellData of ghost) drawCell(ctx, x0 + cellData.x * cell, cellData.y * cell, cell, active.kind, 0.22, renderConfig);
+      for (const cellData of ghost) drawCell(ctx, x0 + cellData.x * cell, cellData.y * cell, cell, active, 0.22, renderConfig);
     }
 
     if (active) {
-      for (const cellData of active.cells) drawCell(ctx, x0 + cellData.x * cell, cellData.y * cell, cell, active.kind, 1, renderConfig);
+      for (const cellData of active.cells) drawCell(ctx, x0 + cellData.x * cell, cellData.y * cell, cell, active, 1, renderConfig);
     }
 
     if (renderConfig.settings.grid) {
@@ -546,7 +576,7 @@ export function createUi(options = {}) {
     refs.levelValue.textContent = payload.level;
     refs.linesValue.textContent = payload.lines;
     refs.recordValue.textContent = payload.record;
-    refs.comboValue.textContent = payload.combo;
+    refs.comboValue.textContent = payload.streak ? `${payload.combo}/${payload.streak}` : payload.combo;
     refs.piecesValue.textContent = payload.pieces;
     refs.timeValue.textContent = payload.time;
     refs.apmValue.textContent = payload.apm;
@@ -587,6 +617,7 @@ export function createUi(options = {}) {
     refs.coachOverlay.hidden = true;
     refs.onlineOverlay.hidden = true;
     refs.tournamentOverlay.hidden = true;
+    refs.replayOverlay.hidden = true;
     refs.gameOverOverlay.hidden = true;
   }
 
@@ -672,6 +703,29 @@ export function createUi(options = {}) {
     }).join("");
   }
 
+  function renderReplay(ghostRun, formatTime) {
+    if (!ghostRun || !Array.isArray(ghostRun.samples) || ghostRun.samples.length === 0) {
+      refs.replaySummary.textContent = refs.languageSelect.value === "en"
+        ? "Replay appears after a new local best."
+        : "Запись появится после нового локального рекорда.";
+      refs.replayTimeline.innerHTML = "";
+      refs.startGhostButton.disabled = true;
+      refs.replayOverlay.hidden = false;
+      return;
+    }
+
+    refs.startGhostButton.disabled = false;
+    refs.replaySummary.textContent = `${ghostRun.score} · ${escapeHtml(ghostRun.mode)} · ${new Date(ghostRun.date).toLocaleDateString("ru-RU")}`;
+    const maxHeight = Math.max(1, ...ghostRun.samples.map((sample) => Number(sample.height) || 0));
+    const maxScore = Math.max(1, ...ghostRun.samples.map((sample) => Number(sample.score) || 0));
+    refs.replayTimeline.innerHTML = ghostRun.samples.slice(-32).map((sample) => {
+      const height = Math.max(4, Math.round((Number(sample.height) || 0) / maxHeight * 100));
+      const score = Math.max(4, Math.round((Number(sample.score) || 0) / maxScore * 100));
+      return `<div class="replay-step"><span>${escapeHtml(formatTime(sample.time))}</span><i style="height:${height}%"></i><b style="height:${score}%"></b></div>`;
+    }).join("");
+    refs.replayOverlay.hidden = false;
+  }
+
   function renderMenuRecords({ bestScore, lastGame, sprintBest, dailyBest, serverTop }) {
     refs.menuRecords.innerHTML = [
       ["Рекорд", bestScore || 0],
@@ -744,6 +798,13 @@ export function createUi(options = {}) {
     refs.boardShell.classList.add("shake");
   }
 
+  function pulseScore(reducedMotion) {
+    if (reducedMotion) return;
+    refs.scoreValue.classList.remove("score-pop");
+    void refs.scoreValue.offsetWidth;
+    refs.scoreValue.classList.add("score-pop");
+  }
+
   function burst({ count, reducedMotion, particles, colors }) {
     if (!particles || reducedMotion) return;
     const rect = refs.boardShell.getBoundingClientRect();
@@ -805,6 +866,7 @@ export function createUi(options = {}) {
     bindPress(refs.startSettingsButton, callbacks.openSettings);
     bindPress(refs.installButton, callbacks.installApp);
     bindPress(refs.openStatsButton, callbacks.openStats);
+    bindPress(refs.replayButton, callbacks.openReplay);
     bindPress(refs.helpButton, callbacks.openHelp);
     bindPress(refs.closeHelpButton, callbacks.closeHelp);
     bindPress(refs.tutorialButton, callbacks.openTutorial);
@@ -832,11 +894,15 @@ export function createUi(options = {}) {
     bindPress(refs.pauseRestartButton, callbacks.restartGame);
     bindPress(refs.pauseSettingsButton, callbacks.openSettings);
     bindPress(refs.closeSettingsButton, callbacks.closeSettings);
+    bindPress(refs.muteButton, callbacks.toggleMute);
     bindPress(refs.closeStatsButton, callbacks.closeStats);
     bindPress(refs.shareStatsButton, callbacks.shareStats);
     bindPress(refs.gameOverStatsButton, callbacks.openStats);
     bindPress(refs.gameOverCoachButton, callbacks.openCoach);
+    bindPress(refs.gameOverReplayButton, callbacks.openReplay);
     bindPress(refs.shareResultButton, callbacks.shareResult);
+    bindPress(refs.startGhostButton, callbacks.startGhostRun);
+    bindPress(refs.closeReplayButton, callbacks.closeReplay);
     bindPress(refs.holdButton, callbacks.holdPiece);
     bindRepeat(refs.leftButton, callbacks.moveLeft);
     bindRepeat(refs.rightButton, callbacks.moveRight);
@@ -852,6 +918,8 @@ export function createUi(options = {}) {
       callbacks.changeSetting("theme", refs.themeSelect.value);
     });
     refs.aiDifficultySelect.addEventListener("change", () => callbacks.changeSetting("aiDifficulty", refs.aiDifficultySelect.value));
+    refs.aiStyleSelect.addEventListener("change", () => callbacks.changeSetting("aiStyle", refs.aiStyleSelect.value));
+    refs.aiPaceSelect.addEventListener("change", () => callbacks.changeSetting("aiPace", refs.aiPaceSelect.value));
     refs.startMode.addEventListener("change", () => {
       renderModeSummary(refs.languageSelect.value || "ru");
       callbacks.changeSetting("lastMode", refs.startMode.value);
@@ -923,6 +991,7 @@ export function createUi(options = {}) {
     renderOnlinePanel,
     renderTournamentResults,
     renderStats,
+    renderReplay,
     renderMenuRecords,
     renderCoachTips,
     setServerRecordStatus,
@@ -935,6 +1004,7 @@ export function createUi(options = {}) {
     updateInstallButton,
     showToast,
     shakeBoard,
+    pulseScore,
     burst,
     bindControls,
     bindWindowEvents,
