@@ -483,9 +483,33 @@
           </div>
         </div>
         <label class="toggle-row">
-          <span>Ranked PvP</span>
+          <span id="onlineRankedLabel">Ranked PvP</span>
           <input id="onlineRankedToggle" type="checkbox" />
         </label>
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="accountUsernameInput">Account</label>
+            <input
+              class="input"
+              id="accountUsernameInput"
+              maxlength="24"
+              autocomplete="username"
+              placeholder="username"
+            />
+          </div>
+          <div class="setting">
+            <label for="accountPasswordInput">Password</label>
+            <input
+              class="input"
+              id="accountPasswordInput"
+              maxlength="128"
+              autocomplete="current-password"
+              type="password"
+              placeholder="8+ symbols"
+            />
+          </div>
+        </div>
+        <p class="muted" id="accountStatus">Guest</p>
         <div class="result-grid" id="onlinePlayers"></div>
         <p class="muted" id="onlineStatus">Не подключено</p>
         <input id="onlineServerInput" type="hidden" />
@@ -519,6 +543,10 @@
           </div>
         </details>
         <div class="modal-actions">
+          <button class="button" id="findRankedButton">Ranked</button>
+          <button class="button" id="accountLoginButton">Login</button>
+          <button class="button" id="accountRegisterButton">Register</button>
+          <button class="button" id="accountLogoutButton">Logout</button>
           <button class="button primary" id="connectOnlineButton">
             Подключиться
           </button>

@@ -79,6 +79,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     playerName: "blockdrop-player-name",
     rankedPlayerId: "blockdrop-ranked-player-id-v1",
     rankedIdentityToken: "blockdrop-ranked-identity-token-v1",
+    accountToken: "blockdrop-account-token-v1",
+    accountName: "blockdrop-account-name-v1",
     matchHistory: "blockdrop-online-match-history-v1",
     onlineStats: "blockdrop-online-stats-v1",
   };
@@ -1719,6 +1721,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     createFriendRoom,
     disconnectOnline,
     toggleOnlineConnection,
+    findRankedMatch,
     startOnlineGame,
     startTournament,
     requestRematch,
@@ -1927,6 +1930,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerId: storage.loadRankedPlayerId("") || loadOrCreatePlayerId(),
+          accountToken: storage.loadAccountToken?.(""),
           name: storage.loadPlayerName("Игрок") || state.online.name || "Игрок",
           score: state.score,
           lines: state.lines,
@@ -1944,6 +1948,63 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     } catch {
       // Keep local daily best even when the server is unavailable.
     }
+  }
+
+  async function submitAccount(action) {
+    const form = ui.getAccountForm?.() || {};
+    try {
+      const response = await fetch("/api/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          username: form.username,
+          password: form.password,
+          displayName: form.displayName || form.username,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.token) {
+        ui.setAccountStatus?.(
+          state.settings.language === "en"
+            ? "Account request failed"
+            : "Ошибка аккаунта",
+        );
+        showToast(data.error || "Account error");
+        return;
+      }
+      storage.saveAccountToken?.(data.token);
+      storage.saveAccountName?.(data.account?.displayName || form.username);
+      storage.savePlayerName(data.account?.displayName || form.username);
+      ui.setAccountSession?.(data.account);
+      showToast(
+        state.settings.language === "en"
+          ? `Signed in as ${data.account?.displayName || data.account?.username}`
+          : `Вход: ${data.account?.displayName || data.account?.username}`,
+      );
+      syncUi();
+    } catch {
+      ui.setAccountStatus?.(
+        state.settings.language === "en"
+          ? "Account server unavailable"
+          : "Сервер аккаунтов недоступен",
+      );
+    }
+  }
+
+  function logoutAccount() {
+    const token = storage.loadAccountToken?.("");
+    storage.clearAccountToken?.();
+    storage.saveAccountName?.("");
+    ui.setAccountSession?.(null);
+    if (token && location.protocol.startsWith("http")) {
+      fetch("/api/account", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    showToast(state.settings.language === "en" ? "Signed out" : "Вы вышли");
+    syncUi();
   }
 
   async function submitServerRecord() {
@@ -2809,6 +2870,13 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
           syncUi();
         }
       },
+      findRankedMatch: () => {
+        findRankedMatch();
+        syncUi();
+      },
+      loginAccount: () => submitAccount("login"),
+      registerAccount: () => submitAccount("register"),
+      logoutAccount,
       copyRoomLink,
       shareRoomLink,
       startTournament: () => {

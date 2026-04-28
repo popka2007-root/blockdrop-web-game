@@ -121,6 +121,14 @@ const UI_IDS = [
   "onlineRoomInput",
   "onlineNameInput",
   "onlineRankedToggle",
+  "onlineRankedLabel",
+  "findRankedButton",
+  "accountUsernameInput",
+  "accountPasswordInput",
+  "accountStatus",
+  "accountLoginButton",
+  "accountRegisterButton",
+  "accountLogoutButton",
   "onlineMaxPlayersSelect",
   "onlineDurationSelect",
   "onlinePlayers",
@@ -788,7 +796,24 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#onlineOverlay h2"), text.online);
     setLabel('label[for="onlineRoomInput"]', text.room);
     setLabel('label[for="onlineNameInput"]', text.name);
-    setText(documentRef.querySelector(".toggle-row span"), text.ranked);
+    setText(refs.onlineRankedLabel, text.ranked);
+    setLabel(
+      'label[for="accountUsernameInput"]',
+      language === "en" ? "Account" : "Аккаунт",
+    );
+    setLabel(
+      'label[for="accountPasswordInput"]',
+      language === "en" ? "Password" : "Пароль",
+    );
+    setPlaceholder(refs.accountUsernameInput, "username");
+    setPlaceholder(
+      refs.accountPasswordInput,
+      language === "en" ? "8+ characters" : "8+ символов",
+    );
+    setText(refs.findRankedButton, language === "en" ? "Find ranked" : "Ranked матч");
+    setText(refs.accountLoginButton, language === "en" ? "Login" : "Войти");
+    setText(refs.accountRegisterButton, language === "en" ? "Register" : "Создать");
+    setText(refs.accountLogoutButton, language === "en" ? "Logout" : "Выйти");
     setText(documentRef.querySelector(".room-card span"), text.roomCode);
     refs.roomQr.setAttribute(
       "alt",
@@ -1721,6 +1746,32 @@ export function createUi(options = {}) {
     refs.connectOnlineButton.classList.add("primary");
   }
 
+  function getAccountForm() {
+    return {
+      username: refs.accountUsernameInput.value.trim(),
+      password: refs.accountPasswordInput.value,
+      displayName: refs.onlineNameInput.value.trim(),
+    };
+  }
+
+  function setAccountStatus(text) {
+    refs.accountStatus.textContent = text;
+  }
+
+  function setAccountSession(account) {
+    const language = refs.languageSelect.value;
+    if (!account) {
+      refs.accountStatus.textContent = language === "en" ? "Guest" : "Гость";
+      return;
+    }
+    refs.accountUsernameInput.value = account.username || "";
+    refs.onlineNameInput.value = account.displayName || account.username || "";
+    refs.accountStatus.textContent =
+      language === "en"
+        ? `Signed in: ${account.displayName || account.username}`
+        : `Аккаунт: ${account.displayName || account.username}`;
+  }
+
   function updateInstallButton(visible) {
     refs.installButton.classList.toggle("hidden", !visible);
   }
@@ -1858,6 +1909,10 @@ export function createUi(options = {}) {
     bindPress(refs.closeTutorialButton, callbacks.closeTutorial);
     bindPress(refs.closeCoachButton, callbacks.closeCoach);
     bindPress(refs.connectOnlineButton, callbacks.toggleOnlineConnection);
+    bindPress(refs.findRankedButton, callbacks.findRankedMatch);
+    bindPress(refs.accountLoginButton, callbacks.loginAccount);
+    bindPress(refs.accountRegisterButton, callbacks.registerAccount);
+    bindPress(refs.accountLogoutButton, callbacks.logoutAccount);
     bindPress(refs.copyRoomButton, callbacks.copyRoomLink);
     bindPress(refs.shareRoomButton, callbacks.shareRoomLink);
     bindPress(refs.startTournamentButton, callbacks.startTournament);
@@ -2020,6 +2075,9 @@ export function createUi(options = {}) {
     setServerRecordStatus,
     setOnlineDefaults,
     getOnlineForm,
+    getAccountForm,
+    setAccountStatus,
+    setAccountSession,
     setOnlineRoom,
     setOnlineRanked,
     renderRoomInvite,

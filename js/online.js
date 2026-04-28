@@ -4,6 +4,7 @@ export const ONLINE_UPDATE_INTERVAL_MS = 125;
 export const ONLINE_PING_INTERVAL_MS = 4000;
 export const RANKED_PLAYER_ID_KEY = "blockdrop-ranked-player-id-v1";
 export const RANKED_IDENTITY_TOKEN_KEY = "blockdrop-ranked-identity-token-v1";
+export const ACCOUNT_TOKEN_KEY = "blockdrop-account-token-v1";
 
 const protocol = globalThis.__blockdropProtocol;
 
@@ -62,6 +63,17 @@ export function saveRankedIdentityToken(
     return safeToken;
   } catch {
     return normalizeIdentityToken(token);
+  }
+}
+
+export function loadAccountToken(
+  storage = globalThis.localStorage,
+  key = ACCOUNT_TOKEN_KEY,
+) {
+  try {
+    return normalizeIdentityToken(storage?.getItem(key));
+  } catch {
+    return "";
   }
 }
 
@@ -166,6 +178,7 @@ export function createOnlineClient() {
     ranked: false,
     playerId: "",
     identityToken: "",
+    accountToken: "",
     rating: 1000,
     pingMs: 0,
     room: "",
@@ -248,6 +261,8 @@ export function connectOnline(
     ranked = false,
     playerId = "",
     identityToken = "",
+    accountToken = "",
+    rankedQueue = false,
   },
 ) {
   disconnectOnline(client);
@@ -259,6 +274,7 @@ export function connectOnline(
   client.ranked = Boolean(ranked);
   client.playerId = normalizePlayerId(playerId);
   client.identityToken = normalizeIdentityToken(identityToken);
+  client.accountToken = normalizeIdentityToken(accountToken);
 
   socket.addEventListener("open", () => {
     client.connected = true;
@@ -274,6 +290,8 @@ export function connectOnline(
         ranked: client.ranked,
         playerId: client.playerId,
         identityToken: client.identityToken,
+        accountToken: client.accountToken,
+        rankedQueue,
       }),
     );
     startOnlinePing(client);

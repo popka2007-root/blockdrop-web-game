@@ -104,9 +104,11 @@ describe("online module", () => {
       durationSec: 180,
       mode: "classic",
       ranked: true,
-      playerId: "playerid",
-      identityToken: "",
-    });
+        playerId: "playerid",
+        identityToken: "",
+        accountToken: "",
+        rankedQueue: false,
+      });
 
     expect(
       buildUpdateMessage({ room: "abc", name: "P1", score: 12.8, level: 0 })

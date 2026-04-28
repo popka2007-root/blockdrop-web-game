@@ -5,6 +5,7 @@ import {
   disconnectOnline as closeOnlineSocket,
   generateRoomCode,
   loadRankedIdentityToken,
+  loadAccountToken,
   loadOrCreatePlayerId,
   normalizeRoomId,
   onOnlineMessage,
@@ -136,6 +137,12 @@ export function createOnlineController({
       room,
       name: form.name || storage.loadPlayerName(defaultPlayerName()),
     });
+    if (storage.loadAccountName?.("")) {
+      ui.setAccountSession?.({
+        username: storage.loadAccountName(""),
+        displayName: storage.loadAccountName(""),
+      });
+    }
     ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
     ui.showOverlay("onlineOverlay");
     renderOnlinePlayers();
@@ -210,6 +217,7 @@ export function createOnlineController({
     const name = (rawName || defaultPlayerName()).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
     const identityToken = loadRankedIdentityToken();
+    const accountToken = storage.loadAccountToken?.("") || loadAccountToken();
     const mode = normalizeModeKey(ui.getStartMode());
     storage.saveRankedPlayerId(playerId);
     storage.savePlayerName(name);
@@ -232,6 +240,50 @@ export function createOnlineController({
         ranked,
         playerId,
         identityToken,
+        accountToken,
+      });
+      state.online.connected = false;
+    } catch {
+      showToast(onlineText("Неверный адрес сервера", "Invalid server address"));
+    }
+  }
+
+  function findRankedMatch() {
+    const accountToken = storage.loadAccountToken?.("") || loadAccountToken();
+    if (!accountToken) {
+      showToast(
+        onlineText(
+          "Для быстрого ranked нужен аккаунт",
+          "Sign in to find a ranked match",
+        ),
+      );
+      return;
+    }
+    const { server, name: rawName, maxPlayers, durationSec } = ui.getOnlineForm();
+    const name = (rawName || storage.loadAccountName?.("") || defaultPlayerName()).slice(0, 18);
+    const playerId = loadOrCreatePlayerId();
+    const identityToken = loadRankedIdentityToken();
+    const mode = normalizeModeKey(ui.getStartMode());
+    disconnectOnline(false);
+    try {
+      state.online.room = "RANKED";
+      state.online.mode = mode;
+      state.online.name = name;
+      state.online.ranked = true;
+      ui.setOnlineRanked(true);
+      ui.setOnlineStatus(onlineText("Ищем ranked матч...", "Finding ranked match..."));
+      openOnlineSocket(onlineClient, {
+        server,
+        room: "RANKED",
+        name,
+        maxPlayers,
+        durationSec,
+        mode,
+        ranked: true,
+        playerId,
+        identityToken,
+        accountToken,
+        rankedQueue: true,
       });
       state.online.connected = false;
     } catch {
@@ -379,6 +431,20 @@ export function createOnlineController({
       return;
     }
 
+    if (data.type === "queued") {
+      ui.setOnlineStatus(onlineText("Ожидание соперника...", "Waiting for opponent..."));
+      showToast(onlineText("Ranked очередь", "Ranked queue"));
+      return;
+    }
+
+    if (data.type === "matchFound") {
+      state.online.room = data.room || state.online.room;
+      ui.setOnlineRoom(state.online.room);
+      ui.setOnlineStatus(onlineText(`Матч найден: ${state.online.room}`, `Match found: ${state.online.room}`));
+      showToast(onlineText("Соперник найден", "Opponent found"));
+      return;
+    }
+
     if (data.type === "close") {
       state.online.connected = false;
       if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
@@ -509,6 +575,7 @@ export function createOnlineController({
     copyRoomLink,
     createFriendRoom,
     connectOnline,
+    findRankedMatch,
     disconnectOnline,
     toggleOnlineConnection,
     startOnlineGame,

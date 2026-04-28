@@ -50,6 +50,7 @@ const PING_KEYS = new Set(PING_KEY_LIST);
 const JOIN_KEYS = new Set(JOIN_KEY_LIST);
 const TOURNAMENT_KEYS = new Set(TOURNAMENT_KEY_LIST);
 const rooms = new Map();
+const rankedQueue = [];
 const startedAt = Date.now();
 let cachedPackageMeta = null;
 const store = createServerStore({ root: ROOT });
@@ -95,6 +96,11 @@ const server = http.createServer((req, res) => {
 
   if (requestUrl.pathname === "/api/daily") {
     handleDailyApi(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/account") {
+    handleAccountApi(req, res, requestUrl);
     return;
   }
 
@@ -175,6 +181,7 @@ function handleHealth(req, res) {
     spectators: liveSpectatorsCount(),
     records: counts.records,
     rankedPlayers: counts.rankedPlayers,
+    accounts: counts.accounts,
     dailyDate,
     dailyEntries: counts.dailyEntries,
     revision: readRevision(),
@@ -364,7 +371,8 @@ function handleDailyApi(req, res) {
     }
 
     const dateKey = serverDateKey();
-    const entry = sanitizeDailyScore(data, dateKey);
+    const account = accountFromRequest(req, data.accountToken);
+    const entry = sanitizeDailyScore(data, dateKey, account);
     const leaderboard = store.saveDailyScore(entry);
     metrics.increment("blockdrop_daily_submissions_total");
     sendJson(res, {
@@ -373,6 +381,69 @@ function handleDailyApi(req, res) {
       leaderboard,
     });
   });
+}
+
+function handleAccountApi(req, res, requestUrl) {
+  if (req.method === "GET") {
+    const account = accountFromRequest(req, requestUrl.searchParams.get("token"));
+    if (!account) {
+      sendJson(res, { account: null }, 401);
+      return;
+    }
+    sendJson(res, { account: store.publicAccount(account) });
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const token = authTokenFromRequest(req);
+    store.logoutAccount(token);
+    sendJson(res, { ok: true });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+    if (body.length > 4096) req.destroy();
+  });
+  req.on("end", () => {
+    let data = {};
+    try {
+      data = JSON.parse(body || "{}");
+    } catch {
+      sendJson(res, { error: "Bad JSON" }, 400);
+      return;
+    }
+    const action = String(data.action || "login");
+    const result =
+      action === "register"
+        ? store.createAccount(data)
+        : store.loginAccount(data);
+    if (!result.ok) {
+      sendJson(res, { error: result.code || "accountError" }, 400);
+      return;
+    }
+    sendJson(res, {
+      account: store.publicAccount(result.account),
+      token: result.token,
+    });
+  });
+}
+
+function authTokenFromRequest(req) {
+  const header = String(req.headers.authorization || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? normalizeIdentityToken(match[1]) : "";
+}
+
+function accountFromRequest(req, explicitToken = "") {
+  const token = normalizeIdentityToken(explicitToken) || authTokenFromRequest(req);
+  return token ? store.getAccountBySession(token) : null;
 }
 
 function sanitizeRecord(data) {
@@ -391,11 +462,13 @@ function sanitizeRecord(data) {
   };
 }
 
-function sanitizeDailyScore(data, dateKey) {
+function sanitizeDailyScore(data, dateKey, account = null) {
   return {
     dateKey,
-    playerId: cleanPlayerId(data.playerId),
-    name: cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
+    playerId: account?.id
+      ? `acct.${cleanPlayerId(account.id)}`
+      : cleanPlayerId(data.playerId),
+    name: account?.displayName || cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
     score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
@@ -491,6 +564,8 @@ function createClient(socket) {
     ranked: false,
     playerId: "",
     identityToken: "",
+    accountToken: "",
+    account: null,
     rankedProfile: null,
     name: "Player",
     state: emptyState(),
@@ -762,9 +837,11 @@ function validateJoinPayload(data) {
     (data.protocolVersion == null ||
       isIntegerInRange(data.protocolVersion, 1, PROTOCOL_VERSION)) &&
     (data.ranked == null || typeof data.ranked === "boolean") &&
+    (data.rankedQueue == null || typeof data.rankedQueue === "boolean") &&
     String(data.room || "").length <= 32 &&
     normalizePlayerId(data.playerId).length <= 64 &&
-    normalizeIdentityToken(data.identityToken).length <= 256
+    normalizeIdentityToken(data.identityToken).length <= 256 &&
+    normalizeIdentityToken(data.accountToken).length <= 256
   );
 }
 
@@ -822,6 +899,13 @@ function isSafeBoardPreview(value) {
 
 function joinRoom(client, data) {
   removeClient(client, "rejoin");
+  removeQueuedClient(client);
+  const accountToken = normalizeIdentityToken(data.accountToken);
+  const account = accountToken ? store.getAccountBySession(accountToken) : null;
+  if (data.rankedQueue === true) {
+    joinRankedQueue(client, data, account, accountToken);
+    return;
+  }
   const roomId = normalizeRoomId(data.room) || "LOBBY";
   const room = rooms.get(roomId);
   const rankedRequested = data.ranked === true || Boolean(room?.ranked);
@@ -836,6 +920,7 @@ function joinRoom(client, data) {
       playerId: playerId || client.id,
       name: data.name,
       identityToken,
+      account,
     });
     if (!identity?.accepted) {
       logger.warn("ranked_identity_rejected", {
@@ -880,6 +965,8 @@ function joinRoom(client, data) {
         ? playerId || client.id
         : "";
   client.identityToken = identity?.identityToken || "";
+  client.accountToken = accountToken;
+  client.account = account ? store.publicAccount(account) : null;
   client.rankedProfile = client.ranked ? identity?.profile || null : null;
   client.state = emptyState();
 
@@ -892,6 +979,8 @@ function joinRoom(client, data) {
     client.ranked = Boolean(slot?.ranked || actualRoom.ranked);
     client.playerId = slot?.playerId || client.playerId;
     client.identityToken = slot?.identityToken || client.identityToken;
+    client.accountToken = slot?.accountToken || client.accountToken;
+    client.account = slot?.account || client.account;
     client.rankedProfile = slot?.rankedProfile || client.rankedProfile;
     actualRoom.players.set(client.id, client);
   } else if (
@@ -911,6 +1000,7 @@ function joinRoom(client, data) {
     send(client, {
       type: "rankedProfile",
       ...store.publicRankedProfile(client.rankedProfile),
+      account: client.account,
     });
   }
   if (client.role === "spectator") {
@@ -923,6 +1013,70 @@ function joinRoom(client, data) {
   broadcastRoom(roomId);
   updateLiveMetrics();
   maybeAutoStart(actualRoom);
+}
+
+function joinRankedQueue(client, data, account, accountToken) {
+  if (!account) {
+    send(client, {
+      type: "error",
+      message: "Account required for ranked matchmaking",
+    });
+    return;
+  }
+  const waiting = rankedQueue.find(
+    (entry) => entry.client.socket && entry.account.id !== account.id,
+  );
+  client.name = cleanName(account.displayName || data.name);
+  client.accountToken = accountToken;
+  client.account = store.publicAccount(account);
+  client.playerId = `acct.${cleanPlayerId(account.id)}`;
+  client.ranked = true;
+  client.state = emptyState();
+  for (let index = rankedQueue.length - 1; index >= 0; index -= 1) {
+    if (rankedQueue[index].account.id === account.id) rankedQueue.splice(index, 1);
+  }
+  if (!waiting) {
+    rankedQueue.push({
+      client,
+      account,
+      accountToken,
+      data: {
+        ...data,
+        room: "",
+        ranked: true,
+        name: client.name,
+        playerId: client.playerId,
+      },
+    });
+    send(client, { type: "queued", mode: normalizeMatchMode(data.mode) });
+    return;
+  }
+
+  rankedQueue.splice(rankedQueue.indexOf(waiting), 1);
+  const roomId = `RANK${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+  send(waiting.client, { type: "matchFound", room: roomId });
+  send(client, { type: "matchFound", room: roomId });
+  joinRoom(waiting.client, {
+    ...waiting.data,
+    room: roomId,
+    ranked: true,
+    rankedQueue: false,
+    accountToken: waiting.accountToken,
+  });
+  joinRoom(client, {
+    ...data,
+    room: roomId,
+    ranked: true,
+    rankedQueue: false,
+    accountToken,
+    name: client.name,
+    playerId: client.playerId,
+  });
+}
+
+function removeQueuedClient(client) {
+  const index = rankedQueue.findIndex((entry) => entry.client === client);
+  if (index >= 0) rankedQueue.splice(index, 1);
 }
 
 function findReconnectSlot(room, name, playerId = "") {
@@ -1413,6 +1567,7 @@ function playersPayload(room) {
       ranked: client.ranked,
       rating: client.rankedProfile?.rating,
       streak: client.rankedProfile?.streak,
+      account: client.account,
       name: client.name,
       ...client.state,
     };
@@ -1424,6 +1579,7 @@ function playersPayload(room) {
       ranked: slot.ranked,
       rating: slot.rankedProfile?.rating,
       streak: slot.rankedProfile?.streak,
+      account: slot.account,
       name: slot.name,
       disconnected: true,
       ...slot.state,
@@ -1445,6 +1601,7 @@ function spectatorsPayload(room) {
 }
 
 function removeClient(client, reason = "close") {
+  removeQueuedClient(client);
   if (!client.room) return;
   const room = rooms.get(client.room);
   if (!room) return;
@@ -1479,6 +1636,8 @@ function removeClient(client, reason = "close") {
         ranked: client.ranked,
         playerId: client.playerId,
         identityToken: client.identityToken,
+        accountToken: client.accountToken,
+        account: client.account,
         rankedProfile: client.rankedProfile,
         state: client.state,
         expiresAt,

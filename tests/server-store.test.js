@@ -45,6 +45,37 @@ function createTempStore() {
 }
 
 describe("server store", () => {
+  it("creates accounts, sessions, and account-backed ranked identities", () => {
+    const store = createTempStore();
+    const created = store.createAccount({
+      username: "Alpha_User",
+      password: "password123",
+      displayName: "Alpha",
+    });
+
+    expect(created.ok).toBe(true);
+    expect(created.account.username).toBe("alpha_user");
+    expect(created.token).toBeTruthy();
+    expect(store.publicAccount(store.getAccountBySession(created.token))).toEqual({
+      id: created.account.id,
+      username: "alpha_user",
+      displayName: "Alpha",
+    });
+
+    expect(
+      store.loginAccount({ username: "alpha_user", password: "wrongpass" }),
+    ).toMatchObject({ ok: false, code: "invalidCredentials" });
+
+    const identity = store.resolveRankedIdentity({
+      playerId: "local-id",
+      name: "Ignored",
+      account: created.account,
+    });
+    expect(identity.accepted).toBe(true);
+    expect(identity.profile.id).toBe(`acct.${created.account.id}`);
+    expect(identity.profile.name).toBe("Alpha");
+  });
+
   it("creates stable ranked identities and rejects invalid tokens", () => {
     const store = createTempStore();
     const first = store.resolveRankedIdentity({

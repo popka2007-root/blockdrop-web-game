@@ -51,6 +51,8 @@
       "ranked",
       "playerId",
       "identityToken",
+      "accountToken",
+      "rankedQueue",
       "protocolVersion",
     ];
     const TOURNAMENT_KEYS = [
@@ -145,6 +147,8 @@
       ranked = false,
       playerId = "",
       identityToken = "",
+      accountToken = "",
+      rankedQueue = false,
     }) {
       return {
         type: "join",
@@ -157,6 +161,8 @@
         ranked: Boolean(ranked),
         playerId: normalizePlayerId(playerId),
         identityToken: normalizeIdentityToken(identityToken),
+        accountToken: normalizeIdentityToken(accountToken),
+        rankedQueue: Boolean(rankedQueue),
       };
     }
 

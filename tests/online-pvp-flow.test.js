@@ -152,6 +152,8 @@ function connectClient(
     ranked = false,
     playerId = "",
     identityToken = "",
+    accountToken = "",
+    rankedQueue = false,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -235,6 +237,8 @@ function connectClient(
           ranked,
           playerId,
           identityToken,
+          accountToken,
+          rankedQueue,
         });
         if (!settled) {
           settled = true;
@@ -648,5 +652,59 @@ describe("online PvP room flow", () => {
     },
     16000,
   );
+
+  it("pairs signed-in players through the ranked queue", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    async function register(username) {
+      const response = await fetch(`http://127.0.0.1:${port}/api/account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          username,
+          password: "password123",
+          displayName: username,
+        }),
+      });
+      const payload = await response.json();
+      return payload.token;
+    }
+
+    const first = await connectClient(port, {
+      room: "ranked",
+      name: "QueueA",
+      ranked: true,
+      rankedQueue: true,
+      accountToken: await register("queuea"),
+    });
+    await expect(first.waitForType("queued")).resolves.toMatchObject({
+      type: "queued",
+    });
+
+    const second = await connectClient(port, {
+      room: "ranked",
+      name: "QueueB",
+      ranked: true,
+      rankedQueue: true,
+      accountToken: await register("queueb"),
+    });
+    const found = await first.waitForType("matchFound");
+    expect(found.room).toMatch(/^RANK/);
+    await expect(second.waitForType("matchFound")).resolves.toMatchObject({
+      room: found.room,
+    });
+    await expect(first.waitForType("rankedProfile")).resolves.toMatchObject({
+      playerId: expect.stringMatching(/^acct\./),
+    });
+    await expect(
+      first.waitForType(
+        "roomState",
+        (message) => message.players?.length === 2 && message.match?.ranked,
+      ),
+    ).resolves.toBeTruthy();
+    await expect(first.waitForType("matchStart", () => true, 6000)).resolves.toBeTruthy();
+  }, 12000);
 
 });
