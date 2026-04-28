@@ -113,8 +113,8 @@ jobs:
           BLOCKDROP_DEPLOY_REASON=github-actions npm run verify
           chown -R tetris:tetris /opt/tetris
           systemctl restart tetris.service
-          curl --fail http://127.0.0.1:8787/health
-          curl --fail http://127.0.0.1:8787/metrics
+          curl --fail http://127.0.0.1/health
+          curl --fail http://127.0.0.1/metrics
           EOF
 
       - name: Check public health

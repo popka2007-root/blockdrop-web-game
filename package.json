@@ -1,6 +1,6 @@
 {
   "name": "blockdrop-web-game",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "BlockDrop browser puzzle game with online rooms.",
   "scripts": {
