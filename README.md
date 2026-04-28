@@ -1,54 +1,54 @@
 # BlockDrop Web Game
 
-Browser Tetris-style game with solo modes, AI practice, local saves, server records, online PvP rooms, mobile controls, replay/ghost run, and PWA-friendly assets.
+Браузерная игра в духе Tetris с одиночными режимами, тренировкой против ИИ, локальными сохранениями, серверными рекордами, онлайн PvP-комнатами, мобильным управлением, реплеями и PWA-поддержкой.
 
-Live demo: [http://45.148.117.119/](http://45.148.117.119/)
+Демо: [http://45.148.117.119/](http://45.148.117.119/)
 
-## Screenshots
+## Скриншоты
 
-![Mobile menu](screenshots/menu-mobile.png)
-![Mobile gameplay](screenshots/game-mobile.png)
-![Gameplay GIF](screenshots/gameplay.gif)
+![Мобильное меню](screenshots/menu-mobile.png)
+![Игровой процесс на телефоне](screenshots/game-mobile.png)
+![GIF с игровым процессом](screenshots/gameplay.gif)
 
-## Features
+## Возможности
 
-- 10x20 playfield with 7-bag randomizer, SRS wall kicks, ghost piece, hold, next queue, DAS/ARR, and lock delay.
-- Game flow: menu, playing, pause, game over, resume, restart, and main menu.
-- Modes: Classic, 40 Lines, Hardcore, Time Attack, Zen, and Chaos.
-- Score, level, lines, timer, high score, local stats, achievements, and server leaderboard.
-- Gradual speed progression with a cap.
-- Survival streak and score bonuses for stable play.
-- Web Audio API sounds, mute toggle, screen shake, particles, score flash, and game over effect.
-- AI opponent with difficulty, style, and pace settings.
-- Replay/Ghost run: the best local run is saved, shown as a timeline, and used as a ghost silhouette in later attempts.
-- Online rooms with shareable `/room/CODE` links, QR invite, WebSocket PvP garbage attacks, opponent progress silhouette, and tournament room.
-- Russian and English UI.
-- Mobile controls with touch gestures, buttons, handedness, sensitivity, and performance settings.
-- Offline-friendly/PWA files for secure hosts.
+- Поле 10x20, генератор фигур 7-bag, SRS wall kicks, ghost piece, hold, очередь следующих фигур, DAS/ARR и lock delay.
+- Полный игровой цикл: меню, игра, пауза, поражение, продолжение, рестарт и возврат в главное меню.
+- Режимы: Classic, 40 Lines, Hardcore, Time Attack, Zen и Chaos.
+- Очки, уровень, линии, таймер, лучший результат, локальная статистика, достижения и серверная таблица лидеров.
+- Плавное ускорение игры с верхним пределом скорости.
+- Бонусы за стабильную игру и длинные серии выживания.
+- Звуки через Web Audio API, отключение звука, тряска экрана, частицы, вспышки очков и эффект завершения игры.
+- ИИ-соперник с настройкой сложности, стиля и темпа.
+- Реплей и ghost run: лучшая локальная попытка сохраняется, показывается как таймлайн и может использоваться как призрак в следующих матчах.
+- Онлайн-комнаты с общими ссылками вида `/room/CODE`, QR-приглашением, PvP-атаками мусорными линиями через WebSocket, силуэтом прогресса соперника и турнирной комнатой.
+- Интерфейс на русском и английском языках.
+- Мобильное управление жестами и кнопками с настройками под левую и правую руку, чувствительности и производительности.
+- PWA-ресурсы для удобной установки и более стабильной работы в браузере.
 
-## Controls
+## Управление
 
-- Keyboard: arrows or WASD to move, `Up/W/X` to rotate, `Q` to rotate back, `Space/Z` for hard drop, `C/H/E/Shift` for hold, `P/Esc` for pause.
-- Mouse/trackpad on the board: click to rotate, double click to rotate back, drag left/right to move, drag down to drop, right click for hold.
-- Touch: tap to rotate, double tap to rotate back, swipe left/right to move, swipe down for soft drop, fast swipe down for hard drop, long press for hold.
-- Mobile buttons can be enabled from settings.
+- Клавиатура: стрелки или WASD для движения, `Up/W/X` для вращения, `Q` для вращения в обратную сторону, `Space/Z` для жёсткого сброса, `C/H/E/Shift` для hold, `P/Esc` для паузы.
+- Мышь или тачпад: клик для вращения, двойной клик для обратного вращения, перетаскивание влево и вправо для движения, вниз для сброса, правый клик для hold.
+- Сенсорный экран: тап для вращения, двойной тап для обратного вращения, свайпы влево и вправо для движения, свайп вниз для мягкого сброса, быстрый свайп вниз для жёсткого сброса, долгое нажатие для hold.
+- Мобильные кнопки можно включить в настройках.
 
-## Run Locally
+## Локальный запуск
 
 ```bash
 npm install
 npm start
 ```
 
-Open:
+Откройте:
 
 ```text
 http://localhost:8787
 ```
 
-`index.html` can still run static solo play. Online rooms and server records require `server.js`.
+`index.html` подходит для статической одиночной игры. Онлайн-комнаты и серверные рекорды требуют запуска `server.js`.
 
-## Scripts
+## Скрипты
 
 ```bash
 npm start
@@ -59,7 +59,7 @@ npm run capture:media
 npm run verify
 ```
 
-## Project Structure
+## Структура проекта
 
 ```text
 index.html
@@ -80,17 +80,17 @@ screenshots/
 scripts/
 ```
 
-## Testing
+## Тестирование
 
-- Vitest covers game logic, scoring, modes, storage helpers, online helpers, audio config, and server hardening.
-- Playwright covers game startup, pause, game over overlay, mobile layout, room links, online rooms, modes, and replay menu.
-- `npm run capture:media` refreshes mobile screenshots and gameplay GIF.
+- Vitest покрывает игровую логику, подсчёт очков, режимы, helpers для хранилища, онлайн-модули, аудиоконфиг и усиление безопасности сервера.
+- Playwright проверяет запуск игры, паузу, экран поражения, мобильную вёрстку, ссылки на комнаты, онлайн-режимы, режимы игры и меню реплеев.
+- `npm run capture:media` заново создаёт мобильные скриншоты и GIF игрового процесса.
 
-## Online Rooms
+## Онлайн-комнаты
 
-Example room URLs:
+Примеры ссылок на комнаты:
 
-- Local: [http://localhost:8787/room/DUEL](http://localhost:8787/room/DUEL)
-- Public: [http://45.148.117.119/room/DUEL](http://45.148.117.119/room/DUEL)
+- Локально: [http://localhost:8787/room/DUEL](http://localhost:8787/room/DUEL)
+- Публично: [http://45.148.117.119/room/DUEL](http://45.148.117.119/room/DUEL)
 
-Use **Play with friend / Играть с другом** from the main menu to generate a room URL and QR invite.
+Используйте пункт **Play with friend / Играть с другом** в главном меню, чтобы создать ссылку на комнату и QR-приглашение.
