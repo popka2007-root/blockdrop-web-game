@@ -164,6 +164,53 @@ describe("server hardening", () => {
     expect(metricsText).toContain("blockdrop_records_total");
   });
 
+  it("registers account sessions and uses account identity for daily scores", async () => {
+    const port = 18912;
+    await startServer(port);
+
+    const register = await fetch(`http://127.0.0.1:${port}/api/account`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "register",
+        username: "DailyUser",
+        password: "password123",
+        displayName: "Daily",
+      }),
+    });
+    const accountPayload = await register.json();
+    expect(register.status).toBe(200);
+    expect(accountPayload.account.username).toBe("dailyuser");
+    expect(accountPayload.token).toBeTruthy();
+
+    const session = await fetch(`http://127.0.0.1:${port}/api/account`, {
+      headers: { Authorization: `Bearer ${accountPayload.token}` },
+    });
+    await expect(session.json()).resolves.toMatchObject({
+      account: { username: "dailyuser", displayName: "Daily" },
+    });
+
+    const daily = await fetch(`http://127.0.0.1:${port}/api/daily`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountToken: accountPayload.token,
+        playerId: "local",
+        name: "Local",
+        score: 1500,
+        lines: 12,
+        level: 3,
+        timeMs: 60000,
+      }),
+    });
+    const dailyPayload = await daily.json();
+    expect(dailyPayload.leaderboard[0]).toMatchObject({
+      name: "Daily",
+      score: 1500,
+    });
+    expect(dailyPayload.leaderboard[0].playerId).toMatch(/^acct\./);
+  });
+
   it("sends baseline browser security headers", async () => {
     const port = 18909;
     await startServer(port);

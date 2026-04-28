@@ -2,6 +2,15 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
+const {
+  cleanUsername,
+  cleanDisplayName,
+  normalizeSessionToken,
+  validateCredentials,
+  hashPassword,
+  verifyPassword,
+  createSessionToken,
+} = require("./server-auth");
 
 const MAX_RECORDS = 50;
 const RANKED_START_RATING = 1000;
@@ -154,6 +163,21 @@ function createServerStore({
       updated_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_login_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS account_sessions (
+      token TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS ranked_matches (
       id TEXT PRIMARY KEY,
       room_id TEXT NOT NULL,
@@ -218,6 +242,7 @@ function createServerStore({
   const countRankedStmt = db.prepare(
     "SELECT COUNT(*) AS total FROM ranked_players",
   );
+  const countAccountsStmt = db.prepare("SELECT COUNT(*) AS total FROM accounts");
   const countDailyStmt = db.prepare(
     "SELECT COUNT(*) AS total FROM daily_scores WHERE date_key = ?",
   );
@@ -274,6 +299,57 @@ function createServerStore({
       updated_at = excluded.updated_at,
       last_seen_at = excluded.last_seen_at
   `);
+  const getAccountByUsernameStmt = db.prepare(`
+    SELECT
+      id,
+      username,
+      display_name AS displayName,
+      password_hash AS passwordHash,
+      created_at AS createdAt,
+      last_login_at AS lastLoginAt
+    FROM accounts
+    WHERE username = ?
+  `);
+  const getAccountByIdStmt = db.prepare(`
+    SELECT
+      id,
+      username,
+      display_name AS displayName,
+      created_at AS createdAt,
+      last_login_at AS lastLoginAt
+    FROM accounts
+    WHERE id = ?
+  `);
+  const insertAccountStmt = db.prepare(`
+    INSERT INTO accounts(id, username, display_name, password_hash, created_at, last_login_at)
+    VALUES(?, ?, ?, ?, ?, ?)
+  `);
+  const touchAccountLoginStmt = db.prepare(
+    "UPDATE accounts SET last_login_at = ? WHERE id = ?",
+  );
+  const insertSessionStmt = db.prepare(`
+    INSERT INTO account_sessions(token, account_id, created_at, last_seen_at)
+    VALUES(?, ?, ?, ?)
+  `);
+  const getSessionStmt = db.prepare(`
+    SELECT
+      sessions.token,
+      sessions.account_id AS accountId,
+      accounts.id,
+      accounts.username,
+      accounts.display_name AS displayName,
+      accounts.created_at AS createdAt,
+      accounts.last_login_at AS lastLoginAt
+    FROM account_sessions sessions
+    JOIN accounts ON accounts.id = sessions.account_id
+    WHERE sessions.token = ?
+  `);
+  const touchSessionStmt = db.prepare(
+    "UPDATE account_sessions SET last_seen_at = ? WHERE token = ?",
+  );
+  const deleteSessionStmt = db.prepare(
+    "DELETE FROM account_sessions WHERE token = ?",
+  );
   const insertMatchStmt = db.prepare(`
     INSERT OR REPLACE INTO ranked_matches(
       id,
@@ -489,16 +565,19 @@ function createServerStore({
     playerId,
     name = "Player",
     identityToken = "",
+    account = null,
   }) {
-    const safeId = cleanPlayerId(playerId);
+    const accountId = account?.id ? `acct.${cleanPlayerId(account.id)}` : "";
+    const safeId = accountId || cleanPlayerId(playerId);
     if (!safeId) {
       return { accepted: false, code: "missingPlayerId" };
     }
+    const profileName = account?.displayName || name;
 
-    const existing = getRankedProfile(safeId, name);
+    const existing = getRankedProfile(safeId, profileName);
     if (!existing) {
       const created = upsertRankedProfile({
-        ...defaultRankedPlayer(safeId, name),
+        ...defaultRankedPlayer(safeId, profileName),
         id: safeId,
         identitySecret: crypto.randomBytes(24).toString("hex"),
       });
@@ -511,11 +590,25 @@ function createServerStore({
     }
 
     const secret = String(existing.identitySecret || "");
+    if (accountId) {
+      const refreshed = upsertRankedProfile({
+        ...existing,
+        id: safeId,
+        name: profileName,
+        identitySecret: secret || crypto.randomBytes(24).toString("hex"),
+      });
+      return {
+        accepted: true,
+        created: false,
+        profile: refreshed,
+        identityToken: signIdentityToken(safeId, refreshed.identitySecret),
+      };
+    }
     if (!secret) {
       const migrated = upsertRankedProfile({
         ...existing,
         id: safeId,
-        name,
+        name: profileName,
         identitySecret: crypto.randomBytes(24).toString("hex"),
       });
       return {
@@ -534,7 +627,7 @@ function createServerStore({
     const refreshed = upsertRankedProfile({
       ...existing,
       id: safeId,
-      name,
+      name: profileName,
       identitySecret: secret,
     });
     return {
@@ -543,6 +636,89 @@ function createServerStore({
       profile: refreshed,
       identityToken: signIdentityToken(safeId, secret),
     };
+  }
+
+  function publicAccount(account) {
+    if (!account) return null;
+    return {
+      id: account.id,
+      username: account.username,
+      displayName: account.displayName,
+    };
+  }
+
+  function createAccount({ username, password, displayName = "" }) {
+    const credentials = validateCredentials({ username, password });
+    if (!credentials.ok) return { ok: false, code: credentials.code };
+    if (getAccountByUsernameStmt.get(credentials.username)) {
+      return { ok: false, code: "usernameTaken" };
+    }
+    const now = new Date().toISOString();
+    const account = {
+      id: crypto.randomUUID(),
+      username: credentials.username,
+      displayName: cleanDisplayName(displayName || credentials.username),
+      createdAt: now,
+      lastLoginAt: now,
+    };
+    insertAccountStmt.run(
+      account.id,
+      account.username,
+      account.displayName,
+      hashPassword(credentials.password),
+      now,
+      now,
+    );
+    const token = createAccountSession(account.id);
+    return { ok: true, account, token };
+  }
+
+  function loginAccount({ username, password }) {
+    const safeUsername = cleanUsername(username);
+    const row = getAccountByUsernameStmt.get(safeUsername);
+    if (!row || !verifyPassword(password, row.passwordHash)) {
+      return { ok: false, code: "invalidCredentials" };
+    }
+    const now = new Date().toISOString();
+    touchAccountLoginStmt.run(now, row.id);
+    const account = {
+      id: row.id,
+      username: row.username,
+      displayName: row.displayName,
+      createdAt: row.createdAt,
+      lastLoginAt: now,
+    };
+    const token = createAccountSession(account.id);
+    return { ok: true, account, token };
+  }
+
+  function createAccountSession(accountId) {
+    const token = createSessionToken();
+    const now = new Date().toISOString();
+    insertSessionStmt.run(token, accountId, now, now);
+    return token;
+  }
+
+  function getAccountBySession(token) {
+    const safeToken = normalizeSessionToken(token);
+    if (!safeToken) return null;
+    const row = getSessionStmt.get(safeToken);
+    if (!row) return null;
+    touchSessionStmt.run(new Date().toISOString(), safeToken);
+    return {
+      id: row.id,
+      username: row.username,
+      displayName: row.displayName,
+      createdAt: row.createdAt,
+      lastLoginAt: row.lastLoginAt,
+    };
+  }
+
+  function logoutAccount(token) {
+    const safeToken = normalizeSessionToken(token);
+    if (!safeToken) return false;
+    deleteSessionStmt.run(safeToken);
+    return true;
   }
 
   function listRecords(limit = MAX_RECORDS) {
@@ -717,6 +893,7 @@ function createServerStore({
     return {
       records: Number(countStmt.get()?.total || 0),
       rankedPlayers: Number(countRankedStmt.get()?.total || 0),
+      accounts: Number(countAccountsStmt.get()?.total || 0),
       dailyEntries: Number(countDailyStmt.get(dateKey)?.total || 0),
     };
   }
@@ -731,6 +908,12 @@ function createServerStore({
     normalizeRankedPlayer,
     parseTimeSeconds,
     publicRankedProfile,
+    publicAccount,
+    createAccount,
+    loginAccount,
+    getAccountBySession,
+    logoutAccount,
+    getAccountById: (accountId) => getAccountByIdStmt.get(accountId),
     getRankedProfile,
     resolveRankedIdentity,
     upsertRankedProfile,
