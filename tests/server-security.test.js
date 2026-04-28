@@ -158,6 +158,8 @@ describe("server hardening", () => {
 
     expect(payloadA.date).toBeTruthy();
     expect(payloadA.seed).toBe(payloadB.seed);
+    expect(payloadA.runToken).toBeTruthy();
+    expect(payloadA.runSignature).toBeTruthy();
     expect(Array.isArray(payloadA.leaderboard)).toBe(true);
     expect(metrics.status).toBe(200);
     expect(metricsText).toContain("blockdrop_rooms_active");
@@ -190,17 +192,41 @@ describe("server hardening", () => {
       account: { username: "dailyuser", displayName: "Daily" },
     });
 
+    const passwordChange = await fetch(`http://127.0.0.1:${port}/api/account`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accountPayload.token}`,
+      },
+      body: JSON.stringify({
+        action: "changePassword",
+        currentPassword: "password123",
+        newPassword: "password456",
+      }),
+    });
+    expect(passwordChange.status).toBe(200);
+
+    const runResponse = await fetch(`http://127.0.0.1:${port}/api/daily`, {
+      headers: { Authorization: `Bearer ${accountPayload.token}` },
+    });
+    const run = await runResponse.json();
     const daily = await fetch(`http://127.0.0.1:${port}/api/daily`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         accountToken: accountPayload.token,
+        runToken: run.runToken,
+        runSignature: run.runSignature,
         playerId: "local",
         name: "Local",
         score: 1500,
         lines: 12,
         level: 3,
-        timeMs: 60000,
+        timeMs: 3000,
+        pieces: 80,
+        bestCombo: 2,
+        tSpins: 0,
+        perfectClears: 0,
       }),
     });
     const dailyPayload = await daily.json();
@@ -209,6 +235,11 @@ describe("server hardening", () => {
       score: 1500,
     });
     expect(dailyPayload.leaderboard[0].playerId).toMatch(/^acct\./);
+
+    const ranked = await fetch(`http://127.0.0.1:${port}/api/ranked`);
+    const rankedPayload = await ranked.json();
+    expect(ranked.status).toBe(200);
+    expect(Array.isArray(rankedPayload.leaderboard)).toBe(true);
   });
 
   it("sends baseline browser security headers", async () => {

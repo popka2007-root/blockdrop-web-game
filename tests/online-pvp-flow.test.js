@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let serverProcess = null;
@@ -409,6 +409,48 @@ describe("online PvP room flow", () => {
     );
   });
 
+  it("requires ranked attacks to be backed by a recent match event", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    const first = await connectClient(port, {
+      room: "ranked",
+      name: "Alpha",
+      ranked: true,
+      playerId: "alpha-attack",
+    });
+    const firstProfile = await first.waitForType("rankedProfile");
+    const second = await connectClient(port, {
+      room: "ranked",
+      name: "Bravo",
+      ranked: true,
+      playerId: "bravo-attack",
+    });
+    await second.waitForType("rankedProfile");
+    await first.waitForType("matchStart", () => true, 6000);
+
+    first.resetMessages();
+    second.resetMessages();
+    first.send({ type: "attack", room: "ranked", lines: 4 });
+    await expectNoMessage(second, (message) => message.type === "attack", 700);
+
+    first.send({
+      type: "matchEvent",
+      room: "ranked",
+      eventType: "clear",
+      lines: 4,
+      attackLines: 4,
+      combo: 1,
+      score: 1200,
+      elapsedMs: 1000,
+    });
+    first.send({ type: "attack", room: "ranked", lines: 4 });
+    await expect(second.waitForType("attack")).resolves.toMatchObject({
+      lines: 4,
+    });
+    expect(firstProfile.identityToken).toMatch(/^v1\./);
+  });
+
   it(
     "restores a disconnected player who rejoins within the grace window",
     async () => {
@@ -581,7 +623,7 @@ describe("online PvP room flow", () => {
         sentGarbage: 8,
         receivedGarbage: 2,
         mode: "Classic",
-        time: "1:10",
+        time: "0:03",
         status: "Playing",
         force: true,
       });
@@ -596,7 +638,7 @@ describe("online PvP room flow", () => {
         sentGarbage: 2,
         receivedGarbage: 8,
         mode: "Classic",
-        time: "1:10",
+        time: "0:03",
         status: "Playing",
         force: true,
       });
@@ -625,7 +667,7 @@ describe("online PvP room flow", () => {
       expect(finalResult.series.wins[firstHello.id]).toBe(2);
       expect(finalResult.series.wins[secondHello.id] || 0).toBe(0);
 
-      const db = new DatabaseSync(path.join(process.cwd(), "blockdrop.sqlite"));
+      const db = new Database(path.join(process.cwd(), "blockdrop.sqlite"));
       const rankedRows = db
         .prepare(
           "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players ORDER BY player_id ASC",

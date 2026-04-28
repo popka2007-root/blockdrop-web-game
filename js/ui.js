@@ -109,6 +109,8 @@ const UI_IDS = [
   "serverLeaderboard",
   "dailyLeaderboardTitle",
   "dailyLeaderboard",
+  "rankedLeaderboardTitle",
+  "rankedLeaderboard",
   "achievementsList",
   "helpButton",
   "helpOverlay",
@@ -128,6 +130,7 @@ const UI_IDS = [
   "accountStatus",
   "accountLoginButton",
   "accountRegisterButton",
+  "accountPasswordButton",
   "accountLogoutButton",
   "onlineMaxPlayersSelect",
   "onlineDurationSelect",
@@ -775,6 +778,10 @@ export function createUi(options = {}) {
     );
     setText(
       documentRef.querySelector("#statsOverlay h3:nth-of-type(4)"),
+      language === "en" ? "Ranked PvP" : "Ranked PvP",
+    );
+    setText(
+      documentRef.querySelector("#statsOverlay h3:nth-of-type(5)"),
       text.achievements,
     );
     setText(refs.closeStatsButton, text.close);
@@ -813,6 +820,7 @@ export function createUi(options = {}) {
     setText(refs.findRankedButton, language === "en" ? "Find ranked" : "Ranked матч");
     setText(refs.accountLoginButton, language === "en" ? "Login" : "Войти");
     setText(refs.accountRegisterButton, language === "en" ? "Register" : "Создать");
+    setText(refs.accountPasswordButton, language === "en" ? "Password" : "Пароль");
     setText(refs.accountLogoutButton, language === "en" ? "Logout" : "Выйти");
     setText(documentRef.querySelector(".room-card span"), text.roomCode);
     refs.roomQr.setAttribute(
@@ -1544,6 +1552,7 @@ export function createUi(options = {}) {
     serverRecords,
     dailyLeaderboard = [],
     dailyLeaderboardDate = "",
+    rankedLeaderboard = [],
     achievements,
   }) {
     const language = refs.languageSelect.value;
@@ -1591,6 +1600,16 @@ export function createUi(options = {}) {
           )
           .join("")
       : `<div class="score-row"><span>${language === "en" ? "No daily runs yet" : "Пока нет ежедневных результатов"}</span><span>—</span></div>`;
+    refs.rankedLeaderboardTitle.textContent =
+      language === "en" ? "Ranked PvP" : "Ranked PvP";
+    refs.rankedLeaderboard.innerHTML = rankedLeaderboard.length
+      ? rankedLeaderboard
+          .map(
+            (entry, index) =>
+              `<div class="score-row"><span>#${index + 1} ${escapeHtml(entry.name)}</span><span>${entry.rating} MMR · ${entry.wins}-${entry.losses}</span></div>`,
+          )
+          .join("")
+      : `<div class="score-row"><span>${language === "en" ? "No ranked matches yet" : "Пока нет ranked матчей"}</span><span>—</span></div>`;
     refs.achievementsList.innerHTML = achievements
       .map((item) => {
         const prefix = item.unlocked ? "✓ " : "";
@@ -1912,6 +1931,7 @@ export function createUi(options = {}) {
     bindPress(refs.findRankedButton, callbacks.findRankedMatch);
     bindPress(refs.accountLoginButton, callbacks.loginAccount);
     bindPress(refs.accountRegisterButton, callbacks.registerAccount);
+    bindPress(refs.accountPasswordButton, callbacks.changeAccountPassword);
     bindPress(refs.accountLogoutButton, callbacks.logoutAccount);
     bindPress(refs.copyRoomButton, callbacks.copyRoomLink);
     bindPress(refs.shareRoomButton, callbacks.shareRoomLink);

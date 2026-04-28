@@ -32,6 +32,7 @@ const {
   PING_KEYS: PING_KEY_LIST,
   PROTOCOL_VERSION,
   REMATCH_KEYS: REMATCH_KEY_LIST,
+  MATCH_EVENT_KEYS: MATCH_EVENT_KEY_LIST,
   ROOM_PLAYER_LIMIT,
   TOURNAMENT_KEYS: TOURNAMENT_KEY_LIST,
   UPDATE_KEYS: UPDATE_KEY_LIST,
@@ -45,6 +46,7 @@ const {
 const UPDATE_KEYS = new Set(UPDATE_KEY_LIST);
 const ATTACK_KEYS = new Set(ATTACK_KEY_LIST);
 const REMATCH_KEYS = new Set(REMATCH_KEY_LIST);
+const MATCH_EVENT_KEYS = new Set(MATCH_EVENT_KEY_LIST);
 const MATCH_OVER_KEYS = new Set(MATCH_OVER_KEY_LIST);
 const PING_KEYS = new Set(PING_KEY_LIST);
 const JOIN_KEYS = new Set(JOIN_KEY_LIST);
@@ -95,12 +97,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (requestUrl.pathname === "/api/daily") {
-    handleDailyApi(req, res);
+    handleDailyApi(req, res, requestUrl);
     return;
   }
 
   if (requestUrl.pathname === "/api/account") {
     handleAccountApi(req, res, requestUrl);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/ranked") {
+    handleRankedApi(req, res);
     return;
   }
 
@@ -184,6 +191,9 @@ function handleHealth(req, res) {
     accounts: counts.accounts,
     dailyDate,
     dailyEntries: counts.dailyEntries,
+    dailyRuns: counts.dailyRuns,
+    rankedMatches: counts.rankedMatches,
+    rankedEvents: counts.rankedEvents,
     revision: readRevision(),
   };
 
@@ -219,6 +229,10 @@ function handleMetrics(req, res) {
       blockdrop_records_total: counts.records,
       blockdrop_ranked_players_total: counts.rankedPlayers,
       blockdrop_daily_entries_total: counts.dailyEntries,
+      blockdrop_daily_runs_total: counts.dailyRuns,
+      blockdrop_ranked_matches_stored_total: counts.rankedMatches,
+      blockdrop_ranked_events_total: counts.rankedEvents,
+      blockdrop_ranked_queue_waiting: rankedQueue.length,
     }),
   );
 }
@@ -331,12 +345,18 @@ function handleRecordsApi(req, res) {
   });
 }
 
-function handleDailyApi(req, res) {
+function handleDailyApi(req, res, requestUrl) {
   if (req.method === "GET" || req.method === "HEAD") {
     const dateKey = serverDateKey();
+    const account = accountFromRequest(req, requestUrl.searchParams.get("accountToken"));
+    const playerId = cleanPlayerId(requestUrl.searchParams.get("playerId"));
+    const run = store.createDailyRun({ dateKey, account, playerId });
     const payload = {
       date: dateKey,
       seed: store.getOrCreateDailySeed(dateKey),
+      runToken: run.token,
+      runSignature: run.signature,
+      runExpiresAt: run.expiresAt,
       leaderboard: store.listDailyLeaderboard(dateKey),
     };
     if (req.method === "HEAD") {
@@ -373,7 +393,28 @@ function handleDailyApi(req, res) {
     const dateKey = serverDateKey();
     const account = accountFromRequest(req, data.accountToken);
     const entry = sanitizeDailyScore(data, dateKey, account);
+    const runCheck = store.verifyDailyRun({
+      token: data.runToken,
+      signature: data.runSignature,
+      dateKey,
+    });
+    if (!runCheck.ok || !isPlausibleDailyScore(entry, data, runCheck.run)) {
+      metrics.increment("blockdrop_daily_rejected_total");
+      sendJson(
+        res,
+        {
+          error: runCheck.code || "Daily score rejected",
+          date: dateKey,
+          seed: store.getOrCreateDailySeed(dateKey),
+          leaderboard: store.listDailyLeaderboard(dateKey),
+        },
+        422,
+      );
+      return;
+    }
+    entry.playerId = runCheck.run.playerId;
     const leaderboard = store.saveDailyScore(entry);
+    store.markDailyRunSubmitted(data.runToken);
     metrics.increment("blockdrop_daily_submissions_total");
     sendJson(res, {
       date: dateKey,
@@ -423,16 +464,42 @@ function handleAccountApi(req, res, requestUrl) {
     const result =
       action === "register"
         ? store.createAccount(data)
-        : store.loginAccount(data);
+        : action === "changePassword"
+          ? store.changeAccountPassword({
+              token: data.token || authTokenFromRequest(req),
+              currentPassword: data.currentPassword,
+              newPassword: data.newPassword,
+            })
+          : store.loginAccount(data);
     if (!result.ok) {
       sendJson(res, { error: result.code || "accountError" }, 400);
       return;
     }
     sendJson(res, {
       account: store.publicAccount(result.account),
-      token: result.token,
+      token: result.token || normalizeIdentityToken(data.token) || authTokenFromRequest(req),
     });
   });
+}
+
+function handleRankedApi(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  const payload = {
+    leaderboard: store.listRankedLeaderboard(20),
+    queueWaiting: rankedQueue.length,
+  };
+  if (req.method === "HEAD") {
+    writeHead(res, 200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-cache",
+    });
+    res.end();
+    return;
+  }
+  sendJson(res, payload);
 }
 
 function authTokenFromRequest(req) {
@@ -493,6 +560,33 @@ function isPlausibleRecord(record) {
   const timeScoreCap = seconds * 520;
   const modifierCap = 9000 + record.level * 900;
   return record.score <= lineScoreCap + timeScoreCap + modifierCap;
+}
+
+function isPlausibleDailyScore(entry, data, run) {
+  if (!entry.score || !entry.timeMs || entry.timeMs < 1500) return false;
+  if (Number(run.startedAt) > Date.now() + 1000) return false;
+  const wallElapsed = Date.now() - Number(run.startedAt);
+  if (entry.timeMs > wallElapsed + 15000) return false;
+  if (entry.timeMs < wallElapsed - 6 * 60 * 60 * 1000) return false;
+  const pieces = clamp(safeNumber(data.pieces), 0, 20000);
+  const bestCombo = clamp(safeNumber(data.bestCombo), 0, 999);
+  const tSpins = clamp(safeNumber(data.tSpins), 0, 999);
+  const perfectClears = clamp(safeNumber(data.perfectClears), 0, 999);
+  if (pieces && entry.lines > pieces * 4) return false;
+  if (bestCombo > entry.lines + 1) return false;
+  if (tSpins > pieces) return false;
+  if (perfectClears > Math.max(1, Math.floor(entry.lines / 4) + 1)) return false;
+  const seconds = Math.max(1, entry.timeMs / 1000);
+  const lineRateCap = seconds * 3.2 + 8;
+  if (entry.lines > lineRateCap) return false;
+  const scoreCap =
+    Math.max(1, entry.lines) * Math.max(1, entry.level) * 1800 +
+    seconds * 900 +
+    bestCombo * 650 +
+    tSpins * 4500 +
+    perfectClears * 5000 +
+    12000;
+  return entry.score <= scoreCap;
 }
 
 function parseTimeSeconds(value) {
@@ -569,6 +663,8 @@ function createClient(socket) {
     rankedProfile: null,
     name: "Player",
     state: emptyState(),
+    attackCredit: 0,
+    lastRankedEventAt: 0,
     disconnectedAt: 0,
     disconnectTimer: null,
     buckets: {
@@ -761,7 +857,21 @@ function handleMessage(client, raw) {
     }
     const lines = Number(data.lines);
     if (!allowAttackLines(client, lines)) return;
+    if (!consumeAttackCredit(client, lines)) {
+      metrics.increment("blockdrop_ranked_attack_rejected_total");
+      return;
+    }
     broadcastAttack(client, lines);
+    return;
+  }
+
+  if (data.type === "matchEvent") {
+    if (client.role !== "player") return;
+    if (!validateMatchEventPayload(client, data)) {
+      safeClose(client, "Bad match event");
+      return;
+    }
+    recordMatchEvent(client, data);
     return;
   }
 
@@ -868,6 +978,16 @@ function validateUpdatePayload(client, data) {
     return false;
   if (data.force != null && typeof data.force !== "boolean") return false;
   if (!isSafeBoardPreview(data.boardPreview || data.fieldPreview)) return false;
+  const room = rooms.get(client.room);
+  if (room?.ranked && room.match.status === "playing") {
+    if (safeNumber(data.score) + 500 < client.state.score) return false;
+    if (safeNumber(data.lines) < client.state.lines) return false;
+    if (safeNumber(data.sentGarbage) < client.state.sentGarbage) return false;
+    if (safeNumber(data.receivedGarbage) < client.state.receivedGarbage) return false;
+    const seconds = parseTimeSeconds(data.time || client.state.time);
+    const serverElapsed = Math.max(0, (Date.now() - room.match.startedAt) / 1000);
+    if (seconds > serverElapsed + 20) return false;
+  }
   return (
     isIntegerInRange(data.score ?? 0, 0, MAX_RECORD_SCORE) &&
     isIntegerInRange(data.lines ?? 0, 0, 9999) &&
@@ -1013,6 +1133,19 @@ function joinRoom(client, data) {
   broadcastRoom(roomId);
   updateLiveMetrics();
   maybeAutoStart(actualRoom);
+}
+
+function validateMatchEventPayload(client, data) {
+  return (
+    hasOnlyKeys(data, MATCH_EVENT_KEYS) &&
+    matchesClientRoom(client, data) &&
+    isSafeShortText(data.eventType, 24) &&
+    isIntegerInRange(data.lines ?? 0, 0, 4) &&
+    isIntegerInRange(data.attackLines ?? 0, 0, 12) &&
+    isIntegerInRange(data.combo ?? 0, 0, 999) &&
+    isIntegerInRange(data.score ?? 0, 0, MAX_RECORD_SCORE) &&
+    isIntegerInRange(data.elapsedMs ?? 0, 0, 3 * 60 * 60 * 1000)
+  );
 }
 
 function joinRankedQueue(client, data, account, accountToken) {
@@ -1180,7 +1313,11 @@ function startCountdown(room, finalType) {
     room.match.winnerId = "";
     room.match.loserId = "";
     room.match.reason = "";
-    for (const player of room.players.values()) player.state = emptyState();
+    for (const player of room.players.values()) {
+      player.state = emptyState();
+      player.attackCredit = 0;
+      player.lastRankedEventAt = 0;
+    }
     broadcast(room, {
       type: finalType,
       seed: room.match.seed,
@@ -1348,6 +1485,42 @@ function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
   return room.lastRankedResult;
 }
 
+function recordMatchEvent(client, data) {
+  const room = rooms.get(client.room);
+  if (!room || room.match.status !== "playing") return;
+  const elapsedMs = safeNumber(data.elapsedMs);
+  if (room.ranked) {
+    const startedElapsed = Date.now() - room.match.startedAt;
+    if (elapsedMs > startedElapsed + 15000) return;
+    const attackLines = clamp(safeNumber(data.attackLines), 0, 12);
+    const lines = clamp(safeNumber(data.lines), 0, 4);
+    if (attackLines > maxAttackForEvent(lines, safeNumber(data.combo))) {
+      metrics.increment("blockdrop_ranked_event_rejected_total");
+      return;
+    }
+    client.attackCredit = clamp(client.attackCredit + attackLines, 0, 24);
+    client.lastRankedEventAt = Date.now();
+    store.logRankedEvent({
+      matchId: room.match.seed,
+      roomId: room.id,
+      playerId: client.playerId || client.id,
+      eventType: data.eventType,
+      lines,
+      attackLines,
+      combo: data.combo,
+      score: data.score,
+      elapsedMs,
+    });
+    metrics.increment("blockdrop_ranked_events_received_total");
+  }
+}
+
+function maxAttackForEvent(lines, combo) {
+  const base = [0, 0, 1, 2, 4][clamp(lines, 0, 4)] || 0;
+  const comboBonus = combo >= 2 ? Math.min(4, Math.floor(combo / 2)) : 0;
+  return Math.min(12, base + comboBonus + 4);
+}
+
 function rankedParticipant(room, id) {
   const client = room.players.get(id);
   if (client) {
@@ -1429,6 +1602,15 @@ function allowAttackLines(client, lines) {
   }
   client.buckets.attackLines += lines;
   return client.buckets.attackLines <= MAX_ATTACK_LINES_PER_10S;
+}
+
+function consumeAttackCredit(client, lines) {
+  const room = rooms.get(client.room);
+  if (!room?.ranked) return true;
+  if (Date.now() - client.lastRankedEventAt > 5000) return false;
+  if (client.attackCredit < lines) return false;
+  client.attackCredit -= lines;
+  return true;
 }
 
 function safeClose(client, reason = "Policy violation") {

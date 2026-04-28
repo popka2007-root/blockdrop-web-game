@@ -105,7 +105,21 @@ jobs:
           sshpass -p "$VPS_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" <<EOF
           set -e
           cd /opt/tetris
-          cp -a /opt/tetris "/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
+          BACKUP_DIR="/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
+          cp -a /opt/tetris "\$BACKUP_DIR"
+          if [ -f /opt/tetris/blockdrop.sqlite ]; then
+            cp -a /opt/tetris/blockdrop.sqlite "\$BACKUP_DIR/blockdrop.sqlite.predeploy"
+          fi
+          rollback() {
+            echo "Deploy failed, rolling back to \$BACKUP_DIR"
+            systemctl stop tetris.service || true
+            rm -rf /opt/tetris.failed
+            mv /opt/tetris /opt/tetris.failed
+            cp -a "\$BACKUP_DIR" /opt/tetris
+            chown -R tetris:tetris /opt/tetris
+            systemctl restart tetris.service
+          }
+          trap rollback ERR
           git fetch origin --tags
           git checkout "$DEPLOY_REF"
           npm install
@@ -115,6 +129,7 @@ jobs:
           systemctl restart tetris.service
           curl --fail http://127.0.0.1/health
           curl --fail http://127.0.0.1/metrics
+          trap - ERR
           EOF
 
       - name: Check public health

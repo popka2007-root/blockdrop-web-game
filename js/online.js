@@ -23,6 +23,7 @@ export const {
   buildPingMessage,
   buildRematchReadyMessage,
   buildMatchOverMessage,
+  buildMatchEventMessage,
 } = protocol;
 
 export function loadOrCreatePlayerId(
@@ -226,6 +227,11 @@ export function sendScoreUpdate(client, state) {
 export function sendRematchReady(client, room) {
   if (client?.role === "spectator") return false;
   return sendOnlineMessage(client, buildRematchReadyMessage(room));
+}
+
+export function sendMatchEvent(client, room, event) {
+  if (client?.role === "spectator") return false;
+  return sendOnlineMessage(client, buildMatchEventMessage(room, event));
 }
 
 export function startOnlinePing(client) {

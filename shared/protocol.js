@@ -40,6 +40,16 @@
     const ATTACK_KEYS = ["type", "room", "lines"];
     const REMATCH_KEYS = ["type", "room"];
     const MATCH_OVER_KEYS = ["type", "room", "result"];
+    const MATCH_EVENT_KEYS = [
+      "type",
+      "room",
+      "eventType",
+      "lines",
+      "attackLines",
+      "combo",
+      "score",
+      "elapsedMs",
+    ];
     const PING_KEYS = ["type", "ts"];
     const JOIN_KEYS = [
       "type",
@@ -224,6 +234,19 @@
       };
     }
 
+    function buildMatchEventMessage(room, event = {}) {
+      return {
+        type: "matchEvent",
+        room: normalizeRoomId(room),
+        eventType: String(event.eventType || "clear").slice(0, 24),
+        lines: clamp(Math.floor(Number(event.lines) || 0), 0, 4),
+        attackLines: clamp(Math.floor(Number(event.attackLines) || 0), 0, 12),
+        combo: clamp(Math.floor(Number(event.combo) || 0), 0, 999),
+        score: clamp(Math.floor(Number(event.score) || 0), 0, MAX_RECORD_SCORE),
+        elapsedMs: clamp(Math.floor(Number(event.elapsedMs) || 0), 0, 3 * 60 * 60 * 1000),
+      };
+    }
+
     return {
       PROTOCOL_VERSION,
       BOARD_PREVIEW_ROWS,
@@ -235,6 +258,7 @@
       ATTACK_KEYS,
       REMATCH_KEYS,
       MATCH_OVER_KEYS,
+      MATCH_EVENT_KEYS,
       PING_KEYS,
       JOIN_KEYS,
       TOURNAMENT_KEYS,
@@ -251,6 +275,7 @@
       buildPingMessage,
       buildRematchReadyMessage,
       buildMatchOverMessage,
+      buildMatchEventMessage,
     };
   },
 );

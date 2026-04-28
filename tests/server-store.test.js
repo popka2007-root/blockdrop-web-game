@@ -147,4 +147,37 @@ describe("server store", () => {
       expect.objectContaining({ playerId: "p1", score: 1200 }),
     ]);
   });
+
+  it("creates signed daily runs and rejects reused or bad signatures", () => {
+    const store = createTempStore();
+    const run = store.createDailyRun({
+      dateKey: "2026-04-28",
+      playerId: "p1",
+    });
+
+    expect(run.token).toBeTruthy();
+    expect(run.signature).toBeTruthy();
+    expect(
+      store.verifyDailyRun({
+        token: run.token,
+        signature: run.signature,
+        dateKey: "2026-04-28",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      store.verifyDailyRun({
+        token: run.token,
+        signature: "bad",
+        dateKey: "2026-04-28",
+      }),
+    ).toMatchObject({ ok: false, code: "badSignature" });
+    store.markDailyRunSubmitted(run.token);
+    expect(
+      store.verifyDailyRun({
+        token: run.token,
+        signature: run.signature,
+        dateKey: "2026-04-28",
+      }),
+    ).toMatchObject({ ok: false, code: "usedRun" });
+  });
 });
