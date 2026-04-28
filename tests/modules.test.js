@@ -99,6 +99,7 @@ describe("online module", () => {
       name: "P1",
       maxPlayers: 4,
       durationSec: 180,
+      mode: "classic",
       ranked: true,
       playerId: "playerid",
     });

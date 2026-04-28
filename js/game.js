@@ -27,6 +27,7 @@ import {
   createOnlineClient,
   roomFromLocation,
   sendAttack,
+  sendOnlineMessage,
 } from "./online.js";
 import { createOnlineController } from "./online-controller.js";
 import { advanceFrameClock, decayFlashes } from "./runtime-loop.js";
@@ -54,7 +55,6 @@ import {
   makeBoard,
 } from "./game-core.js";
 import {
-  DEFAULT_SESSION,
   isAiSession as sessionIsAi,
   isOnlineSession as sessionIsOnline,
   makeSessionState,
@@ -1703,9 +1703,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     createFriendRoom,
     disconnectOnline,
     toggleOnlineConnection,
+    startOnlineGame,
     startTournament,
     requestRematch,
-    renderOnlinePlayers,
     renderOnlinePanel,
     sendOnlineUpdate,
     sendOnlineUpdateThrottled,
@@ -2730,8 +2730,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         syncUi();
       },
       toggleOnlineConnection: () => {
-        toggleOnlineConnection();
-        syncUi();
+        if (state.online.connected) startOnlineGame();
+        else {
+          toggleOnlineConnection();
+          syncUi();
+        }
       },
       copyRoomLink,
       shareRoomLink,
@@ -2740,6 +2743,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         syncUi();
       },
       closeOnline: () => {
+        if (state.online.connected) disconnectOnline(false);
         ui.hideOverlay("onlineOverlay");
         syncUi();
       },

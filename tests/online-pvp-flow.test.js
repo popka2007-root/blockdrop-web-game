@@ -3,18 +3,29 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let serverProcess = null;
 const openClients = new Set();
 
-afterEach(async () => {
-  await Promise.all([...openClients].map((client) => closeClient(client)));
-  openClients.clear();
-  if (serverProcess) {
-    serverProcess.kill();
-    serverProcess = null;
-  }
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const port =
+        address && typeof address === "object" ? address.port : 0;
+      probe.close((error) => {
+        if (error) reject(error);
+        else resolve(port);
+      });
+    });
+  });
+}
+
+function cleanupPersistedState() {
   try {
     fs.unlinkSync(path.join(process.cwd(), "records.json"));
   } catch {
@@ -25,6 +36,20 @@ afterEach(async () => {
   } catch {
     // no ranked data was written
   }
+}
+
+beforeEach(() => {
+  cleanupPersistedState();
+});
+
+afterEach(async () => {
+  await Promise.all([...openClients].map((client) => closeClient(client)));
+  openClients.clear();
+  if (serverProcess) {
+    serverProcess.kill();
+    serverProcess = null;
+  }
+  cleanupPersistedState();
 });
 
 function startServer(port) {
@@ -284,7 +309,7 @@ async function closeClient(client) {
 
 describe("online PvP room flow", () => {
   it("keeps rooms at 1v1, auto-starts, and moves extra clients to spectator mode", async () => {
-    const port = 18921;
+    const port = await getFreePort();
     await startServer(port);
 
     const first = await connectClient(port, {
@@ -345,7 +370,7 @@ describe("online PvP room flow", () => {
   });
 
   it("answers ping and ignores spectator attacks", async () => {
-    const port = 18922;
+    const port = await getFreePort();
     await startServer(port);
 
     const first = await connectClient(port, { room: "duel", name: "Alpha" });
@@ -377,7 +402,7 @@ describe("online PvP room flow", () => {
   it(
     "restores a disconnected player who rejoins within the grace window",
     async () => {
-      const port = 18923;
+      const port = await getFreePort();
       await startServer(port);
 
       const first = await connectClient(port, { room: "duel", name: "Alpha" });
@@ -422,7 +447,7 @@ describe("online PvP room flow", () => {
   it(
     "finishes the match after the disconnect grace window expires",
     async () => {
-      const port = 18924;
+      const port = await getFreePort();
       await startServer(port);
 
       const first = await connectClient(port, { room: "duel", name: "Alpha" });
@@ -451,7 +476,7 @@ describe("online PvP room flow", () => {
   it(
     "requires both players for rematch and ignores spectator rematchReady",
     async () => {
-      const port = 18925;
+      const port = await getFreePort();
       await startServer(port);
 
       const first = await connectClient(port, { room: "duel", name: "Alpha" });
@@ -507,7 +532,7 @@ describe("online PvP room flow", () => {
   it(
     "stores ranked ratings and completes a best-of-3 series",
     async () => {
-      const port = 18926;
+      const port = await getFreePort();
       await startServer(port);
 
       const first = await connectClient(port, {
