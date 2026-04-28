@@ -1,8 +1,8 @@
 {
-  "name": "Тетрис",
-  "short_name": "Тетрис",
-  "description": "Русская браузерная игра с падающими блоками.",
-  "start_url": "index.html",
+  "name": "BlockDrop",
+  "short_name": "BlockDrop",
+  "description": "BlockDrop browser puzzle game with online rooms.",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#172033",
   "theme_color": "#182033",

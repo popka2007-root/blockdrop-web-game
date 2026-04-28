@@ -1,8 +1,8 @@
 {
   "name": "blockdrop-web-game",
-  "version": "1.0.0",
+  "version": "2.0.3",
   "private": true,
-  "description": "Browser Tetris-style game with online rooms.",
+  "description": "BlockDrop browser puzzle game with online rooms.",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "verify": "npm run lint && npm test && npm run test:e2e",
     "smoke:prod": "node scripts/prod-smoke.js",
+    "release:validate": "node scripts/release-validate.js",
     "release:check": "npm run verify && npm run smoke:prod",
     "capture:media": "node scripts/capture-media.js",
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""

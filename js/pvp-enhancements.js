@@ -1,7 +1,4 @@
-import {
-  buildRematchReadyMessage,
-  sanitizeBoardPreview,
-} from "./online.js";
+import { sanitizeBoardPreview } from "./online.js";
 import {
   loadMatchHistory,
   loadOnlineStats,
@@ -12,10 +9,13 @@ import {
 (() => {
   "use strict";
 
+  if (typeof document === "undefined" || typeof globalThis.addEventListener !== "function") {
+    return;
+  }
+
   const HISTORY_KEY = "blockdrop-online-match-history-v1";
   const STATS_KEY = "blockdrop-online-stats-v1";
   const state = {
-    socket: null,
     room: "",
     role: "player",
     selfId: "",
@@ -28,121 +28,72 @@ import {
     countdown: 0,
   };
 
-  const originalWebSocket = globalThis.WebSocket;
-  if (!originalWebSocket || originalWebSocket.__blockdropPvpEnhanced) return;
-
-  function EnhancedWebSocket(...args) {
-    const socket = new originalWebSocket(...args);
-    state.socket = socket;
-    state.connected = false;
-    state.roomState = null;
-    state.countdown = 0;
-    state.role = "player";
-    const originalSend = socket.send.bind(socket);
-    socket.send = (payload) => {
-      originalSend(enhanceOutgoingPayload(payload));
-    };
-    socket.addEventListener("open", () => {
-      state.connected = true;
-      renderPvpPanel();
-    });
-    socket.addEventListener("message", (event) => handleServerMessage(event.data));
-    socket.addEventListener("close", () => {
-      state.connected = false;
-      state.roomState = null;
-      state.countdown = 0;
-      state.role = "player";
-      renderPvpPanel("disconnected");
-    });
-    socket.addEventListener("error", () => renderPvpPanel("error"));
-    return socket;
-  }
-
-  EnhancedWebSocket.prototype = originalWebSocket.prototype;
-  Object.setPrototypeOf(EnhancedWebSocket, originalWebSocket);
-  EnhancedWebSocket.__blockdropPvpEnhanced = true;
-  globalThis.WebSocket = EnhancedWebSocket;
-
   document.addEventListener("DOMContentLoaded", () => {
     ensurePvpPanel();
-    attachRematchHandler();
     renderPvpPanel();
   });
 
-  function enhanceOutgoingPayload(payload) {
-    if (typeof payload !== "string") return payload;
-    try {
-      const data = JSON.parse(payload);
-      if (data?.type === "join") state.room = data.room || state.room;
-      if (data?.type === "update" && !data.boardPreview) {
-        data.boardPreview = captureBoardPreview();
-        return JSON.stringify(data);
-      }
-    } catch {
-      return payload;
-    }
-    return payload;
-  }
+  globalThis.addEventListener("blockdrop:online-event", (event) => {
+    handleOnlineEvent(event.detail || {});
+  });
 
-  function handleServerMessage(raw) {
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (!data || typeof data.type !== "string") return;
+  function handleOnlineEvent(detail) {
+    const type = detail.type;
+    if (!type) return;
 
-    if (data.type === "hello") state.selfId = data.id || state.selfId;
-    if (data.type === "role") state.role = data.role || "player";
-    if (data.type === "rankedProfile") state.rankedProfile = data;
-    if (data.type === "pong") state.pingMs = Math.max(0, Date.now() - Number(data.ts || 0));
-    if (data.type === "state" || data.type === "roomState") {
-      state.room = data.room || state.room;
-      state.roomState = normalizeRoomState(data);
-    }
-    if (data.type === "countdown") {
-      state.countdown = Number(data.value) || 0;
-      showPvpToast(`PvP: ${state.countdown}`);
-    }
-    if (data.type === "matchStart" || data.type === "rematchStart") {
+    if (type === "open") {
+      state.connected = true;
+      state.room = detail.room || state.room;
+      state.role = detail.role || state.role;
+    } else if (type === "disconnect") {
+      state.connected = false;
       state.countdown = 0;
-      startLocalOnlineGame(data.seed);
-      showPvpToast(data.type === "rematchStart" ? "Реванш начался" : "Матч начался");
+      state.roomState = null;
+      state.role = detail.role || "player";
+    } else if (type === "hello") {
+      state.selfId = detail.id || state.selfId;
+    } else if (type === "ping") {
+      state.pingMs = Math.max(0, Number(detail.pingMs) || 0);
+    } else if (type === "rankedProfile") {
+      state.rankedProfile = detail.profile || state.rankedProfile;
+    } else if (type === "state") {
+      state.room = detail.room || state.room;
+      state.roomState = normalizeRoomState(detail.roomState);
+    } else if (type === "countdown") {
+      state.countdown = Number(detail.value) || 0;
+      showPvpToast(`PvP: ${state.countdown}`);
+    } else if (type === "matchStart") {
+      state.countdown = 0;
+      showPvpToast("Матч начался");
+    } else if (type === "attack") {
+      showPvpToast(`Атака: +${Number(detail.lines) || 0}`);
+    } else if (type === "matchFinished") {
+      state.rankedResult = detail.ranked || null;
+      handleMatchFinished(detail);
+    } else if (type === "socketError") {
+      showPvpToast("Ошибка соединения");
+    } else if (type === "error" && detail.message) {
+      showPvpToast(detail.message);
     }
-    if (data.type === "garbage" || data.type === "attack") {
-      showPvpToast(`Атака: +${Number(data.lines) || 0}`);
-    }
-    if (data.type === "reconnecting") {
-      showPvpToast(`${data.name || "Соперник"} переподключается...`);
-    }
-    if (data.type === "matchFinished") {
-      state.rankedResult = data.ranked || null;
-      handleMatchFinished(data);
-    }
-    if (data.type === "notice" && data.code === "spectator") showPvpToast("Вы зритель");
+
     renderPvpPanel();
   }
 
   function normalizeRoomState(data) {
-    const players = Array.isArray(data.players)
-      ? data.players
-      : Object.values(data.players || {});
-    const spectators = Array.isArray(data.spectators)
-      ? data.spectators
-      : Object.values(data.spectators || {});
     return {
-      room: data.room || state.room,
-      players,
-      spectators,
-      match: data.match || {},
-      tournament: data.tournament || {},
+      room: data?.room || state.room,
+      players: Array.isArray(data?.players) ? data.players : [],
+      spectators: Array.isArray(data?.spectators) ? data.spectators : [],
+      match: data?.match || {},
+      tournament: data?.tournament || {},
     };
   }
 
   function ensurePvpPanel() {
     if (document.getElementById("pvpEnhancements")) return;
-    const host = document.getElementById("sidePanel") || document.getElementById("onlinePanel");
+    const host =
+      document.getElementById("sidePanel") ||
+      document.getElementById("onlinePanel");
     if (!host) return;
     const panel = document.createElement("div");
     panel.id = "pvpEnhancements";
@@ -160,7 +111,7 @@ import {
     host.appendChild(panel);
   }
 
-  function renderPvpPanel(forcedStatus = "") {
+  function renderPvpPanel() {
     ensurePvpPanel();
     const panel = document.getElementById("pvpEnhancements");
     const roleBadge = document.getElementById("pvpRoleBadge");
@@ -168,9 +119,10 @@ import {
     const boards = document.getElementById("pvpBoards");
     const summary = document.getElementById("pvpSummary");
     const history = document.getElementById("pvpHistory");
-    if (!panel || !roleBadge || !status || !boards || !summary || !history) return;
+    if (!panel || !roleBadge || !status || !boards || !summary || !history)
+      return;
 
-    const shouldShowPanel = Boolean(state.connected);
+    const shouldShowPanel = Boolean(state.connected || state.roomState);
     panel.classList.toggle("active", shouldShowPanel);
     if (!shouldShowPanel) {
       boards.innerHTML = "";
@@ -184,18 +136,16 @@ import {
     const pingLabel = state.pingMs
       ? `${state.pingMs} ms${state.pingMs > 160 ? " ⚠" : ""}`
       : "ping --";
-    status.textContent = forcedStatus
-      ? statusText(forcedStatus)
-      : state.connected
-        ? `Подключено · ${pingLabel}`
-        : "Не подключено";
+    status.textContent = state.connected
+      ? `Подключено · ${pingLabel}`
+      : "Отключено";
     status.dataset.quality = state.pingMs > 160 ? "warn" : "good";
 
-    const room = state.roomState;
-    const players = room?.players || [];
-    const visiblePlayers = state.role === "spectator"
-      ? players
-      : players.filter((player) => player.id !== state.selfId);
+    const players = state.roomState?.players || [];
+    const visiblePlayers =
+      state.role === "spectator"
+        ? players
+        : players.filter((player) => player.id !== state.selfId);
     boards.innerHTML = visiblePlayers.length
       ? visiblePlayers
           .map((player) => renderMiniBoard(player, state.role === "spectator"))
@@ -246,7 +196,9 @@ import {
 
   function renderMiniBoard(player, showName) {
     const rows = sanitizeBoardPreview(player.boardPreview || []);
-    const normalizedRows = rows.length ? rows : Array.from({ length: 10 }, () => Array(10).fill(0));
+    const normalizedRows = rows.length
+      ? rows
+      : Array.from({ length: 10 }, () => Array(10).fill(0));
     return `<div class="pvp-board-card">
       ${showName ? `<b>${escapeHtml(player.name || "Player")}</b>` : `<b>Соперник</b>`}
       <div class="pvp-mini-board">
@@ -262,63 +214,23 @@ import {
     </div>`;
   }
 
-  function captureBoardPreview() {
-    const canvas = document.getElementById("board");
-    if (!canvas) return [];
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return [];
-    const cols = 10;
-    const rows = 15;
-    const cellW = canvas.width / cols;
-    const cellH = canvas.height / 20;
-    const preview = [];
-    try {
-      for (let y = 20 - rows; y < 20; y += 1) {
-        const row = [];
-        for (let x = 0; x < cols; x += 1) {
-          const px = Math.floor(x * cellW + cellW / 2);
-          const py = Math.floor(y * cellH + cellH / 2);
-          const [r, g, b, a] = ctx.getImageData(px, py, 1, 1).data;
-          row.push(a > 40 && r + g + b > 90 ? 1 : 0);
-        }
-        preview.push(row);
-      }
-    } catch {
-      return [];
-    }
-    return preview;
-  }
-
-  function attachRematchHandler() {
-    document.addEventListener("click", (event) => {
-      if (event.target?.id !== "rematchButton") return;
-      if (state.role === "spectator") {
-        showPvpToast("Зритель не может запускать реванш");
-        return;
-      }
-      if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-      state.socket.send(JSON.stringify(buildRematchReadyMessage(state.room)));
-      showPvpToast("Ждём реванш от соперника");
-    });
-  }
-
-  function startLocalOnlineGame(seed) {
-    if (state.role === "spectator") return;
-    const startButton = document.getElementById("connectOnlineButton");
-    const onlineOverlay = document.getElementById("onlineOverlay");
-    if (onlineOverlay && !onlineOverlay.hidden && startButton) startButton.click();
-    globalThis.dispatchEvent(new CustomEvent("blockdrop:pvp-start", { detail: { seed } }));
-  }
-
   function handleMatchFinished(data) {
     const winnerId = data.winnerId || "";
     const loserId = data.loserId || "";
     const key = `${winnerId}:${loserId}:${data.reason}`;
     if (key === state.lastMatchKey) return;
     state.lastMatchKey = key;
-    const result = winnerId === state.selfId ? "win" : loserId === state.selfId ? "loss" : "spectate";
+
+    const result =
+      winnerId === state.selfId
+        ? "win"
+        : loserId === state.selfId
+          ? "loss"
+          : "spectate";
     if (result === "win" || result === "loss") {
-      const opponent = (state.roomState?.players || []).find((player) => player.id !== state.selfId);
+      const opponent = (state.roomState?.players || []).find(
+        (player) => player.id !== state.selfId,
+      );
       const rankedSide =
         data.ranked?.winner?.id === state.selfId
           ? data.ranked.winner
@@ -339,14 +251,20 @@ import {
           opponent: opponent?.name || "Player",
           durationSec: Math.max(
             0,
-            Math.round((Date.now() - Number(state.roomState?.match?.startedAt || Date.now())) / 1000),
+            Math.round(
+              (Date.now() -
+                Number(state.roomState?.match?.startedAt || Date.now())) /
+                1000,
+            ),
           ),
           lines: Number(getTextNumber("linesValue")) || 0,
           score: Number(getTextNumber("scoreValue")) || 0,
           ratingBefore: rankedSide?.ratingBefore || 0,
           ratingAfter: rankedSide?.ratingAfter || 0,
           ratingDelta: rankedSide?.ratingDelta || 0,
-          mode: document.getElementById("startMode")?.selectedOptions?.[0]?.textContent || "Classic",
+          mode:
+            document.getElementById("startMode")?.selectedOptions?.[0]
+              ?.textContent || "Classic",
           date: new Date().toISOString(),
         },
         HISTORY_KEY,
@@ -355,19 +273,13 @@ import {
     } else {
       showPvpToast("Матч завершён");
     }
-    renderPvpPanel();
   }
 
   function getTextNumber(id) {
-    return String(document.getElementById(id)?.textContent || "0").replace(/\D/g, "");
-  }
-
-  function statusText(value) {
-    return {
-      disconnected: "Отключено",
-      error: "Ошибка соединения",
-      reconnecting: "Переподключение...",
-    }[value] || value;
+    return String(document.getElementById(id)?.textContent || "0").replace(
+      /\D/g,
+      "",
+    );
   }
 
   function formatStreak(value) {
@@ -384,7 +296,10 @@ import {
     toast.textContent = message;
     toast.classList.add("show");
     clearTimeout(showPvpToast.timer);
-    showPvpToast.timer = setTimeout(() => toast.classList.remove("show"), 1800);
+    showPvpToast.timer = setTimeout(
+      () => toast.classList.remove("show"),
+      1800,
+    );
   }
 
   function escapeHtml(value) {

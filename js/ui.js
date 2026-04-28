@@ -187,7 +187,7 @@ const UI_TEXT = {
     pieces: "Фигур",
     time: "Время",
     height: "Высота",
-    title: "Тетрис",
+    title: "BlockDrop",
     intro:
       "Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы, рекорды, офлайн-режим и онлайн-комнаты.",
     start: "Начать игру",
@@ -263,7 +263,7 @@ const UI_TEXT = {
     pieces: "Pieces",
     time: "Time",
     height: "Height",
-    title: "Tetris",
+    title: "BlockDrop",
     intro:
       "A fast web version with saves, themes, records, offline mode, online rooms, and AI practice.",
     start: "Start game",
