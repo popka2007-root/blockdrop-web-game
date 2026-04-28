@@ -121,6 +121,8 @@ async function smokeViewport(browser, viewport) {
     `${viewport.name}: QR missing`,
   );
   await page.locator("#closeOnlineButton").click();
+  await page.waitForFunction(() => document.querySelector("#onlineOverlay")?.hidden === true);
+  await page.waitForFunction(() => document.querySelector("#startOverlay")?.hidden === false);
 
   await page.locator("#dailyButton").click();
   await page.waitForTimeout(250);
