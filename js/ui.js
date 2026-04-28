@@ -1684,8 +1684,9 @@ export function createUi(options = {}) {
   function setOnlineButtonState(connected) {
     const text = textFor(refs.languageSelect.value);
     refs.connectOnlineButton.dataset.connected = connected ? "true" : "false";
+    refs.connectOnlineButton.dataset.action = connected ? "start" : "connect";
     refs.connectOnlineButton.textContent = connected
-      ? text.disconnect
+      ? text.startOnlineGame
       : text.connect;
     refs.connectOnlineButton.classList.add("primary");
   }
