@@ -24,21 +24,11 @@ import {
 } from "./input.js";
 import { GAME_MODES, getModeConfig, normalizeModeKey } from "./modes.js";
 import {
-  buildRoomInviteUrl,
-  connectOnline as openOnlineSocket,
   createOnlineClient,
-  defaultServerUrl,
-  disconnectOnline as closeOnlineSocket,
-  generateRoomCode,
-  loadOrCreatePlayerId,
-  normalizeRoomId,
-  onOnlineMessage,
   roomFromLocation,
   sendAttack,
-  sendOnlineMessage,
-  sendRematchReady,
-  sendScoreUpdate,
 } from "./online.js";
+import { createOnlineController } from "./online-controller.js";
 import { advanceFrameClock, decayFlashes } from "./runtime-loop.js";
 import {
   addPositiveScore,
@@ -63,6 +53,12 @@ import {
   isBoardEmpty,
   makeBoard,
 } from "./game-core.js";
+import {
+  DEFAULT_SESSION,
+  isAiSession as sessionIsAi,
+  isOnlineSession as sessionIsOnline,
+  makeSessionState,
+} from "./session-state.js";
 import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
 (() => {
@@ -395,27 +391,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   };
 
   const audio = initAudio(() => state.settings);
-  const DEFAULT_SESSION = {
-    type: "solo",
-    source: "local",
-    room: "",
-    ranked: false,
-    matchId: "",
-  };
 
   function ensureAudio() {
     audio.player.resume();
-  }
-
-  function makeSessionState(next = {}) {
-    return {
-      ...DEFAULT_SESSION,
-      ...next,
-      type: ["solo", "ai", "online"].includes(next.type) ? next.type : "solo",
-      room: String(next.room || ""),
-      ranked: Boolean(next.ranked),
-      matchId: String(next.matchId || ""),
-    };
   }
 
   function setSession(next = {}) {
@@ -423,11 +401,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function isOnlineSession() {
-    return state.session.type === "online";
+    return sessionIsOnline(state);
   }
 
   function isAiSession() {
-    return state.session.type === "ai";
+    return sessionIsAi(state);
   }
 
   function clamp(value, min, max) {
@@ -1623,6 +1601,27 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     return boardCurrentHeight(state.board);
   }
 
+  function buildBoardPreview() {
+    const previewRows = 15;
+    const preview = state.board.slice(-previewRows).map((row) =>
+      row.map((cell) => (cell ? 1 : 0)),
+    );
+    if (state.active) {
+      for (const cell of cells(state.active)) {
+        const previewY = cell.y - (ROWS - previewRows);
+        if (
+          previewY >= 0 &&
+          previewY < preview.length &&
+          cell.x >= 0 &&
+          cell.x < COLS
+        ) {
+          preview[previewY][cell.x] = 1;
+        }
+      }
+    }
+    return preview;
+  }
+
   function countHoles() {
     return boardCountHoles(state.board);
   }
@@ -1674,397 +1673,43 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     return onlineText("Игрок", "Player");
   }
 
-  function inviteText(room) {
-    return onlineText(
-      `Заходи в комнату Тетриса ${room}: ${roomInviteUrl(room)}`,
-      `Join my Tetris room ${room}: ${roomInviteUrl(room)}`,
-    );
-  }
-
-  function openOnline({ autoConnect = false } = {}) {
-    const form = ui.getOnlineForm();
-    const room = form.room || storage.loadRoomCode("") || generateRoomCode();
-    ui.setOnlineDefaults({
-      server: form.server || defaultServerUrl(),
-      room,
-      name: form.name || storage.loadPlayerName(defaultPlayerName()),
-    });
-    ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
-    ui.showOverlay("onlineOverlay");
-    renderOnlinePlayers();
-    updateOnlineControls();
-    updateLayoutMetrics();
-    if (autoConnect && !state.online.connected) connectOnline();
-  }
-
-  function ensureRoomCode() {
-    const room =
-      normalizeRoomId(ui.getOnlineForm().room || state.online.room) ||
-      generateRoomCode();
-    ui.setOnlineRoom(room);
-    storage.saveRoomCode(room);
-    ui.renderRoomInvite({ room, url: roomInviteUrl(room) });
-    return room;
-  }
-
-  function roomInviteUrl(room = ensureRoomCode()) {
-    return buildRoomInviteUrl(location, room);
-  }
-
-  function shareRoomLink() {
-    const room = ensureRoomCode();
-    shareText(inviteText(room));
-  }
-
-  function copyRoomLink() {
-    const room = ensureRoomCode();
-    const link = roomInviteUrl(room);
-    copyTextToClipboard(
-      link,
-      onlineText("Ссылка скопирована", "Link copied"),
-      onlineText("Не удалось скопировать", "Copy failed"),
-    );
-  }
-
-  function createFriendRoom() {
-    const room = generateRoomCode();
-    ui.setOnlineRoom(room);
-    ui.setOnlineRanked(false);
-    storage.saveRoomCode(room);
-    state.online.room = room;
-    state.online.mode = normalizeModeKey(ui.getStartMode());
-    state.online.ranked = false;
-    const link = roomInviteUrl(room);
-    if (location.protocol.startsWith("http"))
-      history.replaceState(null, "", link);
-    openOnline({ autoConnect: true });
-    copyTextToClipboard(
-      link,
-      onlineText("Комната создана, ссылка скопирована", "Room created, link copied"),
-      onlineText("Комната создана", "Room created"),
-    );
-  }
-
-  function connectOnline() {
-    const {
-      server,
-      name: rawName,
-      ranked,
-      maxPlayers,
-      durationSec,
-    } = ui.getOnlineForm();
-    const room = ensureRoomCode();
-    const name = (rawName || defaultPlayerName()).slice(0, 18);
-    const playerId = loadOrCreatePlayerId();
-    const mode = normalizeModeKey(ui.getStartMode());
-    storage.saveRankedPlayerId(playerId);
-    storage.savePlayerName(name);
-    storage.saveRoomCode(room);
-    ui.setOnlineRoom(room);
-    disconnectOnline(false);
-    try {
-      state.online.room = room;
-      state.online.mode = mode;
-      state.online.name = name;
-      state.online.ranked = Boolean(ranked);
-      ui.setOnlineStatus(onlineText("Подключение...", "Connecting..."));
-      openOnlineSocket(onlineClient, {
-        server,
-        room,
-        name,
-        maxPlayers,
-        durationSec,
-        mode,
-        ranked,
-        playerId,
-      });
-      state.online.connected = false;
-    } catch {
-      showToast(onlineText("Неверный адрес сервера", "Invalid server address"));
-    }
-  }
-
-  onOnlineMessage(onlineClient, (data) => {
-    if (data.type === "open") {
-      state.online.connected = true;
-      ui.setOnlineStatus(onlineText(`Комната ${data.room}`, `Room ${data.room}`));
-      if (location.protocol.startsWith("http"))
-        history.replaceState(null, "", roomInviteUrl(data.room));
-      updateOnlineControls();
-      updateLayoutMetrics();
-      showToast(onlineText(`Онлайн: ${data.room}`, `Online: ${data.room}`));
-      return;
-    }
-
-    if (data.type === "hello") {
-      state.online.id = data.id;
-      return;
-    }
-
-    if (data.type === "rankedProfile") {
-      state.online.ranked = true;
-      state.online.rating = Number(data.rating) || state.online.rating;
-      showToast(
-        onlineText(
-          `Ranked: ${state.online.rating} MMR`,
-          `Ranked: ${state.online.rating} MMR`,
-        ),
-      );
-      renderOnlinePanel();
-      return;
-    }
-
-    if (data.type === "close") {
-      state.online.connected = false;
-      if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
-      ui.setOnlineStatus(onlineText("Отключено", "Disconnected"));
-      renderOnlinePanel();
-      updateOnlineControls();
-      updateLayoutMetrics();
-      return;
-    }
-
-    if (data.type === "socketError") {
-      ui.setOnlineStatus(onlineText("Ошибка подключения", "Connection error"));
-      showToast(onlineText("Сервер недоступен", "Server unavailable"));
-      return;
-    }
-
-    if (data.type === "error") {
-      ui.setOnlineStatus(data.message || onlineText("Ошибка комнаты", "Room error"));
-      showToast(data.message || onlineText("Ошибка комнаты", "Room error"));
-      return;
-    }
-
-    if (data.type === "state") {
-      state.online.peers = data.players || {};
-      state.online.tournament = data.tournament || null;
-      state.online.mode = normalizeModeKey(data.match?.mode || state.online.mode);
-      state.online.series = data.match?.series || null;
-      state.online.ranked = Boolean(data.match?.ranked || state.online.ranked);
-      state.online.rankedResult =
-        data.match?.rankedResult || state.online.rankedResult;
-      renderOnlinePlayers();
-      renderOnlinePanel();
-      return;
-    }
-
-    if (data.type === "countdown") {
-      showToast(onlineText(`PvP старт: ${data.value}`, `PvP starts: ${data.value}`));
-      return;
-    }
-
-    if (data.type === "matchStart" || data.type === "rematchStart") {
-      ui.hideOverlay("onlineOverlay");
-      const matchMode = normalizeModeKey(data.mode || state.online.mode);
-      state.online.mode = matchMode;
-      startGame(matchMode, state.difficulty, {
-        seed: data.seed,
-        session: {
-          type: "online",
-          source: data.type,
-          room: state.online.room,
-          ranked: state.online.ranked,
-          matchId: data.startedAt || data.seed,
-        },
-      });
-      syncUi();
-      showToast(
-        data.type === "rematchStart"
-          ? onlineText("Раунд серии начался", "Series round started")
-          : onlineText("Ranked PvP начался", "Ranked PvP started"),
-      );
-      return;
-    }
-
-    if (data.type === "matchFinished") {
-      state.online.rankedResult = data.ranked || null;
-      state.online.series = data.series || state.online.series;
-      if (isOnlineSession() && state.running && !state.gameOver) {
-        const selfWon = data.winnerId === state.online.id;
-        const resultText = selfWon
-          ? onlineText("Победа в онлайн-матче", "Online match won")
-          : onlineText("Поражение в онлайн-матче", "Online match lost");
-        finish(selfWon, resultText, { reportOnline: false });
-      }
-      showRankedResultToast(data);
-      renderOnlinePanel();
-      return;
-    }
-
-    if (data.type === "attack") {
-      if (isOnlineSession())
-        receiveGarbage(Number(data.lines) || 0, data.from || "соперника");
-      return;
-    }
-
-    if (data.type === "tournamentEnd") {
-      state.online.tournament = data.tournament || state.online.tournament;
-      showTournamentResults(data.players || state.online.peers || {});
-    }
+  const onlineController = createOnlineController({
+    state,
+    storage,
+    ui,
+    onlineClient,
+    normalizeModeKey,
+    onlineText,
+    defaultPlayerName,
+    formatTime,
+    showToast,
+    shareText,
+    copyTextToClipboard,
+    updateLayoutMetrics,
+    startGame,
+    syncUi,
+    setSession,
+    isOnlineSession,
+    finish,
+    receiveGarbage,
+    currentHeight,
+    modeName: () => MODES[state.mode].name,
+    buildBoardPreview,
   });
-
-  function disconnectOnline(show = true) {
-    closeOnlineSocket(onlineClient);
-    state.online.connected = false;
-    state.online.peers = {};
-    state.online.tournament = null;
-    state.online.mode = normalizeModeKey(ui.getStartMode());
-    state.online.ranked = false;
-    state.online.rankedResult = null;
-    state.online.series = null;
-    if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
-    renderOnlinePanel();
-    renderOnlinePlayers();
-    updateOnlineControls();
-    updateLayoutMetrics();
-    if (show) showToast(onlineText("Онлайн отключён", "Online disconnected"));
-  }
-
-  function toggleOnlineConnection() {
-    if (state.online.connected) disconnectOnline();
-    else connectOnline();
-  }
-
-  function startOnlineGame() {
-    ui.hideOverlay("onlineOverlay");
-    startGame(ui.getStartMode(), state.difficulty, {
-      session: {
-        type: "online",
-        source: "manual",
-        room: state.online.room,
-        ranked: state.online.ranked,
-      },
-    });
-    syncUi();
-  }
-
-  function updateOnlineControls() {
-    ui.setOnlineButtonState(state.online.connected);
-  }
-
-  function sendOnlineUpdate(force = false) {
-    if (!state.online.connected || !isOnlineSession()) return;
-    state.online.lastSent = performance.now();
-    sendScoreUpdate(onlineClient, {
-      room: state.online.room,
-      name: state.online.name,
-      score: state.score,
-      lines: state.lines,
-      level: state.level,
-      height: currentHeight(),
-      sentGarbage: state.sentGarbage,
-      receivedGarbage: state.receivedGarbage,
-      mode: MODES[state.mode].name,
-      time: formatTime(state.elapsedMs),
-      status: state.gameOver
-        ? state.won
-          ? "Победа"
-          : "Финиш"
-        : state.paused
-          ? "Пауза"
-          : "Играет",
-      force,
-    });
-  }
-
-  function sendOnlineUpdateThrottled() {
-    if (performance.now() - state.online.lastSent > 700)
-      sendOnlineUpdate(false);
-  }
-
-  function startTournament() {
-    if (!state.online.connected) {
-      showToast("Сначала подключись к комнате");
-      return;
-    }
-    const { maxPlayers, durationSec } = ui.getOnlineForm();
-    sendOnlineMessage(onlineClient, {
-      type: "startTournament",
-      room: state.online.room,
-      maxPlayers,
-      durationSec,
-      mode: normalizeModeKey(ui.getStartMode()),
-    });
-    showToast("Турнир запускается");
-    startGame(ui.getStartMode(), state.difficulty, {
-      session: {
-        type: "online",
-        source: "tournament",
-        room: state.online.room,
-        ranked: state.online.ranked,
-      },
-    });
-  }
-
-  function requestRematch() {
-    if (!state.online.connected) {
-      showToast(onlineText("Сначала подключись к комнате", "Connect to a room first"));
-      return;
-    }
-    if (onlineClient.role === "spectator") {
-      showToast(onlineText("Зритель не может начать реванш", "Spectators cannot rematch"));
-      return;
-    }
-    sendRematchReady(onlineClient, state.online.room);
-    showToast(onlineText("Ждём готовность соперника", "Waiting for opponent"));
-  }
-
-  function renderOnlinePlayers() {
-    const players = Object.values(state.online.peers || {}).sort(
-      (a, b) => b.score - a.score,
-    ).map((player) => ({
-      ...player,
-      status: player.ranked
-        ? `${player.rating || 1000} MMR · ${player.status || "Lobby"}`
-        : player.status,
-    }));
-    ui.renderOnlinePlayers(players, state.online.tournament, formatTime);
-  }
-
-  function renderOnlinePanel() {
-    const players = Object.values(state.online.peers || {})
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 4);
-    ui.renderOnlinePanel({
-      connected: state.online.connected,
-      room: state.online.ranked ? `Ranked ${state.online.room}` : state.online.room,
-      tournament: state.online.tournament,
-      players,
-      formatTime,
-    });
-  }
-
-  function showRankedResultToast(data) {
-    const ranked = data.ranked;
-    if (!ranked) {
-      showToast(onlineText("Матч завершён", "Match finished"));
-      return;
-    }
-    const self =
-      ranked.winner?.id === state.online.id ? ranked.winner : ranked.loser;
-    const result =
-      ranked.winner?.id === state.online.id
-        ? onlineText("Победа", "Win")
-        : onlineText("Поражение", "Loss");
-    const series = ranked.series?.completed
-      ? onlineText("Серия завершена", "Series complete")
-      : onlineText("Серия продолжается", "Series continues");
-    showToast(
-      `${result}: ${self.ratingBefore} -> ${self.ratingAfter} (${self.ratingDelta >= 0 ? "+" : ""}${self.ratingDelta}) · ${series}`,
-    );
-  }
-
-  function showTournamentResults(playersObject) {
-    const players = Object.values(playersObject || {}).sort(
-      (a, b) => b.score - a.score,
-    );
-    if (ui.renderTournamentResults(players, state.running && !state.gameOver)) {
-      state.running = false;
-      state.gameOver = true;
-      storage.clearSave();
-    }
-  }
+  const {
+    openOnline,
+    shareRoomLink,
+    copyRoomLink,
+    createFriendRoom,
+    disconnectOnline,
+    toggleOnlineConnection,
+    startTournament,
+    requestRematch,
+    renderOnlinePlayers,
+    renderOnlinePanel,
+    sendOnlineUpdate,
+    sendOnlineUpdateThrottled,
+  } = onlineController;
 
   function opponentHeight() {
     if (isAiSession()) return state.ai.height;
@@ -2307,7 +1952,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   async function shareText(text) {
     try {
       if (navigator.share) {
-        await navigator.share({ title: onlineText("Тетрис", "Tetris"), text });
+        await navigator.share({ title: "BlockDrop", text });
       } else {
         await copyTextToClipboard(
           text,
@@ -2352,15 +1997,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         ? MODES[state.mode].nameEn
         : MODES[state.mode].name;
     return onlineText(
-      `Тетрис: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${modeName}. Лучший момент: ${bestMomentLabel() || "—"}.`,
-      `Tetris: ${state.score} points, ${state.lines} lines, level ${state.level}, mode ${modeName}. Best moment: ${bestMomentLabel() || "—"}.`,
+      `BlockDrop: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${modeName}. Лучший момент: ${bestMomentLabel() || "—"}.`,
+      `BlockDrop: ${state.score} points, ${state.lines} lines, level ${state.level}, mode ${modeName}. Best moment: ${bestMomentLabel() || "—"}.`,
     );
   }
 
   function statsText() {
     return onlineText(
-      `Моя статистика в Тетрис: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}, T-Spin ${state.stats.totalTSpins}, Perfect Clear ${state.stats.totalPerfectClears}.`,
-      `My Tetris stats: best ${state.stats.bestScore}, lines ${state.stats.totalLines}, games ${state.stats.games}, T-Spin ${state.stats.totalTSpins}, Perfect Clear ${state.stats.totalPerfectClears}.`,
+      `Моя статистика в BlockDrop: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}, T-Spin ${state.stats.totalTSpins}, Perfect Clear ${state.stats.totalPerfectClears}.`,
+      `My BlockDrop stats: best ${state.stats.bestScore}, lines ${state.stats.totalLines}, games ${state.stats.games}, T-Spin ${state.stats.totalTSpins}, Perfect Clear ${state.stats.totalPerfectClears}.`,
     );
   }
 

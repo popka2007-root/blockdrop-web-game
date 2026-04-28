@@ -56,6 +56,7 @@ const MATCH_MODES = new Set([
 ]);
 const rooms = new Map();
 const startedAt = Date.now();
+let cachedPackageMeta = null;
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -153,7 +154,9 @@ function handleHealth(req, res) {
 
   const payload = {
     ok: true,
+    app: "BlockDrop",
     service: "blockdrop-web-game",
+    version: readPackageMeta().version,
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     rooms: rooms.size,
     records: readRecords().length,
@@ -184,6 +187,22 @@ function readRevision() {
     );
   } catch {
     return "unknown";
+  }
+}
+
+function readPackageMeta() {
+  if (cachedPackageMeta) return cachedPackageMeta;
+  try {
+    const meta = JSON.parse(
+      fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
+    );
+    cachedPackageMeta = {
+      version: String(meta.version || "0.0.0").slice(0, 32),
+    };
+    return cachedPackageMeta;
+  } catch {
+    cachedPackageMeta = { version: "0.0.0" };
+    return cachedPackageMeta;
   }
 }
 
