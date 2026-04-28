@@ -1,5 +1,6 @@
 node_modules/
 .DS_Store
 *.log
+blockdrop.sqlite*
 test-results/
 playwright-report/

@@ -14,6 +14,7 @@ import {
   createOnlineClient,
   buildUpdateMessage,
   defaultServerUrl,
+  loadRankedIdentityToken,
   normalizePlayerName,
   normalizePlayerId,
   loadOrCreatePlayerId,
@@ -21,6 +22,7 @@ import {
   parseServerMessage,
   roomFromLocation,
   sanitizeBoardPreview,
+  saveRankedIdentityToken,
   sendAttack,
   sendRematchReady,
   sendScoreUpdate,
@@ -95,6 +97,7 @@ describe("online module", () => {
       }),
     ).toEqual({
       type: "join",
+      protocolVersion: 2,
       room: "ABC",
       name: "P1",
       maxPlayers: 4,
@@ -102,6 +105,7 @@ describe("online module", () => {
       mode: "classic",
       ranked: true,
       playerId: "playerid",
+      identityToken: "",
     });
 
     expect(
@@ -121,6 +125,25 @@ describe("online module", () => {
     const second = loadOrCreatePlayerId(storage, "ranked-id");
     expect(first).toBeTruthy();
     expect(second).toBe(first);
+  });
+
+  it("stores ranked identity tokens safely", () => {
+    const bucket = new Map();
+    const storage = {
+      getItem: vi.fn((key) => bucket.get(key) || null),
+      setItem: vi.fn((key, value) => bucket.set(key, value)),
+      removeItem: vi.fn((key) => bucket.delete(key)),
+    };
+
+    expect(loadRankedIdentityToken(storage, "ranked-token")).toBe("");
+    expect(
+      saveRankedIdentityToken("v1.player.signature", storage, "ranked-token"),
+    ).toBe("v1.player.signature");
+    expect(loadRankedIdentityToken(storage, "ranked-token")).toBe(
+      "v1.player.signature",
+    );
+    expect(saveRankedIdentityToken("", storage, "ranked-token")).toBe("");
+    expect(loadRankedIdentityToken(storage, "ranked-token")).toBe("");
   });
 
   it("parses server messages defensively", () => {

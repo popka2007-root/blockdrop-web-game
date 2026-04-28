@@ -2,61 +2,59 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const { createMetrics, createLogger } = require("./server-observability");
+const {
+  RANKED_MAX_RATING,
+  RANKED_MIN_RATING,
+  createServerStore,
+} = require("./server-store");
+const protocol = require("./shared/protocol.js");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const RECORDS_FILE = path.join(ROOT, "records.json");
-const RANKED_FILE = path.join(ROOT, "ranked.json");
-const MAX_RECORDS = 50;
 const MAX_WS_FRAME_BYTES = 4096;
 const MAX_WS_MESSAGES_PER_CHUNK = 12;
 const MAX_MESSAGES_PER_10S = 90;
 const MAX_UPDATES_PER_SECOND = 8;
 const MAX_ATTACKS_PER_SECOND = 4;
 const MAX_ATTACK_LINES_PER_10S = 18;
-const MAX_RECORD_SCORE = 99999999;
 const MAX_PAYLOAD_KEYS = 18;
-const MAX_BOARD_PREVIEW_ROWS = 15;
-const MAX_BOARD_PREVIEW_COLS = 10;
-const ROOM_PLAYER_LIMIT = 2;
 const RECONNECT_GRACE_MS = 12000;
 const COUNTDOWN_STEP_MS = 700;
-const RANKED_START_RATING = 1000;
-const RANKED_MIN_RATING = 100;
-const RANKED_MAX_RATING = 3000;
 const RANKED_K_FACTOR = 32;
-const UPDATE_KEYS = new Set([
-  "type",
-  "room",
-  "name",
-  "score",
-  "lines",
-  "level",
-  "height",
-  "sentGarbage",
-  "receivedGarbage",
-  "mode",
-  "time",
-  "status",
-  "force",
-  "boardPreview",
-  "fieldPreview",
-]);
-const ATTACK_KEYS = new Set(["type", "room", "lines"]);
-const REMATCH_KEYS = new Set(["type", "room"]);
-const MATCH_OVER_KEYS = new Set(["type", "room", "result"]);
-const PING_KEYS = new Set(["type", "ts"]);
-const MATCH_MODES = new Set([
-  "classic",
-  "sprint",
-  "hardcore",
-  "timeAttack",
-  "relax",
-  "chaos",
-]);
+const {
+  ATTACK_KEYS: ATTACK_KEY_LIST,
+  BOARD_PREVIEW_COLS: MAX_BOARD_PREVIEW_COLS,
+  BOARD_PREVIEW_ROWS: MAX_BOARD_PREVIEW_ROWS,
+  JOIN_KEYS: JOIN_KEY_LIST,
+  MATCH_OVER_KEYS: MATCH_OVER_KEY_LIST,
+  MAX_RECORD_SCORE,
+  PING_KEYS: PING_KEY_LIST,
+  PROTOCOL_VERSION,
+  REMATCH_KEYS: REMATCH_KEY_LIST,
+  ROOM_PLAYER_LIMIT,
+  TOURNAMENT_KEYS: TOURNAMENT_KEY_LIST,
+  UPDATE_KEYS: UPDATE_KEY_LIST,
+  normalizeIdentityToken,
+  normalizeMatchMode,
+  normalizePlayerId,
+  normalizePlayerName,
+  normalizeRoomId,
+  sanitizeBoardPreview,
+} = protocol;
+const UPDATE_KEYS = new Set(UPDATE_KEY_LIST);
+const ATTACK_KEYS = new Set(ATTACK_KEY_LIST);
+const REMATCH_KEYS = new Set(REMATCH_KEY_LIST);
+const MATCH_OVER_KEYS = new Set(MATCH_OVER_KEY_LIST);
+const PING_KEYS = new Set(PING_KEY_LIST);
+const JOIN_KEYS = new Set(JOIN_KEY_LIST);
+const TOURNAMENT_KEYS = new Set(TOURNAMENT_KEY_LIST);
 const rooms = new Map();
 const startedAt = Date.now();
 let cachedPackageMeta = null;
+const store = createServerStore({ root: ROOT });
+const logger = createLogger({ service: "blockdrop-web-game" });
+const metrics = createMetrics();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -88,14 +86,25 @@ const securityHeaders = {
 
 const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  metrics.increment("blockdrop_http_requests_total");
 
   if (requestUrl.pathname === "/api/records") {
     handleRecordsApi(req, res);
     return;
   }
 
+  if (requestUrl.pathname === "/api/daily") {
+    handleDailyApi(req, res);
+    return;
+  }
+
   if (requestUrl.pathname === "/health") {
     handleHealth(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/metrics") {
+    handleMetrics(req, res);
     return;
   }
 
@@ -152,6 +161,9 @@ function handleHealth(req, res) {
     return;
   }
 
+  const dailyDate = serverDateKey();
+  const counts = store.getHealthCounts(dailyDate);
+  updateLiveMetrics();
   const payload = {
     ok: true,
     app: "BlockDrop",
@@ -159,8 +171,12 @@ function handleHealth(req, res) {
     version: readPackageMeta().version,
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     rooms: rooms.size,
-    records: readRecords().length,
-    rankedPlayers: Object.keys(readRankedStore().players).length,
+    players: livePlayersCount(),
+    spectators: liveSpectatorsCount(),
+    records: counts.records,
+    rankedPlayers: counts.rankedPlayers,
+    dailyDate,
+    dailyEntries: counts.dailyEntries,
     revision: readRevision(),
   };
 
@@ -174,6 +190,55 @@ function handleHealth(req, res) {
   }
 
   sendJson(res, payload);
+}
+
+function handleMetrics(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  const counts = store.getHealthCounts(serverDateKey());
+  updateLiveMetrics();
+  writeHead(res, 200, {
+    "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+    "Cache-Control": "no-cache",
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(
+    metrics.render({
+      blockdrop_records_total: counts.records,
+      blockdrop_ranked_players_total: counts.rankedPlayers,
+      blockdrop_daily_entries_total: counts.dailyEntries,
+    }),
+  );
+}
+
+function serverDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function livePlayersCount() {
+  let total = 0;
+  for (const room of rooms.values()) total += room.players.size;
+  return total;
+}
+
+function liveSpectatorsCount() {
+  let total = 0;
+  for (const room of rooms.values()) total += room.spectators.size;
+  return total;
+}
+
+function updateLiveMetrics() {
+  metrics.set("blockdrop_rooms_active", rooms.size);
+  metrics.set("blockdrop_players_active", livePlayersCount());
+  metrics.set("blockdrop_spectators_active", liveSpectatorsCount());
 }
 
 function readRevision() {
@@ -208,7 +273,7 @@ function readPackageMeta() {
 
 function handleRecordsApi(req, res) {
   if (req.method === "GET") {
-    sendJson(res, { records: readRecords() });
+    sendJson(res, { records: store.listRecords() });
     return;
   }
 
@@ -233,33 +298,80 @@ function handleRecordsApi(req, res) {
 
     const record = sanitizeRecord(data);
     if (record.score <= 0) {
-      sendJson(res, { records: readRecords() });
+      sendJson(res, { records: store.listRecords() });
       return;
     }
 
     if (!isPlausibleRecord(record)) {
+      logger.warn("record_rejected", {
+        name: record.name,
+        score: record.score,
+        lines: record.lines,
+      });
       sendJson(
         res,
         {
           error: "Record rejected by server authority",
-          records: readRecords(),
+          records: store.listRecords(),
         },
         422,
       );
       return;
     }
 
-    const records = readRecords()
-      .concat(record)
-      .sort(
-        (a, b) =>
-          b.score - a.score ||
-          b.lines - a.lines ||
-          a.date.localeCompare(b.date),
-      )
-      .slice(0, MAX_RECORDS);
-    writeRecords(records);
+    const records = store.saveRecord(record);
     sendJson(res, { records });
+  });
+}
+
+function handleDailyApi(req, res) {
+  if (req.method === "GET" || req.method === "HEAD") {
+    const dateKey = serverDateKey();
+    const payload = {
+      date: dateKey,
+      seed: store.getOrCreateDailySeed(dateKey),
+      leaderboard: store.listDailyLeaderboard(dateKey),
+    };
+    if (req.method === "HEAD") {
+      writeHead(res, 200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-cache",
+      });
+      res.end();
+      return;
+    }
+    sendJson(res, payload);
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+    if (body.length > 4096) req.destroy();
+  });
+  req.on("end", () => {
+    let data = {};
+    try {
+      data = JSON.parse(body || "{}");
+    } catch {
+      sendJson(res, { error: "Bad JSON" }, 400);
+      return;
+    }
+
+    const dateKey = serverDateKey();
+    const entry = sanitizeDailyScore(data, dateKey);
+    const leaderboard = store.saveDailyScore(entry);
+    metrics.increment("blockdrop_daily_submissions_total");
+    sendJson(res, {
+      date: dateKey,
+      seed: store.getOrCreateDailySeed(dateKey),
+      leaderboard,
+    });
   });
 }
 
@@ -276,6 +388,18 @@ function sanitizeRecord(data) {
       .replace(/[<>]/g, "")
       .slice(0, 12),
     date: new Date().toISOString(),
+  };
+}
+
+function sanitizeDailyScore(data, dateKey) {
+  return {
+    dateKey,
+    playerId: cleanPlayerId(data.playerId),
+    name: cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
+    score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
+    lines: clamp(safeNumber(data.lines), 0, 9999),
+    level: clamp(safeNumber(data.level), 1, 99),
+    timeMs: clamp(safeNumber(data.timeMs), 0, 60 * 60 * 1000 * 3),
   };
 }
 
@@ -299,107 +423,7 @@ function isPlausibleRecord(record) {
 }
 
 function parseTimeSeconds(value) {
-  const [minutes, seconds] = String(value)
-    .split(":")
-    .map((part) => Number(part));
-  return (
-    (Number.isFinite(minutes) ? minutes : 0) * 60 +
-    (Number.isFinite(seconds) ? seconds : 0)
-  );
-}
-
-function readRecords() {
-  try {
-    const raw = fs.readFileSync(RECORDS_FILE, "utf8");
-    const records = JSON.parse(raw);
-    return Array.isArray(records) ? records.slice(0, MAX_RECORDS) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeRecords(records) {
-  try {
-    fs.writeFileSync(RECORDS_FILE, JSON.stringify(records, null, 2));
-  } catch (error) {
-    console.error("Cannot write records:", error.message);
-  }
-}
-
-function readRankedStore() {
-  try {
-    const raw = fs.readFileSync(RANKED_FILE, "utf8");
-    const store = JSON.parse(raw);
-    return store && typeof store === "object" && store.players
-      ? { players: store.players }
-      : { players: {} };
-  } catch {
-    return { players: {} };
-  }
-}
-
-function writeRankedStore(store) {
-  try {
-    fs.writeFileSync(RANKED_FILE, JSON.stringify(store, null, 2));
-  } catch (error) {
-    console.error("Cannot write ranked data:", error.message);
-  }
-}
-
-function defaultRankedPlayer(id, name = "Player") {
-  return {
-    id,
-    name: cleanName(name),
-    rating: RANKED_START_RATING,
-    wins: 0,
-    losses: 0,
-    streak: 0,
-    bestWinStreak: 0,
-    bestLossStreak: 0,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function normalizeRankedPlayer(record, id, name = "Player") {
-  const fallback = defaultRankedPlayer(id, name);
-  const streak = clampSigned(record?.streak, -999, 999);
-  return {
-    ...fallback,
-    ...record,
-    id,
-    name: cleanName(name || record?.name || fallback.name),
-    rating: clamp(safeNumber(record?.rating) || RANKED_START_RATING, RANKED_MIN_RATING, RANKED_MAX_RATING),
-    wins: clamp(safeNumber(record?.wins), 0, 999999),
-    losses: clamp(safeNumber(record?.losses), 0, 999999),
-    streak,
-    bestWinStreak: clamp(safeNumber(record?.bestWinStreak), 0, 999999),
-    bestLossStreak: clamp(safeNumber(record?.bestLossStreak), 0, 999999),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function getRankedProfile(id, name = "Player") {
-  const safeId = cleanPlayerId(id);
-  if (!safeId) return null;
-  const store = readRankedStore();
-  const profile = normalizeRankedPlayer(store.players[safeId], safeId, name);
-  store.players[safeId] = profile;
-  writeRankedStore(store);
-  return profile;
-}
-
-function publicRankedProfile(profile) {
-  if (!profile) return null;
-  return {
-    playerId: profile.id,
-    name: profile.name,
-    rating: profile.rating,
-    wins: profile.wins,
-    losses: profile.losses,
-    streak: profile.streak,
-    bestWinStreak: profile.bestWinStreak,
-    bestLossStreak: profile.bestLossStreak,
-  };
+  return store.parseTimeSeconds(value);
 }
 
 function sendJson(res, payload, status = 200) {
@@ -420,6 +444,7 @@ server.on("upgrade", (req, socket) => {
     return;
   }
   if (!isAllowedWebSocketOrigin(req)) {
+    metrics.increment("blockdrop_ws_rejected_origin_total");
     socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     socket.destroy();
     return;
@@ -427,6 +452,7 @@ server.on("upgrade", (req, socket) => {
 
   const key = req.headers["sec-websocket-key"];
   if (!isValidWebSocketKey(key)) {
+    metrics.increment("blockdrop_ws_bad_handshake_total");
     socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
     socket.destroy();
     return;
@@ -448,6 +474,8 @@ server.on("upgrade", (req, socket) => {
   );
 
   const client = createClient(socket);
+  metrics.increment("blockdrop_ws_connections_total");
+  updateLiveMetrics();
   socket.on("data", (chunk) => handleSocketData(client, chunk));
   socket.on("close", () => removeClient(client, "close"));
   socket.on("error", () => removeClient(client, "error"));
@@ -462,6 +490,7 @@ function createClient(socket) {
     role: "player",
     ranked: false,
     playerId: "",
+    identityToken: "",
     rankedProfile: null,
     name: "Player",
     state: emptyState(),
@@ -482,6 +511,7 @@ function createClient(socket) {
 
 function handleSocketData(client, chunk) {
   if (chunk.length > MAX_WS_FRAME_BYTES + 32) {
+    metrics.increment("blockdrop_ws_policy_close_total");
     safeClose(client, "Frame too large");
     return;
   }
@@ -489,18 +519,22 @@ function handleSocketData(client, chunk) {
   try {
     messages = decodeFrames(chunk);
   } catch {
+    metrics.increment("blockdrop_ws_policy_close_total");
     safeClose(client, "Bad frame");
     return;
   }
   if (messages.length > MAX_WS_MESSAGES_PER_CHUNK) {
+    metrics.increment("blockdrop_ws_policy_close_total");
     safeClose(client, "Too many frames");
     return;
   }
   for (const message of messages) {
     if (!allowMessage(client) || message.length > MAX_WS_FRAME_BYTES) {
+      metrics.increment("blockdrop_ws_policy_close_total");
       safeClose(client, "Rate limited");
       return;
     }
+    metrics.increment("blockdrop_ws_messages_total");
     handleMessage(client, message);
   }
 }
@@ -584,6 +618,7 @@ function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
     },
     series: {
       active: false,
+      seriesId: "",
       bestOf: 3,
       targetWins: 2,
       wins: {},
@@ -613,6 +648,11 @@ function handleMessage(client, raw) {
   }
 
   if (data.type === "join") {
+    if (!validateJoinPayload(data)) {
+      metrics.increment("blockdrop_ws_policy_close_total");
+      safeClose(client, "Bad join");
+      return;
+    }
     joinRoom(client, data);
     return;
   }
@@ -652,6 +692,7 @@ function handleMessage(client, raw) {
 
   if (data.type === "startTournament") {
     if (client.role !== "player") return;
+    if (!validateTournamentPayload(client, data)) return;
     startTournament(client.room, data);
     return;
   }
@@ -708,7 +749,33 @@ function hasUnsafeTextChars(text) {
 }
 
 function matchesClientRoom(client, data) {
-  return !data.room || cleanCode(data.room) === client.room;
+  return !data.room || normalizeRoomId(data.room) === client.room;
+}
+
+function validateJoinPayload(data) {
+  return (
+    hasOnlyKeys(data, JOIN_KEYS) &&
+    isSafeShortText(data.name, 40) &&
+    isSafeShortText(data.mode, 24) &&
+    isIntegerInRange(data.maxPlayers ?? ROOM_PLAYER_LIMIT, 2, 8) &&
+    isIntegerInRange(data.durationSec ?? 180, 60, 1800) &&
+    (data.protocolVersion == null ||
+      isIntegerInRange(data.protocolVersion, 1, PROTOCOL_VERSION)) &&
+    (data.ranked == null || typeof data.ranked === "boolean") &&
+    String(data.room || "").length <= 32 &&
+    normalizePlayerId(data.playerId).length <= 64 &&
+    normalizeIdentityToken(data.identityToken).length <= 256
+  );
+}
+
+function validateTournamentPayload(client, data) {
+  return (
+    hasOnlyKeys(data, TOURNAMENT_KEYS) &&
+    matchesClientRoom(client, data) &&
+    isIntegerInRange(data.maxPlayers ?? ROOM_PLAYER_LIMIT, 2, 8) &&
+    isIntegerInRange(data.durationSec ?? 180, 60, 1800) &&
+    isSafeShortText(data.mode, 24)
+  );
 }
 
 function validateUpdatePayload(client, data) {
@@ -753,76 +820,89 @@ function isSafeBoardPreview(value) {
   );
 }
 
-function sanitizeBoardPreview(value) {
-  if (!Array.isArray(value)) return [];
-  return value.slice(-MAX_BOARD_PREVIEW_ROWS).map((row) =>
-    row.slice(0, MAX_BOARD_PREVIEW_COLS).map((cell) => {
-      if (cell === true) return 1;
-      if (cell === false) return 0;
-      return Number(cell) > 0 ? 1 : 0;
-    }),
-  );
-}
-
 function joinRoom(client, data) {
   removeClient(client, "rejoin");
-  const roomId = cleanCode(data.room) || "LOBBY";
-  const rankedRequested = data.ranked === true;
-  const playerId = cleanPlayerId(data.playerId);
+  const roomId = normalizeRoomId(data.room) || "LOBBY";
+  const room = rooms.get(roomId);
+  const rankedRequested = data.ranked === true || Boolean(room?.ranked);
+  const playerId = normalizePlayerId(data.playerId);
+  const identityToken = normalizeIdentityToken(data.identityToken);
   const requestedMode = normalizeMatchMode(data.mode);
-  if (
-    data.room &&
-    roomId !==
-      String(data.room)
-        .trim()
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g, "")
-        .slice(0, 16)
-  ) {
-    safeClose(client, "Bad room");
-    return;
-  }
   const maxPlayers = ROOM_PLAYER_LIMIT;
   const durationSec = clamp(safeNumber(data.durationSec) || 180, 60, 1800);
-  if (!rooms.has(roomId))
+  let identity = null;
+  if (rankedRequested) {
+    identity = store.resolveRankedIdentity({
+      playerId: playerId || client.id,
+      name: data.name,
+      identityToken,
+    });
+    if (!identity?.accepted) {
+      logger.warn("ranked_identity_rejected", {
+        roomId,
+        playerId: playerId || client.id,
+        code: identity?.code || "unknown",
+      });
+      send(client, {
+        type: "error",
+        message: "Ranked identity mismatch",
+      });
+      removeClient(client, "identity");
+      try {
+        client.socket.end();
+      } catch {
+        return;
+      }
+      return;
+    }
+  }
+
+  if (!rooms.has(roomId)) {
     rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
-  const room = rooms.get(roomId);
-  if (room.match.status === "lobby") {
-    room.maxPlayers = ROOM_PLAYER_LIMIT;
-    room.durationSec = durationSec;
-    if (room.players.size === 0 && room.spectators.size === 0) {
-      room.ranked = rankedRequested;
-      room.mode = requestedMode;
+  }
+  const actualRoom = rooms.get(roomId);
+  if (actualRoom.match.status === "lobby") {
+    actualRoom.maxPlayers = ROOM_PLAYER_LIMIT;
+    actualRoom.durationSec = durationSec;
+    if (actualRoom.players.size === 0 && actualRoom.spectators.size === 0) {
+      actualRoom.ranked = rankedRequested;
+      actualRoom.mode = requestedMode;
     }
   }
 
   client.room = roomId;
-  client.name = cleanName(data.name);
-  client.ranked = Boolean(room.ranked);
-  client.playerId = client.ranked ? playerId || client.id : "";
-  client.rankedProfile = client.ranked
-    ? getRankedProfile(client.playerId, client.name)
-    : null;
+  client.name = cleanName(data.name || normalizePlayerName(data.name));
+  client.ranked = Boolean(actualRoom.ranked);
+  client.playerId =
+    client.ranked && identity?.profile
+      ? identity.profile.id
+      : client.ranked
+        ? playerId || client.id
+        : "";
+  client.identityToken = identity?.identityToken || "";
+  client.rankedProfile = client.ranked ? identity?.profile || null : null;
   client.state = emptyState();
 
-  const reconnectId = findReconnectSlot(room, client.name, client.playerId);
+  const reconnectId = findReconnectSlot(actualRoom, client.name, client.playerId);
   if (reconnectId) {
-    const slot = room.reconnects.get(reconnectId);
-    clearReconnect(room, reconnectId);
+    const slot = actualRoom.reconnects.get(reconnectId);
+    clearReconnect(actualRoom, reconnectId);
     client.id = reconnectId;
     client.role = "player";
-    client.ranked = Boolean(slot?.ranked || room.ranked);
+    client.ranked = Boolean(slot?.ranked || actualRoom.ranked);
     client.playerId = slot?.playerId || client.playerId;
-    client.rankedProfile =
-      slot?.rankedProfile ||
-      (client.ranked ? getRankedProfile(client.playerId, client.name) : null);
-    room.players.set(client.id, client);
-  } else if (room.players.size < room.maxPlayers && room.match.status !== "playing") {
+    client.identityToken = slot?.identityToken || client.identityToken;
+    client.rankedProfile = slot?.rankedProfile || client.rankedProfile;
+    actualRoom.players.set(client.id, client);
+  } else if (
+    actualRoom.players.size < actualRoom.maxPlayers &&
+    actualRoom.match.status !== "playing"
+  ) {
     client.role = "player";
-    room.players.set(client.id, client);
+    actualRoom.players.set(client.id, client);
   } else {
     client.role = "spectator";
-    room.spectators.set(client.id, client);
+    actualRoom.spectators.set(client.id, client);
   }
 
   send(client, { type: "hello", id: client.id });
@@ -830,7 +910,7 @@ function joinRoom(client, data) {
   if (client.rankedProfile) {
     send(client, {
       type: "rankedProfile",
-      ...publicRankedProfile(client.rankedProfile),
+      ...store.publicRankedProfile(client.rankedProfile),
     });
   }
   if (client.role === "spectator") {
@@ -841,7 +921,8 @@ function joinRoom(client, data) {
     });
   }
   broadcastRoom(roomId);
-  maybeAutoStart(room);
+  updateLiveMetrics();
+  maybeAutoStart(actualRoom);
 }
 
 function findReconnectSlot(room, name, playerId = "") {
@@ -910,6 +991,7 @@ function maybeAutoStart(room) {
 function startRankedSeries(room) {
   room.series = {
     active: true,
+    seriesId: `series:${room.id}:${Date.now()}`,
     bestOf: 3,
     targetWins: 2,
     wins: Object.fromEntries([...room.players.keys()].map((id) => [id, 0])),
@@ -1012,14 +1094,13 @@ function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
   if (!winner?.playerId || !loser?.playerId || winner.playerId === loser.playerId)
     return null;
 
-  const store = readRankedStore();
-  const winnerBefore = normalizeRankedPlayer(
-    store.players[winner.playerId],
+  const winnerBefore = store.normalizeRankedPlayer(
+    store.getRankedProfile(winner.playerId, winner.name),
     winner.playerId,
     winner.name,
   );
-  const loserBefore = normalizeRankedPlayer(
-    store.players[loser.playerId],
+  const loserBefore = store.normalizeRankedPlayer(
+    store.getRankedProfile(loser.playerId, loser.name),
     loser.playerId,
     loser.name,
   );
@@ -1041,6 +1122,8 @@ function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
     wins: winnerBefore.wins + 1,
     streak: winnerBefore.streak >= 0 ? winnerBefore.streak + 1 : 1,
     updatedAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    identitySecret: winnerBefore.identitySecret,
   };
   winnerAfter.bestWinStreak = Math.max(
     winnerAfter.bestWinStreak,
@@ -1057,17 +1140,20 @@ function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
     losses: loserBefore.losses + 1,
     streak: loserBefore.streak <= 0 ? loserBefore.streak - 1 : -1,
     updatedAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    identitySecret: loserBefore.identitySecret,
   };
   loserAfter.bestLossStreak = Math.max(
     loserAfter.bestLossStreak,
     Math.abs(loserAfter.streak),
   );
 
-  store.players[winner.playerId] = winnerAfter;
-  store.players[loser.playerId] = loserAfter;
-  writeRankedStore(store);
-  applyRankedProfileToParticipant(room, winnerId, winnerAfter);
-  applyRankedProfileToParticipant(room, loserId, loserAfter);
+  const winnerSaved = store.upsertRankedProfile(winnerAfter);
+  const loserSaved = store.upsertRankedProfile(loserAfter);
+  applyRankedProfileToParticipant(room, winnerId, winnerSaved);
+  applyRankedProfileToParticipant(room, loserId, loserSaved);
+
+  const matchIndex = room.series?.matchNumber || 1;
 
   if (room.series.active && !room.series.completed) {
     room.series.wins[winnerId] = (room.series.wins[winnerId] || 0) + 1;
@@ -1081,10 +1167,30 @@ function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
 
   room.lastRankedResult = {
     reason,
-    winner: rankedResultPayload(winner, winnerBefore, winnerAfter),
-    loser: rankedResultPayload(loser, loserBefore, loserAfter),
+    winner: rankedResultPayload(winner, winnerBefore, winnerSaved),
+    loser: rankedResultPayload(loser, loserBefore, loserSaved),
     series: seriesPayload(room),
   };
+  store.logRankedMatch({
+    id: `${room.series?.seriesId || room.id}:${matchIndex}:${winner.playerId}:${loser.playerId}`,
+    roomId: room.id,
+    seriesId: room.series?.seriesId || `series:${room.id}`,
+    matchIndex,
+    mode: room.mode,
+    reason,
+    startedAt: room.match.startedAt || Date.now(),
+    finishedAt: Date.now(),
+    winner: room.lastRankedResult.winner,
+    loser: room.lastRankedResult.loser,
+  });
+  metrics.increment("blockdrop_ranked_matches_total");
+  logger.info("ranked_match_logged", {
+    roomId: room.id,
+    reason,
+    winnerId: winner.playerId,
+    loserId: loser.playerId,
+    matchIndex,
+  });
   return room.lastRankedResult;
 }
 
@@ -1372,6 +1478,7 @@ function removeClient(client, reason = "close") {
         name: client.name,
         ranked: client.ranked,
         playerId: client.playerId,
+        identityToken: client.identityToken,
         rankedProfile: client.rankedProfile,
         state: client.state,
         expiresAt,
@@ -1390,38 +1497,15 @@ function removeClient(client, reason = "close") {
   } else {
     broadcastRoom(roomId);
   }
-}
-
-function cleanCode(value) {
-  return String(value || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 16);
+  updateLiveMetrics();
 }
 
 function cleanPlayerId(value) {
-  return String(value || "")
-    .trim()
-    .replace(/[^a-zA-Z0-9_.-]/g, "")
-    .slice(0, 64);
-}
-
-function normalizeMatchMode(value) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized === "timeattack") return "timeAttack";
-  if (MATCH_MODES.has(normalized)) return normalized;
-  return "classic";
+  return normalizePlayerId(value);
 }
 
 function cleanName(value) {
-  return (
-    String(value || "Player")
-      .replace(/[<>]/g, "")
-      .trim()
-      .slice(0, 18) || "Player"
-  );
+  return normalizePlayerName(value);
 }
 
 function safeNumber(value) {
@@ -1431,12 +1515,6 @@ function safeNumber(value) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
-}
-
-function clampSigned(value, min, max) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 0;
-  return Math.max(min, Math.min(max, Math.floor(number)));
 }
 
 function decodeFrames(buffer) {
@@ -1507,9 +1585,23 @@ function sendFrame(socket, message) {
 }
 
 setInterval(() => {
+  updateLiveMetrics();
   for (const roomId of rooms.keys()) broadcastRoom(roomId);
 }, 1000);
 
+store.insertDeployAudit({
+  revision: readRevision(),
+  version: readPackageMeta().version,
+  reason: process.env.BLOCKDROP_DEPLOY_REASON || "startup",
+});
+
 server.listen(PORT, () => {
+  updateLiveMetrics();
+  logger.info("server_started", {
+    port: PORT,
+    version: readPackageMeta().version,
+    revision: readRevision(),
+    url: `http://localhost:${PORT}`,
+  });
   console.log(`BlockDrop server: http://localhost:${PORT}`);
 });

@@ -12,15 +12,18 @@ afterEach(() => {
     serverProcess.kill();
     serverProcess = null;
   }
-  try {
-    fs.unlinkSync(path.join(process.cwd(), "records.json"));
-  } catch {
-    // no records were written
-  }
-  try {
-    fs.unlinkSync(path.join(process.cwd(), "ranked.json"));
-  } catch {
-    // no ranked data was written
+  for (const file of [
+    "records.json",
+    "ranked.json",
+    "blockdrop.sqlite",
+    "blockdrop.sqlite-shm",
+    "blockdrop.sqlite-wal",
+  ]) {
+    try {
+      fs.unlinkSync(path.join(process.cwd(), file));
+    } catch {
+      // file may not exist for every test
+    }
   }
 });
 
@@ -140,6 +143,25 @@ describe("server hardening", () => {
     expect(payload.service).toBe("blockdrop-web-game");
     expect(payload.rooms).toBe(0);
     expect(Number.isInteger(payload.uptimeSec)).toBe(true);
+  });
+
+  it("serves metrics and a stable server-side daily challenge seed", async () => {
+    const port = 18911;
+    await startServer(port);
+
+    const dailyA = await fetch(`http://127.0.0.1:${port}/api/daily`);
+    const payloadA = await dailyA.json();
+    const dailyB = await fetch(`http://127.0.0.1:${port}/api/daily`);
+    const payloadB = await dailyB.json();
+    const metrics = await fetch(`http://127.0.0.1:${port}/metrics`);
+    const metricsText = await metrics.text();
+
+    expect(payloadA.date).toBeTruthy();
+    expect(payloadA.seed).toBe(payloadB.seed);
+    expect(Array.isArray(payloadA.leaderboard)).toBe(true);
+    expect(metrics.status).toBe(200);
+    expect(metricsText).toContain("blockdrop_rooms_active");
+    expect(metricsText).toContain("blockdrop_records_total");
   });
 
   it("sends baseline browser security headers", async () => {

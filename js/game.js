@@ -25,6 +25,7 @@ import {
 import { GAME_MODES, getModeConfig, normalizeModeKey } from "./modes.js";
 import {
   createOnlineClient,
+  loadOrCreatePlayerId,
   roomFromLocation,
   sendAttack,
   sendOnlineMessage,
@@ -77,6 +78,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     lastRoom: "tetris-last-room",
     playerName: "blockdrop-player-name",
     rankedPlayerId: "blockdrop-ranked-player-id-v1",
+    rankedIdentityToken: "blockdrop-ranked-identity-token-v1",
+    matchHistory: "blockdrop-online-match-history-v1",
+    onlineStats: "blockdrop-online-stats-v1",
   };
 
   const COLORS = {
@@ -351,6 +355,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     stats: loadStats(),
     scores: storage.loadScores([]),
     serverRecords: [],
+    serverDaily: {
+      date: "",
+      seed: "",
+      leaderboard: [],
+    },
     unlocked: storage.loadAchievements({}),
     online: {
       id: "",
@@ -687,7 +696,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         ? `AI ${state.settings.aiStyle}/${state.settings.aiPace}`
         : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name} · ${AI_STYLE[state.settings.aiStyle].name}`;
     state.daily = options.daily
-      ? { date: localDateKey(), seed: options.seed }
+      ? { date: options.dailyDate || localDateKey(), seed: options.seed }
       : null;
     state.ghostReplay = Boolean(options.ghostReplay);
     setSession({
@@ -721,9 +730,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     );
   }
 
-  function startDailyChallenge() {
-    const key = localDateKey();
-    startGame("classic", "normal", { daily: true, seed: `daily:${key}` });
+  async function startDailyChallenge() {
+    const daily = (await loadServerDaily()) || null;
+    const key = daily?.date || localDateKey();
+    const seed = daily?.seed ? `daily:${daily.seed}` : `daily:${key}`;
+    startGame("classic", "normal", {
+      daily: true,
+      dailyDate: key,
+      seed,
+    });
     showToast(onlineText(`Испытание дня ${key}`, `Daily challenge ${key}`));
   }
 
@@ -1257,6 +1272,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
           lines: state.lines,
         };
       }
+      submitDailyScore();
     }
     saveGhostRunIfBest();
     state.stats.modeCounts = {
@@ -1841,6 +1857,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       statsRows,
       scores: state.scores,
       serverRecords: serverRecordsForUi(),
+      dailyLeaderboard: dailyLeaderboardForUi(),
+      dailyLeaderboardDate: state.serverDaily.date,
       achievements: ACHIEVEMENTS.map(([id, title, description]) => ({
         title,
         description,
@@ -1860,6 +1878,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     }));
   }
 
+  function dailyLeaderboardForUi() {
+    return (state.serverDaily.leaderboard || []).slice(0, 10).map((entry) => ({
+      name: entry.name,
+      score: entry.score,
+      lines: entry.lines,
+      time: formatTime(entry.timeMs || 0),
+    }));
+  }
+
   async function loadServerRecords() {
     if (!location.protocol.startsWith("http")) return;
     try {
@@ -1871,6 +1898,51 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     } catch {
       syncUi();
       if (ui.isOverlayVisible("statsOverlay")) renderStats();
+    }
+  }
+
+  async function loadServerDaily() {
+    if (!location.protocol.startsWith("http")) return null;
+    try {
+      const response = await fetch("/api/daily", { cache: "no-store" });
+      const data = await response.json();
+      state.serverDaily = {
+        date: String(data.date || localDateKey()),
+        seed: String(data.seed || ""),
+        leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
+      };
+      syncUi();
+      if (ui.isOverlayVisible("statsOverlay")) renderStats();
+      return state.serverDaily;
+    } catch {
+      return null;
+    }
+  }
+
+  async function submitDailyScore() {
+    if (!state.daily || !location.protocol.startsWith("http")) return;
+    try {
+      const response = await fetch("/api/daily", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerId: storage.loadRankedPlayerId("") || loadOrCreatePlayerId(),
+          name: storage.loadPlayerName("Игрок") || state.online.name || "Игрок",
+          score: state.score,
+          lines: state.lines,
+          level: state.level,
+          timeMs: Math.floor(state.elapsedMs),
+        }),
+      });
+      const data = await response.json();
+      state.serverDaily = {
+        date: String(data.date || state.daily.date),
+        seed: String(data.seed || state.daily.seed || ""),
+        leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
+      };
+      if (ui.isOverlayVisible("statsOverlay")) renderStats();
+    } catch {
+      // Keep local daily best even when the server is unavailable.
     }
   }
 
@@ -2233,6 +2305,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     renderStats();
     ui.showOverlay("statsOverlay");
     loadServerRecords();
+    loadServerDaily();
   }
 
   function closeStats() {
@@ -2822,6 +2895,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       online: () => {
         showToast("Сеть вернулась");
         loadServerRecords();
+        loadServerDaily();
       },
       beforeUnload: saveCurrentGame,
       resize: () => {
@@ -2898,5 +2972,6 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   draw();
   bootPwa();
   loadServerRecords();
+  loadServerDaily();
   requestAnimationFrame(update);
 })();

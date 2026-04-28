@@ -1,4 +1,4 @@
-const CACHE_NAME = "blockdrop-cache-v9";
+const CACHE_NAME = "blockdrop-cache-v10";
 const ASSETS = [
   "./",
   "index.html",

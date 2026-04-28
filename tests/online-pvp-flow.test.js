@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let serverProcess = null;
@@ -26,15 +27,18 @@ function getFreePort() {
 }
 
 function cleanupPersistedState() {
-  try {
-    fs.unlinkSync(path.join(process.cwd(), "records.json"));
-  } catch {
-    // no records were written
-  }
-  try {
-    fs.unlinkSync(path.join(process.cwd(), "ranked.json"));
-  } catch {
-    // no ranked data was written
+  for (const file of [
+    "records.json",
+    "ranked.json",
+    "blockdrop.sqlite",
+    "blockdrop.sqlite-shm",
+    "blockdrop.sqlite-wal",
+  ]) {
+    try {
+      fs.unlinkSync(path.join(process.cwd(), file));
+    } catch {
+      // file may not exist for every test
+    }
   }
 }
 
@@ -147,6 +151,7 @@ function connectClient(
     durationSec = 180,
     ranked = false,
     playerId = "",
+    identityToken = "",
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -229,6 +234,7 @@ function connectClient(
           durationSec,
           ranked,
           playerId,
+          identityToken,
         });
         if (!settled) {
           settled = true;
@@ -542,9 +548,11 @@ describe("online PvP room flow", () => {
         playerId: "alpha-id",
       });
       const firstHello = await first.waitForType("hello");
-      await expect(first.waitForType("rankedProfile")).resolves.toMatchObject({
+      const firstProfile = await first.waitForType("rankedProfile");
+      expect(firstProfile).toMatchObject({
         playerId: "alpha-id",
         rating: 1000,
+        identityToken: expect.stringMatching(/^v1\./),
       });
 
       const second = await connectClient(port, {
@@ -554,7 +562,8 @@ describe("online PvP room flow", () => {
         playerId: "bravo-id",
       });
       const secondHello = await second.waitForType("hello");
-      await second.waitForType("rankedProfile");
+      const secondProfile = await second.waitForType("rankedProfile");
+      expect(secondProfile.identityToken).toMatch(/^v1\./);
       await first.waitForType("matchStart", () => true, 6000);
 
       first.send({
@@ -612,14 +621,32 @@ describe("online PvP room flow", () => {
       expect(finalResult.series.wins[firstHello.id]).toBe(2);
       expect(finalResult.series.wins[secondHello.id] || 0).toBe(0);
 
-      const rankedStore = JSON.parse(
-        fs.readFileSync(path.join(process.cwd(), "ranked.json"), "utf8"),
-      );
-      expect(rankedStore.players["alpha-id"].wins).toBe(2);
-      expect(rankedStore.players["alpha-id"].bestWinStreak).toBe(2);
-      expect(rankedStore.players["bravo-id"].losses).toBe(2);
-      expect(rankedStore.players["bravo-id"].bestLossStreak).toBe(2);
+      const db = new DatabaseSync(path.join(process.cwd(), "blockdrop.sqlite"));
+      const rankedRows = db
+        .prepare(
+          "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players ORDER BY player_id ASC",
+        )
+        .all();
+      const matchRows = db
+        .prepare("SELECT COUNT(*) AS total FROM ranked_matches")
+        .get();
+      db.close();
+
+      expect(rankedRows).toEqual([
+        expect.objectContaining({
+          playerId: "alpha-id",
+          wins: 2,
+          bestWinStreak: 2,
+        }),
+        expect.objectContaining({
+          playerId: "bravo-id",
+          losses: 2,
+          bestLossStreak: 2,
+        }),
+      ]);
+      expect(Number(matchRows.total)).toBe(2);
     },
     16000,
   );
+
 });

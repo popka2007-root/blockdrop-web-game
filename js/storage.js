@@ -191,6 +191,12 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     saveRankedPlayerId(value) {
       saveText(keys.rankedPlayerId, value, storage);
     },
+    loadRankedIdentityToken(fallback = "") {
+      return loadText(keys.rankedIdentityToken, fallback, storage);
+    },
+    saveRankedIdentityToken(value) {
+      saveText(keys.rankedIdentityToken, value, storage);
+    },
     loadMatchHistory(fallback = []) {
       return loadMatchHistory(keys.matchHistory, storage) || fallback;
     },

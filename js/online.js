@@ -1,44 +1,28 @@
-export const BOARD_PREVIEW_ROWS = 15;
-export const BOARD_PREVIEW_COLS = 10;
+import "../shared/protocol.js";
+
 export const ONLINE_UPDATE_INTERVAL_MS = 125;
 export const ONLINE_PING_INTERVAL_MS = 4000;
 export const RANKED_PLAYER_ID_KEY = "blockdrop-ranked-player-id-v1";
+export const RANKED_IDENTITY_TOKEN_KEY = "blockdrop-ranked-identity-token-v1";
 
-export function normalizeRoomId(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 16);
-}
+const protocol = globalThis.__blockdropProtocol;
 
-export function normalizePlayerName(value) {
-  return (
-    String(value || "Player")
-      .replace(/[<>]/g, "")
-      .trim()
-      .slice(0, 18) || "Player"
-  );
-}
-
-export function normalizePlayerId(value) {
-  return String(value || "")
-    .trim()
-    .replace(/[^a-zA-Z0-9_.-]/g, "")
-    .slice(0, 64);
-}
-
-export function createLocalPlayerId(random = globalThis.crypto) {
-  if (random?.randomUUID) return random.randomUUID();
-  const values = new Uint8Array(16);
-  if (random?.getRandomValues) random.getRandomValues(values);
-  else {
-    for (let i = 0; i < values.length; i += 1) {
-      values[i] = Math.floor(Math.random() * 256);
-    }
-  }
-  return [...values].map((value) => value.toString(16).padStart(2, "0")).join("");
-}
+export const {
+  BOARD_PREVIEW_ROWS,
+  BOARD_PREVIEW_COLS,
+  normalizeRoomId,
+  normalizePlayerName,
+  normalizePlayerId,
+  normalizeIdentityToken,
+  createLocalPlayerId,
+  sanitizeBoardPreview,
+  buildJoinMessage,
+  buildUpdateMessage,
+  buildTournamentMessage,
+  buildPingMessage,
+  buildRematchReadyMessage,
+  buildMatchOverMessage,
+} = protocol;
 
 export function loadOrCreatePlayerId(
   storage = globalThis.localStorage,
@@ -52,6 +36,32 @@ export function loadOrCreatePlayerId(
     return created;
   } catch {
     return createLocalPlayerId();
+  }
+}
+
+export function loadRankedIdentityToken(
+  storage = globalThis.localStorage,
+  key = RANKED_IDENTITY_TOKEN_KEY,
+) {
+  try {
+    return normalizeIdentityToken(storage?.getItem(key));
+  } catch {
+    return "";
+  }
+}
+
+export function saveRankedIdentityToken(
+  token,
+  storage = globalThis.localStorage,
+  key = RANKED_IDENTITY_TOKEN_KEY,
+) {
+  try {
+    const safeToken = normalizeIdentityToken(token);
+    if (safeToken) storage?.setItem(key, safeToken);
+    else storage?.removeItem(key);
+    return safeToken;
+  } catch {
+    return normalizeIdentityToken(token);
   }
 }
 
@@ -110,99 +120,6 @@ export function buildRoomInviteText(locationLike, room, language = "ru") {
     : `Заходи в комнату BlockDrop ${safeRoom}: ${url}`;
 }
 
-export function buildJoinMessage({
-  room,
-  name,
-  maxPlayers,
-  durationSec,
-  mode = "classic",
-  ranked = false,
-  playerId = "",
-}) {
-  return {
-    type: "join",
-    room: normalizeRoomId(room),
-    name: normalizePlayerName(name),
-    maxPlayers: Number(maxPlayers) || 2,
-    durationSec: Number(durationSec) || 180,
-    mode: String(mode || "classic").slice(0, 24),
-    ranked: Boolean(ranked),
-    playerId: normalizePlayerId(playerId),
-  };
-}
-
-export function sanitizeBoardPreview(boardPreview) {
-  if (!Array.isArray(boardPreview)) return [];
-  return boardPreview.slice(-BOARD_PREVIEW_ROWS).map((row) => {
-    const cells = Array.isArray(row)
-      ? row
-      : String(row || "")
-          .split("")
-          .map((value) => (value === "0" ? 0 : 1));
-    return cells.slice(0, BOARD_PREVIEW_COLS).map((cell) => {
-      if (cell === true) return 1;
-      if (cell === false || cell == null) return 0;
-      const numeric = Number(cell);
-      return Number.isFinite(numeric) && numeric > 0 ? 1 : 0;
-    });
-  });
-}
-
-export function buildUpdateMessage(state) {
-  const message = {
-    type: "update",
-    room: normalizeRoomId(state.room),
-    name: normalizePlayerName(state.name),
-    score: Math.max(0, Math.floor(Number(state.score) || 0)),
-    lines: Math.max(0, Math.floor(Number(state.lines) || 0)),
-    level: Math.max(1, Math.floor(Number(state.level) || 1)),
-    height: Math.max(0, Math.floor(Number(state.height) || 0)),
-    sentGarbage: Math.max(0, Math.floor(Number(state.sentGarbage) || 0)),
-    receivedGarbage: Math.max(
-      0,
-      Math.floor(Number(state.receivedGarbage) || 0),
-    ),
-    mode: String(state.mode || "Classic").slice(0, 24),
-    time: String(state.time || "0:00").slice(0, 12),
-    status: String(state.status || "Playing").slice(0, 18),
-    force: Boolean(state.force),
-  };
-  const boardPreview = sanitizeBoardPreview(state.boardPreview || state.fieldPreview);
-  if (boardPreview.length) message.boardPreview = boardPreview;
-  return message;
-}
-
-export function buildTournamentMessage({
-  room,
-  maxPlayers,
-  durationSec,
-  mode = "classic",
-}) {
-  return {
-    type: "startTournament",
-    room: normalizeRoomId(room),
-    maxPlayers: Number(maxPlayers) || 2,
-    durationSec: Number(durationSec) || 180,
-    mode: String(mode || "classic").slice(0, 24),
-  };
-}
-
-export function buildPingMessage(ts = Date.now()) {
-  return { type: "ping", ts: Math.max(0, Math.floor(Number(ts) || 0)) };
-}
-
-export function buildRematchReadyMessage(room) {
-  return { type: "rematchReady", room: normalizeRoomId(room) };
-}
-
-export function buildMatchOverMessage(room, result) {
-  return {
-    type: "matchOver",
-    room: normalizeRoomId(room),
-    result: result === "win" ? "win" : "loss",
-  };
-}
-
 export async function copyTextToClipboard(text, documentLike = globalThis.document) {
   if (!text) return false;
   try {
@@ -248,6 +165,7 @@ export function createOnlineClient() {
     role: "player",
     ranked: false,
     playerId: "",
+    identityToken: "",
     rating: 1000,
     pingMs: 0,
     room: "",
@@ -329,6 +247,7 @@ export function connectOnline(
     mode = "classic",
     ranked = false,
     playerId = "",
+    identityToken = "",
   },
 ) {
   disconnectOnline(client);
@@ -339,6 +258,7 @@ export function connectOnline(
   client.role = "player";
   client.ranked = Boolean(ranked);
   client.playerId = normalizePlayerId(playerId);
+  client.identityToken = normalizeIdentityToken(identityToken);
 
   socket.addEventListener("open", () => {
     client.connected = true;
@@ -353,6 +273,7 @@ export function connectOnline(
         mode,
         ranked: client.ranked,
         playerId: client.playerId,
+        identityToken: client.identityToken,
       }),
     );
     startOnlinePing(client);
@@ -374,6 +295,9 @@ export function connectOnline(
       if (payload.type === "role") client.role = payload.role || "player";
       if (payload.type === "rankedProfile") {
         client.rating = Math.max(0, Math.floor(Number(payload.rating) || 1000));
+        if (payload.identityToken) {
+          client.identityToken = normalizeIdentityToken(payload.identityToken);
+        }
       }
       emitOnlineMessage(client, payload);
     } catch (error) {
