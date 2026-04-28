@@ -55,7 +55,10 @@ const rooms = new Map();
 const rankedQueue = [];
 const startedAt = Date.now();
 let cachedPackageMeta = null;
-const store = createServerStore({ root: ROOT });
+const store = createServerStore({
+  root: ROOT,
+  dbFile: process.env.BLOCKDROP_DB_FILE || undefined,
+});
 const logger = createLogger({ service: "blockdrop-web-game" });
 const metrics = createMetrics();
 
