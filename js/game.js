@@ -2888,8 +2888,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   function bindUi() {
     ui.bindControls({
       startGame: () => startGame(),
-      startDailyChallenge: () => {
-        startDailyChallenge();
+      startDailyChallenge: async () => {
+        await startDailyChallenge();
         syncUi();
       },
       startAiGame: () => {
