@@ -6,7 +6,13 @@ import {
   getModeOptions,
   normalizeModeKey,
 } from "../js/modes.js";
-import { calc, format, validate } from "../js/utils.js";
+import {
+  calc,
+  format,
+  getGhostOverlayHeight,
+  localDateKey,
+  validate,
+} from "../js/utils.js";
 
 describe("mode configuration", () => {
   it("normalizes known modes and legacy aliases", () => {
@@ -73,5 +79,45 @@ describe("utils", () => {
     expect(calc.progress(20, 40)).toBe(0.5);
     expect(calc.nextLevel(10, 10)).toBe(10);
     expect(calc.nextLevel(13, 10)).toBe(7);
+  });
+
+  it("keeps daily keys stable within a local calendar day", () => {
+    const morning = new Date(2026, 3, 28, 8, 15);
+    const lateEvening = new Date(2026, 3, 28, 23, 59);
+    const nextDay = new Date(2026, 3, 29, 0, 1);
+
+    expect(localDateKey(morning)).toBe("2026-04-28");
+    expect(localDateKey(lateEvening)).toBe(localDateKey(morning));
+    expect(localDateKey(nextDay)).toBe("2026-04-29");
+  });
+
+  it("shows ghost comparison height only for an explicit ghost replay", () => {
+    const ghostRun = {
+      mode: "classic",
+      samples: [
+        { time: 0, height: 3 },
+        { time: 6000, height: 7 },
+      ],
+    };
+
+    expect(
+      getGhostOverlayHeight({
+        ghostRun,
+        mode: "classic",
+        running: true,
+        ghostReplay: false,
+        elapsedMs: 7000,
+      }),
+    ).toBe(0);
+
+    expect(
+      getGhostOverlayHeight({
+        ghostRun,
+        mode: "classic",
+        running: true,
+        ghostReplay: true,
+        elapsedMs: 7000,
+      }),
+    ).toBe(7);
   });
 });

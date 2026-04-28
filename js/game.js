@@ -63,6 +63,7 @@ import {
   isBoardEmpty,
   makeBoard,
 } from "./game-core.js";
+import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
 (() => {
   "use strict";
@@ -382,6 +383,7 @@ import {
     lastGhostSampleMs: 0,
     previousBestScore: 0,
     daily: null,
+    ghostReplay: false,
   };
 
   const audio = initAudio(() => state.settings);
@@ -551,10 +553,6 @@ import {
     };
   }
 
-  function dailyKey(date = new Date()) {
-    return date.toISOString().slice(0, 10);
-  }
-
   function takeKind() {
     if (state.bag.length === 0) refillBag();
     return state.bag.shift();
@@ -667,8 +665,9 @@ import {
         ? `AI ${state.settings.aiStyle}/${state.settings.aiPace}`
         : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name} · ${AI_STYLE[state.settings.aiStyle].name}`;
     state.daily = options.daily
-      ? { date: dailyKey(), seed: options.seed }
+      ? { date: localDateKey(), seed: options.seed }
       : null;
+    state.ghostReplay = Boolean(options.ghostReplay);
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
@@ -694,9 +693,9 @@ import {
   }
 
   function startDailyChallenge() {
-    const key = dailyKey();
+    const key = localDateKey();
     startGame("classic", "normal", { daily: true, seed: `daily:${key}` });
-    showToast(`Испытание дня ${key}`);
+    showToast(onlineText(`Испытание дня ${key}`, `Daily challenge ${key}`));
   }
 
   function spawn() {
@@ -1081,7 +1080,6 @@ import {
 
   function lineClearLabel(lines) {
     const labels = {
-      1: onlineText("Одиночная", "Single"),
       2: onlineText("Дабл", "Double"),
       3: onlineText("Трипл", "Triple"),
       4: "Tetris",
@@ -1456,21 +1454,13 @@ import {
   }
 
   function ghostRunHeight() {
-    if (
-      !state.ghostRun ||
-      state.ghostRun.mode !== state.mode ||
-      state.running === false
-    )
-      return 0;
-    const samples = Array.isArray(state.ghostRun.samples)
-      ? state.ghostRun.samples
-      : [];
-    let current = null;
-    for (const sample of samples) {
-      if (sample.time > state.elapsedMs) break;
-      current = sample;
-    }
-    return current?.height || 0;
+    return getGhostOverlayHeight({
+      ghostRun: state.ghostRun,
+      mode: state.mode,
+      running: state.running,
+      ghostReplay: state.ghostReplay,
+      elapsedMs: state.elapsedMs,
+    });
   }
 
   function ghostPiece() {
@@ -1538,7 +1528,9 @@ import {
         state.scores.find((entry) => entry.mode === MODES.sprint.name)?.score ||
         0,
       dailyBest:
-        state.stats.daily?.date === dailyKey() ? state.stats.daily.score : 0,
+        state.stats.daily?.date === localDateKey()
+          ? state.stats.daily.score
+          : 0,
       serverTop: state.serverRecords[0],
     });
     renderOnlinePanel();
@@ -1933,23 +1925,6 @@ import {
   }
 
   function renderOnlinePanel() {
-    if (state.ai.enabled) {
-      ui.renderOnlinePanel({
-        connected: true,
-        room: "AI",
-        tournament: null,
-        players: [
-          {
-            name: state.ai.name,
-            score: Math.round(state.ai.score),
-            status:
-              state.settings.language === "en" ? "Training" : "Тренировка",
-          },
-        ],
-        formatTime,
-      });
-      return;
-    }
     const players = Object.values(state.online.peers || {})
       .sort((a, b) => b.score - a.score)
       .slice(0, 4);
@@ -1995,13 +1970,12 @@ import {
 
   function opponentHeight() {
     if (state.ai.enabled) return state.ai.height;
-    return (
-      Object.values(state.online.peers || {})
-        .filter(
-          (p) => p.id !== state.online.id && Number.isFinite(Number(p.height)),
-        )
-        .sort((a, b) => b.score - a.score)[0]?.height || ghostRunHeight()
-    );
+    const peerHeight = Object.values(state.online.peers || {})
+      .filter(
+        (p) => p.id !== state.online.id && Number.isFinite(Number(p.height)),
+      )
+      .sort((a, b) => b.score - a.score)[0]?.height;
+    return peerHeight || ghostRunHeight();
   }
 
   function topDanger() {
@@ -2029,6 +2003,7 @@ import {
     applySaveSnapshot(state, save, FLOW_STATE.PLAYING);
     state.mode = normalizeModeKey(state.mode);
     state.ai.enabled = false;
+    state.ghostReplay = false;
     state.difficulty = "normal";
     state.rng = Math.random;
     hideOverlays();
@@ -2535,7 +2510,7 @@ import {
       return;
     }
     ui.hideOverlay("replayOverlay");
-    startGame(state.ghostRun.mode, "normal");
+    startGame(state.ghostRun.mode, "normal", { ghostReplay: true });
     showToast("Призрак лучшей партии включён");
   }
 

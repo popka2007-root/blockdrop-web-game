@@ -1695,6 +1695,7 @@ export function createUi(options = {}) {
   }
 
   function showToast(text) {
+    if (!String(text || "").trim()) return;
     refs.toast.textContent = text;
     refs.toast.classList.add("show");
     clearTimeout(toastTimer);

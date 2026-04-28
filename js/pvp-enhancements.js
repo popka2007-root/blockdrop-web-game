@@ -35,6 +35,9 @@ import {
     const socket = new originalWebSocket(...args);
     state.socket = socket;
     state.connected = false;
+    state.roomState = null;
+    state.countdown = 0;
+    state.role = "player";
     const originalSend = socket.send.bind(socket);
     socket.send = (payload) => {
       originalSend(enhanceOutgoingPayload(payload));
@@ -46,6 +49,9 @@ import {
     socket.addEventListener("message", (event) => handleServerMessage(event.data));
     socket.addEventListener("close", () => {
       state.connected = false;
+      state.roomState = null;
+      state.countdown = 0;
+      state.role = "player";
       renderPvpPanel("disconnected");
     });
     socket.addEventListener("error", () => renderPvpPanel("error"));
@@ -156,12 +162,22 @@ import {
 
   function renderPvpPanel(forcedStatus = "") {
     ensurePvpPanel();
+    const panel = document.getElementById("pvpEnhancements");
     const roleBadge = document.getElementById("pvpRoleBadge");
     const status = document.getElementById("pvpConnectionStatus");
     const boards = document.getElementById("pvpBoards");
     const summary = document.getElementById("pvpSummary");
     const history = document.getElementById("pvpHistory");
-    if (!roleBadge || !status || !boards || !summary || !history) return;
+    if (!panel || !roleBadge || !status || !boards || !summary || !history) return;
+
+    const shouldShowPanel = Boolean(state.connected);
+    panel.classList.toggle("active", shouldShowPanel);
+    if (!shouldShowPanel) {
+      boards.innerHTML = "";
+      summary.innerHTML = "";
+      history.innerHTML = "";
+      return;
+    }
 
     roleBadge.textContent = state.role === "spectator" ? "Spectator" : "Player";
     roleBadge.classList.toggle("spectator", state.role === "spectator");
@@ -362,6 +378,7 @@ import {
   }
 
   function showPvpToast(message) {
+    if (!String(message || "").trim()) return;
     const toast = document.getElementById("toast");
     if (!toast) return;
     toast.textContent = message;

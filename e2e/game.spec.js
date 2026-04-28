@@ -16,6 +16,40 @@ test("pause works", async ({ page }) => {
   await expect(page.locator("#pauseOverlay")).toBeVisible();
 });
 
+test("solo play keeps online and PvP side panels hidden", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "blockdrop-ghost-run-v1",
+      JSON.stringify({
+        score: 9000,
+        mode: "classic",
+        date: "2026-04-27T10:00:00.000Z",
+        samples: [{ time: 0, height: 12, score: 9000, lines: 24 }],
+      }),
+    );
+  });
+  await page.goto("/");
+  await page.locator("#startButton").click();
+
+  await expect(page.locator("#onlinePanel")).toBeHidden();
+  await expect(page.locator("#pvpEnhancements")).toBeHidden();
+
+  const pixel = await page.evaluate(() => {
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const data = ctx.getImageData(
+      Math.floor(canvas.width / 2),
+      Math.floor(canvas.height * 0.85),
+      1,
+      1,
+    ).data;
+    return Array.from(data);
+  });
+
+  expect(pixel[0]).toBeLessThan(80);
+  expect(pixel[1]).toBeLessThan(80);
+});
+
 test("P and Escape toggle pause from keyboard", async ({ page }) => {
   await page.goto("/");
   await page.locator("#startButton").click();
@@ -288,6 +322,8 @@ test("online room connects two players and shares state", async ({
 
   await expect(first.locator("#onlineStatus")).toContainText(room);
   await expect(second.locator("#onlineStatus")).toContainText(room);
+  await expect(first.locator("#pvpEnhancements")).toBeVisible();
+  await expect(second.locator("#pvpEnhancements")).toBeVisible();
   await expect(first.locator("#onlinePlayers")).toContainText("P2");
   await expect(second.locator("#onlinePlayers")).toContainText("P1");
 
