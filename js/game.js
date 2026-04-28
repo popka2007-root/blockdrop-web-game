@@ -360,6 +360,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       id: "",
       connected: false,
       room: "",
+      mode: "classic",
       name: "",
       ranked: false,
       rating: 1000,
@@ -384,12 +385,49 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     previousBestScore: 0,
     daily: null,
     ghostReplay: false,
+    session: {
+      type: "solo",
+      source: "local",
+      room: "",
+      ranked: false,
+      matchId: "",
+    },
   };
 
   const audio = initAudio(() => state.settings);
+  const DEFAULT_SESSION = {
+    type: "solo",
+    source: "local",
+    room: "",
+    ranked: false,
+    matchId: "",
+  };
 
   function ensureAudio() {
     audio.player.resume();
+  }
+
+  function makeSessionState(next = {}) {
+    return {
+      ...DEFAULT_SESSION,
+      ...next,
+      type: ["solo", "ai", "online"].includes(next.type) ? next.type : "solo",
+      room: String(next.room || ""),
+      ranked: Boolean(next.ranked),
+      matchId: String(next.matchId || ""),
+    };
+  }
+
+  function setSession(next = {}) {
+    state.session = makeSessionState(next);
+  }
+
+  function isOnlineSession() {
+    return state.session.type === "online";
+  }
+
+  function isAiSession() {
+    return state.session.type === "ai";
   }
 
   function clamp(value, min, max) {
@@ -598,6 +636,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     difficulty = "normal",
     options = {},
   ) {
+    const session = makeSessionState(
+      options.session || (options.ai ? { type: "ai" } : { type: "solo" }),
+    );
+    if (session.type !== "online" && state.online.connected) {
+      disconnectOnline(false);
+    }
     difficulty = "normal";
     mode = normalizeModeKey(mode);
     const modeConfig = getModeConfig(mode);
@@ -654,7 +698,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.lockDelayMs = 0;
     state.lockResets = 0;
     state.flashes = [];
-    state.ai.enabled = Boolean(options.ai);
+    state.ai.enabled = session.type === "ai";
     state.ai.difficulty = options.aiDifficulty || state.settings.aiDifficulty;
     state.ai.score = 0;
     state.ai.height = 0;
@@ -668,6 +712,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       ? { date: localDateKey(), seed: options.seed }
       : null;
     state.ghostReplay = Boolean(options.ghostReplay);
+    setSession({
+      ...session,
+      room: session.room || state.online.room,
+      ranked: session.ranked || state.online.ranked,
+      matchId: session.matchId || options.seed || "",
+    });
     hideOverlays();
     fillQueue();
     addGarbage(DIFFICULTY[difficulty].garbage);
@@ -683,6 +733,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   function startAiGame() {
     startGame(ui.getStartMode(), "normal", {
       ai: true,
+      session: { type: "ai", source: "ai" },
       aiDifficulty: state.settings.aiDifficulty,
     });
     showToast(
@@ -732,7 +783,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     playEvent("attack");
     buzz("attack");
     showToast(`Атака от ${from}: +${count}`);
-    sendOnlineUpdate(true);
+    if (isOnlineSession()) sendOnlineUpdate(true);
   }
 
   function isGrounded(piece = state.active) {
@@ -1027,12 +1078,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
   function sendAttackForEvent(event) {
     const lines = Number(event?.attackLines) || 0;
-    if (!lines || (!state.online.connected && !state.ai.enabled)) return;
+    if (!lines || (!isOnlineSession() && !isAiSession())) return;
     state.sentGarbage += lines;
     state.stats.totalSentGarbage += lines;
-    if (state.online.connected)
+    if (isOnlineSession())
       sendAttack(onlineClient, state.online.room, lines);
-    if (state.ai.enabled) {
+    if (isAiSession()) {
       state.ai.height = Math.max(0, state.ai.height - lines);
       state.ai.attackMs = Math.max(0, state.ai.attackMs - lines * 1200);
     }
@@ -1188,7 +1239,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     });
   }
 
-  function finish(won, text) {
+  function finish(won, text, options = {}) {
+    const { reportOnline = true } = options;
     state.running = false;
     state.gameOver = true;
     state.phase = FLOW_STATE.GAME_OVER;
@@ -1272,12 +1324,17 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     shakeBoard();
     if (won) burst(50);
     sendOnlineUpdate(true);
-    sendOnlineMatchResult(won);
+    if (reportOnline) sendOnlineMatchResult(won);
     submitServerRecord();
   }
 
   function sendOnlineMatchResult(won) {
-    if (!state.online.connected || onlineClient.role === "spectator") return;
+    if (
+      !isOnlineSession() ||
+      !state.online.connected ||
+      onlineClient.role === "spectator"
+    )
+      return;
     sendOnlineMessage(onlineClient, {
       type: "matchOver",
       room: state.online.room,
@@ -1675,6 +1732,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     ui.setOnlineRanked(false);
     storage.saveRoomCode(room);
     state.online.room = room;
+    state.online.mode = normalizeModeKey(ui.getStartMode());
     state.online.ranked = false;
     const link = roomInviteUrl(room);
     if (location.protocol.startsWith("http"))
@@ -1698,6 +1756,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     const room = ensureRoomCode();
     const name = (rawName || defaultPlayerName()).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
+    const mode = normalizeModeKey(ui.getStartMode());
     storage.saveRankedPlayerId(playerId);
     storage.savePlayerName(name);
     storage.saveRoomCode(room);
@@ -1705,6 +1764,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     disconnectOnline(false);
     try {
       state.online.room = room;
+      state.online.mode = mode;
       state.online.name = name;
       state.online.ranked = Boolean(ranked);
       ui.setOnlineStatus(onlineText("Подключение...", "Connecting..."));
@@ -1714,6 +1774,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         name,
         maxPlayers,
         durationSec,
+        mode,
         ranked,
         playerId,
       });
@@ -1726,7 +1787,6 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   onOnlineMessage(onlineClient, (data) => {
     if (data.type === "open") {
       state.online.connected = true;
-      sendOnlineUpdate(true);
       ui.setOnlineStatus(onlineText(`Комната ${data.room}`, `Room ${data.room}`));
       if (location.protocol.startsWith("http"))
         history.replaceState(null, "", roomInviteUrl(data.room));
@@ -1756,6 +1816,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
     if (data.type === "close") {
       state.online.connected = false;
+      if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
       ui.setOnlineStatus(onlineText("Отключено", "Disconnected"));
       renderOnlinePanel();
       updateOnlineControls();
@@ -1778,6 +1839,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     if (data.type === "state") {
       state.online.peers = data.players || {};
       state.online.tournament = data.tournament || null;
+      state.online.mode = normalizeModeKey(data.match?.mode || state.online.mode);
       state.online.series = data.match?.series || null;
       state.online.ranked = Boolean(data.match?.ranked || state.online.ranked);
       state.online.rankedResult =
@@ -1794,7 +1856,18 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
     if (data.type === "matchStart" || data.type === "rematchStart") {
       ui.hideOverlay("onlineOverlay");
-      startGame(ui.getStartMode(), state.difficulty, { seed: data.seed });
+      const matchMode = normalizeModeKey(data.mode || state.online.mode);
+      state.online.mode = matchMode;
+      startGame(matchMode, state.difficulty, {
+        seed: data.seed,
+        session: {
+          type: "online",
+          source: data.type,
+          room: state.online.room,
+          ranked: state.online.ranked,
+          matchId: data.startedAt || data.seed,
+        },
+      });
       syncUi();
       showToast(
         data.type === "rematchStart"
@@ -1807,13 +1880,21 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     if (data.type === "matchFinished") {
       state.online.rankedResult = data.ranked || null;
       state.online.series = data.series || state.online.series;
+      if (isOnlineSession() && state.running && !state.gameOver) {
+        const selfWon = data.winnerId === state.online.id;
+        const resultText = selfWon
+          ? onlineText("Победа в онлайн-матче", "Online match won")
+          : onlineText("Поражение в онлайн-матче", "Online match lost");
+        finish(selfWon, resultText, { reportOnline: false });
+      }
       showRankedResultToast(data);
       renderOnlinePanel();
       return;
     }
 
     if (data.type === "attack") {
-      receiveGarbage(Number(data.lines) || 0, data.from || "соперника");
+      if (isOnlineSession())
+        receiveGarbage(Number(data.lines) || 0, data.from || "соперника");
       return;
     }
 
@@ -1828,9 +1909,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.online.connected = false;
     state.online.peers = {};
     state.online.tournament = null;
+    state.online.mode = normalizeModeKey(ui.getStartMode());
     state.online.ranked = false;
     state.online.rankedResult = null;
     state.online.series = null;
+    if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
     renderOnlinePanel();
     renderOnlinePlayers();
     updateOnlineControls();
@@ -1839,13 +1922,20 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function toggleOnlineConnection() {
-    if (state.online.connected) startOnlineGame();
+    if (state.online.connected) disconnectOnline();
     else connectOnline();
   }
 
   function startOnlineGame() {
     ui.hideOverlay("onlineOverlay");
-    startGame(ui.getStartMode(), state.difficulty);
+    startGame(ui.getStartMode(), state.difficulty, {
+      session: {
+        type: "online",
+        source: "manual",
+        room: state.online.room,
+        ranked: state.online.ranked,
+      },
+    });
     syncUi();
   }
 
@@ -1854,7 +1944,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function sendOnlineUpdate(force = false) {
-    if (!state.online.connected) return;
+    if (!state.online.connected || !isOnlineSession()) return;
     state.online.lastSent = performance.now();
     sendScoreUpdate(onlineClient, {
       room: state.online.room,
@@ -1894,14 +1984,22 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       room: state.online.room,
       maxPlayers,
       durationSec,
+      mode: normalizeModeKey(ui.getStartMode()),
     });
     showToast("Турнир запускается");
-    startGame(state.mode, state.difficulty);
+    startGame(ui.getStartMode(), state.difficulty, {
+      session: {
+        type: "online",
+        source: "tournament",
+        room: state.online.room,
+        ranked: state.online.ranked,
+      },
+    });
   }
 
   function requestRematch() {
     if (!state.online.connected) {
-      startTournament();
+      showToast(onlineText("Сначала подключись к комнате", "Connect to a room first"));
       return;
     }
     if (onlineClient.role === "spectator") {
@@ -1969,7 +2067,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function opponentHeight() {
-    if (state.ai.enabled) return state.ai.height;
+    if (isAiSession()) return state.ai.height;
+    if (!isOnlineSession()) return ghostRunHeight();
     const peerHeight = Object.values(state.online.peers || {})
       .filter(
         (p) => p.id !== state.online.id && Number.isFinite(Number(p.height)),
@@ -1990,7 +2089,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function saveCurrentGame() {
-    if (!state.running || state.gameOver) return;
+    if (!state.running || state.gameOver || isOnlineSession()) return;
     storage.saveGame(buildSavePayload(state));
   }
 
@@ -2000,12 +2099,14 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       showToast(onlineText("Сохранения пока нет", "No saved game yet"));
       return;
     }
+    if (state.online.connected) disconnectOnline(false);
     applySaveSnapshot(state, save, FLOW_STATE.PLAYING);
     state.mode = normalizeModeKey(state.mode);
     state.ai.enabled = false;
     state.ghostReplay = false;
     state.difficulty = "normal";
     state.rng = Math.random;
+    setSession({ type: "solo", source: "save" });
     hideOverlays();
     updateLayoutMetrics();
     syncUi();

@@ -46,6 +46,14 @@ const ATTACK_KEYS = new Set(["type", "room", "lines"]);
 const REMATCH_KEYS = new Set(["type", "room"]);
 const MATCH_OVER_KEYS = new Set(["type", "room", "result"]);
 const PING_KEYS = new Set(["type", "ts"]);
+const MATCH_MODES = new Set([
+  "classic",
+  "sprint",
+  "hardcore",
+  "timeAttack",
+  "relax",
+  "chaos",
+]);
 const rooms = new Map();
 const startedAt = Date.now();
 
@@ -541,6 +549,7 @@ function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
   return {
     id,
     ranked: false,
+    mode: "classic",
     players: new Map(),
     spectators: new Map(),
     maxPlayers: ROOM_PLAYER_LIMIT,
@@ -741,6 +750,7 @@ function joinRoom(client, data) {
   const roomId = cleanCode(data.room) || "LOBBY";
   const rankedRequested = data.ranked === true;
   const playerId = cleanPlayerId(data.playerId);
+  const requestedMode = normalizeMatchMode(data.mode);
   if (
     data.room &&
     roomId !==
@@ -763,6 +773,7 @@ function joinRoom(client, data) {
     room.durationSec = durationSec;
     if (room.players.size === 0 && room.spectators.size === 0) {
       room.ranked = rankedRequested;
+      room.mode = requestedMode;
     }
   }
 
@@ -775,7 +786,7 @@ function joinRoom(client, data) {
     : null;
   client.state = emptyState();
 
-  const reconnectId = findReconnectSlot(room, client.name);
+  const reconnectId = findReconnectSlot(room, client.name, client.playerId);
   if (reconnectId) {
     const slot = room.reconnects.get(reconnectId);
     clearReconnect(room, reconnectId);
@@ -814,9 +825,11 @@ function joinRoom(client, data) {
   maybeAutoStart(room);
 }
 
-function findReconnectSlot(room, name) {
+function findReconnectSlot(room, name, playerId = "") {
   const normalized = cleanName(name).toLowerCase();
+  const safePlayerId = cleanPlayerId(playerId);
   for (const [id, slot] of room.reconnects.entries()) {
+    if (safePlayerId && slot.playerId === safePlayerId) return id;
     if (slot.name.toLowerCase() === normalized) return id;
   }
   return "";
@@ -853,6 +866,9 @@ function startTournament(roomId, data) {
     60,
     1800,
   );
+  if (room.match.status === "lobby") {
+    room.mode = normalizeMatchMode(data.mode || room.mode);
+  }
   room.tournament = {
     active: true,
     startedAt: Date.now(),
@@ -913,6 +929,7 @@ function startCountdown(room, finalType) {
     broadcast(room, {
       type: finalType,
       seed: room.match.seed,
+      mode: room.mode,
       startedAt: room.match.startedAt,
     });
     broadcastRoom(room.id);
@@ -1242,6 +1259,7 @@ function tournamentPayload(room) {
 function matchPayload(room) {
   return {
     ...room.match,
+    mode: room.mode,
     ranked: room.ranked,
     series: seriesPayload(room),
     rankedResult: room.lastRankedResult,
@@ -1367,6 +1385,15 @@ function cleanPlayerId(value) {
     .trim()
     .replace(/[^a-zA-Z0-9_.-]/g, "")
     .slice(0, 64);
+}
+
+function normalizeMatchMode(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "timeattack") return "timeAttack";
+  if (MATCH_MODES.has(normalized)) return normalized;
+  return "classic";
 }
 
 function cleanName(value) {

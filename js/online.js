@@ -115,6 +115,7 @@ export function buildJoinMessage({
   name,
   maxPlayers,
   durationSec,
+  mode = "classic",
   ranked = false,
   playerId = "",
 }) {
@@ -124,6 +125,7 @@ export function buildJoinMessage({
     name: normalizePlayerName(name),
     maxPlayers: Number(maxPlayers) || 2,
     durationSec: Number(durationSec) || 180,
+    mode: String(mode || "classic").slice(0, 24),
     ranked: Boolean(ranked),
     playerId: normalizePlayerId(playerId),
   };
@@ -170,12 +172,18 @@ export function buildUpdateMessage(state) {
   return message;
 }
 
-export function buildTournamentMessage({ room, maxPlayers, durationSec }) {
+export function buildTournamentMessage({
+  room,
+  maxPlayers,
+  durationSec,
+  mode = "classic",
+}) {
   return {
     type: "startTournament",
     room: normalizeRoomId(room),
     maxPlayers: Number(maxPlayers) || 2,
     durationSec: Number(durationSec) || 180,
+    mode: String(mode || "classic").slice(0, 24),
   };
 }
 
@@ -312,7 +320,16 @@ export function disconnectOnline(client) {
 
 export function connectOnline(
   client,
-  { server, room, name, maxPlayers, durationSec, ranked = false, playerId = "" },
+  {
+    server,
+    room,
+    name,
+    maxPlayers,
+    durationSec,
+    mode = "classic",
+    ranked = false,
+    playerId = "",
+  },
 ) {
   disconnectOnline(client);
   const socket = new WebSocket(server);
@@ -333,6 +350,7 @@ export function connectOnline(
         name: client.name,
         maxPlayers,
         durationSec,
+        mode,
         ranked: client.ranked,
         playerId: client.playerId,
       }),
