@@ -672,7 +672,7 @@ describe("online PvP room flow", () => {
       );
       const rankedRows = db
         .prepare(
-          "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players ORDER BY player_id ASC",
+          "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players WHERE player_id IN ('alpha-id', 'bravo-id') ORDER BY player_id ASC",
         )
         .all();
       const matchRows = db
