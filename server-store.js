@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { DatabaseSync } = require("node:sqlite");
+const Database = require("better-sqlite3");
 const {
   cleanUsername,
   cleanDisplayName,
@@ -131,7 +131,7 @@ function createServerStore({
   recordsFile = path.join(root, "records.json"),
   rankedFile = path.join(root, "ranked.json"),
 } = {}) {
-  const db = new DatabaseSync(dbFile);
+  const db = new Database(dbFile);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
@@ -207,10 +207,33 @@ function createServerStore({
       loser_time TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS ranked_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      match_id TEXT NOT NULL,
+      room_id TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      lines INTEGER NOT NULL,
+      attack_lines INTEGER NOT NULL,
+      combo INTEGER NOT NULL,
+      score INTEGER NOT NULL,
+      elapsed_ms INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS daily_seeds (
       date_key TEXT PRIMARY KEY,
       seed TEXT NOT NULL,
       created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS daily_runs (
+      token TEXT PRIMARY KEY,
+      date_key TEXT NOT NULL,
+      seed TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      account_id TEXT NOT NULL DEFAULT '',
+      started_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      submitted_at INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS daily_scores (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,6 +269,15 @@ function createServerStore({
   const countDailyStmt = db.prepare(
     "SELECT COUNT(*) AS total FROM daily_scores WHERE date_key = ?",
   );
+  const countRankedMatchesStmt = db.prepare(
+    "SELECT COUNT(*) AS total FROM ranked_matches",
+  );
+  const countRankedEventsStmt = db.prepare(
+    "SELECT COUNT(*) AS total FROM ranked_events",
+  );
+  const countDailyRunsStmt = db.prepare(
+    "SELECT COUNT(*) AS total FROM daily_runs WHERE date_key = ?",
+  );
   const listRecordsStmt = db.prepare(`
     SELECT name, score, lines, level, mode, time, date
     FROM records
@@ -272,6 +304,20 @@ function createServerStore({
       last_seen_at AS lastSeenAt
     FROM ranked_players
     WHERE player_id = ?
+  `);
+  const listRankedStmt = db.prepare(`
+    SELECT
+      player_id AS playerId,
+      name,
+      rating,
+      wins,
+      losses,
+      streak,
+      best_win_streak AS bestWinStreak,
+      best_loss_streak AS bestLossStreak
+    FROM ranked_players
+    ORDER BY rating DESC, wins DESC, losses ASC, updated_at ASC
+    LIMIT ?
   `);
   const upsertRankedStmt = db.prepare(`
     INSERT INTO ranked_players(
@@ -327,6 +373,9 @@ function createServerStore({
   const touchAccountLoginStmt = db.prepare(
     "UPDATE accounts SET last_login_at = ? WHERE id = ?",
   );
+  const updateAccountPasswordStmt = db.prepare(
+    "UPDATE accounts SET password_hash = ?, last_login_at = ? WHERE id = ?",
+  );
   const insertSessionStmt = db.prepare(`
     INSERT INTO account_sessions(token, account_id, created_at, last_seen_at)
     VALUES(?, ?, ?, ?)
@@ -381,11 +430,45 @@ function createServerStore({
       created_at
     ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const insertRankedEventStmt = db.prepare(`
+    INSERT INTO ranked_events(
+      match_id,
+      room_id,
+      player_id,
+      event_type,
+      lines,
+      attack_lines,
+      combo,
+      score,
+      elapsed_ms,
+      created_at
+    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
   const getDailySeedStmt = db.prepare(
     "SELECT seed FROM daily_seeds WHERE date_key = ?",
   );
   const insertDailySeedStmt = db.prepare(
     "INSERT OR IGNORE INTO daily_seeds(date_key, seed, created_at) VALUES(?, ?, ?)",
+  );
+  const insertDailyRunStmt = db.prepare(`
+    INSERT INTO daily_runs(token, date_key, seed, player_id, account_id, started_at, expires_at)
+    VALUES(?, ?, ?, ?, ?, ?, ?)
+  `);
+  const getDailyRunStmt = db.prepare(`
+    SELECT
+      token,
+      date_key AS dateKey,
+      seed,
+      player_id AS playerId,
+      account_id AS accountId,
+      started_at AS startedAt,
+      expires_at AS expiresAt,
+      submitted_at AS submittedAt
+    FROM daily_runs
+    WHERE token = ?
+  `);
+  const markDailyRunSubmittedStmt = db.prepare(
+    "UPDATE daily_runs SET submitted_at = ? WHERE token = ? AND submitted_at = 0",
   );
   const getDailyScoreStmt = db.prepare(`
     SELECT
@@ -534,6 +617,20 @@ function createServerStore({
     const row = getRankedStmt.get(safeId);
     if (!row) return null;
     return normalizeRankedPlayer(row, safeId, name || row.name);
+  }
+
+  function listRankedLeaderboard(limit = 20) {
+    return listRankedStmt
+      .all(clamp(safeNumber(limit) || 20, 1, 100))
+      .map((row) => ({
+        ...row,
+        rating: Number(row.rating),
+        wins: Number(row.wins),
+        losses: Number(row.losses),
+        streak: Number(row.streak),
+        bestWinStreak: Number(row.bestWinStreak),
+        bestLossStreak: Number(row.bestLossStreak),
+      }));
   }
 
   function upsertRankedProfile(profile) {
@@ -692,6 +789,33 @@ function createServerStore({
     return { ok: true, account, token };
   }
 
+  function changeAccountPassword({ token, currentPassword, newPassword }) {
+    const safeToken = normalizeSessionToken(token);
+    const session = safeToken ? getSessionStmt.get(safeToken) : null;
+    if (!session) return { ok: false, code: "invalidSession" };
+    const row = getAccountByUsernameStmt.get(session.username);
+    if (!row || !verifyPassword(currentPassword, row.passwordHash)) {
+      return { ok: false, code: "invalidCredentials" };
+    }
+    const credentials = validateCredentials({
+      username: row.username,
+      password: newPassword,
+    });
+    if (!credentials.ok) return { ok: false, code: credentials.code };
+    const now = new Date().toISOString();
+    updateAccountPasswordStmt.run(hashPassword(credentials.password), now, row.id);
+    return {
+      ok: true,
+      account: {
+        id: row.id,
+        username: row.username,
+        displayName: row.displayName,
+        createdAt: row.createdAt,
+        lastLoginAt: now,
+      },
+    };
+  }
+
   function createAccountSession(accountId) {
     const token = createSessionToken();
     const now = new Date().toISOString();
@@ -781,6 +905,63 @@ function createServerStore({
     return seed;
   }
 
+  function signDailyRun({ token, dateKey, seed, playerId, startedAt }) {
+    return crypto
+      .createHmac("sha256", identitySigningKey)
+      .update(`${token}.${dateKey}.${seed}.${playerId}.${startedAt}`)
+      .digest("base64url");
+  }
+
+  function createDailyRun({
+    dateKey,
+    playerId = "",
+    account = null,
+    ttlMs = 6 * 60 * 60 * 1000,
+  }) {
+    const seed = getOrCreateDailySeed(dateKey);
+    const token = crypto.randomBytes(24).toString("base64url");
+    const safePlayerId = account?.id
+      ? `acct.${cleanPlayerId(account.id)}`
+      : cleanPlayerId(playerId) || `guest.${crypto.randomBytes(8).toString("hex")}`;
+    const startedAt = Date.now();
+    const run = {
+      token,
+      dateKey,
+      seed,
+      playerId: safePlayerId,
+      accountId: account?.id || "",
+      startedAt,
+      expiresAt: startedAt + ttlMs,
+    };
+    insertDailyRunStmt.run(
+      run.token,
+      run.dateKey,
+      run.seed,
+      run.playerId,
+      run.accountId,
+      run.startedAt,
+      run.expiresAt,
+    );
+    return {
+      ...run,
+      signature: signDailyRun(run),
+    };
+  }
+
+  function verifyDailyRun({ token, signature, dateKey }) {
+    const safeToken = normalizeSessionToken(token);
+    if (!safeToken || !signature) return { ok: false, code: "missingRun" };
+    const run = getDailyRunStmt.get(safeToken);
+    if (!run || run.dateKey !== dateKey) return { ok: false, code: "badRun" };
+    if (Number(run.expiresAt) < Date.now()) return { ok: false, code: "expiredRun" };
+    if (Number(run.submittedAt) > 0) return { ok: false, code: "usedRun" };
+    const expected = signDailyRun(run);
+    if (!timingSafeEqualText(expected, signature)) {
+      return { ok: false, code: "badSignature" };
+    }
+    return { ok: true, run };
+  }
+
   function listDailyLeaderboard(dateKey, limit = 10) {
     return listDailyScoresStmt.all(dateKey, limit).map((entry) => ({
       ...entry,
@@ -834,6 +1015,35 @@ function createServerStore({
       incoming.createdAt,
     );
     return listDailyLeaderboard(dateKey);
+  }
+
+  function markDailyRunSubmitted(token) {
+    markDailyRunSubmittedStmt.run(Date.now(), normalizeSessionToken(token));
+  }
+
+  function logRankedEvent({
+    matchId,
+    roomId,
+    playerId,
+    eventType = "clear",
+    lines = 0,
+    attackLines = 0,
+    combo = 0,
+    score = 0,
+    elapsedMs = 0,
+  }) {
+    insertRankedEventStmt.run(
+      String(matchId || "").slice(0, 120),
+      String(roomId || "").slice(0, 24),
+      cleanPlayerId(playerId),
+      String(eventType || "clear").replace(/[<>]/g, "").slice(0, 24),
+      clamp(safeNumber(lines), 0, 4),
+      clamp(safeNumber(attackLines), 0, 12),
+      clamp(safeNumber(combo), 0, 999),
+      clamp(safeNumber(score), 0, 99999999),
+      clamp(safeNumber(elapsedMs), 0, 3 * 60 * 60 * 1000),
+      new Date().toISOString(),
+    );
   }
 
   function logRankedMatch({
@@ -895,6 +1105,9 @@ function createServerStore({
       rankedPlayers: Number(countRankedStmt.get()?.total || 0),
       accounts: Number(countAccountsStmt.get()?.total || 0),
       dailyEntries: Number(countDailyStmt.get(dateKey)?.total || 0),
+      dailyRuns: Number(countDailyRunsStmt.get(dateKey)?.total || 0),
+      rankedMatches: Number(countRankedMatchesStmt.get()?.total || 0),
+      rankedEvents: Number(countRankedEventsStmt.get()?.total || 0),
     };
   }
 
@@ -911,17 +1124,23 @@ function createServerStore({
     publicAccount,
     createAccount,
     loginAccount,
+    changeAccountPassword,
     getAccountBySession,
     logoutAccount,
     getAccountById: (accountId) => getAccountByIdStmt.get(accountId),
     getRankedProfile,
+    listRankedLeaderboard,
     resolveRankedIdentity,
     upsertRankedProfile,
     listRecords,
     saveRecord,
     getOrCreateDailySeed,
+    createDailyRun,
+    verifyDailyRun,
+    markDailyRunSubmitted,
     listDailyLeaderboard,
     saveDailyScore,
+    logRankedEvent,
     logRankedMatch,
     insertDeployAudit,
     getHealthCounts,

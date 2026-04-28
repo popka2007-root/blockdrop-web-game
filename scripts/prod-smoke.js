@@ -20,6 +20,48 @@ async function readHealth(page) {
   return response.json();
 }
 
+async function smokeAccountAndDaily(page) {
+  const suffix = Math.random().toString(36).slice(2, 10);
+  const accountResponse = await page.request.post(`${targetUrl}/api/account`, {
+    data: {
+      action: "register",
+      username: `smoke_${suffix}`,
+      password: "password123",
+      displayName: "Smoke",
+    },
+  });
+  assert(accountResponse.ok(), `account register returned ${accountResponse.status()}`);
+  const account = await accountResponse.json();
+  assert(account.token, "account token missing");
+
+  const dailyResponse = await page.request.get(`${targetUrl}/api/daily`, {
+    headers: { Authorization: `Bearer ${account.token}` },
+  });
+  assert(dailyResponse.ok(), `/api/daily returned ${dailyResponse.status()}`);
+  const daily = await dailyResponse.json();
+  assert(daily.runToken && daily.runSignature, "daily run signature missing");
+
+  const submitResponse = await page.request.post(`${targetUrl}/api/daily`, {
+    data: {
+      accountToken: account.token,
+      runToken: daily.runToken,
+      runSignature: daily.runSignature,
+      playerId: "smoke",
+      name: "Smoke",
+      score: 500,
+      lines: 2,
+      level: 1,
+      timeMs: 2500,
+      pieces: 10,
+      bestCombo: 1,
+      tSpins: 0,
+      perfectClears: 0,
+    },
+  });
+  assert(submitResponse.ok(), `daily submit returned ${submitResponse.status()}`);
+  return { account: account.account.username, dailyDate: daily.date };
+}
+
 async function smokeViewport(browser, viewport) {
   const page = await browser.newPage({
     viewport: { width: viewport.width, height: viewport.height },
@@ -100,6 +142,7 @@ async function smokeViewport(browser, viewport) {
   try {
     const healthPage = await browser.newPage();
     const health = await readHealth(healthPage);
+    const accountDaily = await smokeAccountAndDaily(healthPage);
     await healthPage.close();
     assert(health.ok === true, "health ok flag is false");
     assert(health.service === "blockdrop-web-game", "health service mismatch");
@@ -114,7 +157,9 @@ async function smokeViewport(browser, viewport) {
       results.push(await smokeViewport(browser, viewport));
     }
 
-    console.log(JSON.stringify({ targetUrl, health, results }, null, 2));
+    console.log(
+      JSON.stringify({ targetUrl, health, accountDaily, results }, null, 2),
+    );
   } finally {
     await browser.close();
   }

@@ -28,6 +28,7 @@ import {
   loadOrCreatePlayerId,
   roomFromLocation,
   sendAttack,
+  sendMatchEvent,
   sendOnlineMessage,
 } from "./online.js";
 import { createOnlineController } from "./online-controller.js";
@@ -360,7 +361,14 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     serverDaily: {
       date: "",
       seed: "",
+      runToken: "",
+      runSignature: "",
+      runExpiresAt: 0,
       leaderboard: [],
+    },
+    serverRanked: {
+      leaderboard: [],
+      queueWaiting: 0,
     },
     unlocked: storage.loadAchievements({}),
     online: {
@@ -1076,8 +1084,17 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     if (!lines || (!isOnlineSession() && !isAiSession())) return;
     state.sentGarbage += lines;
     state.stats.totalSentGarbage += lines;
-    if (isOnlineSession())
+    if (isOnlineSession()) {
+      sendMatchEvent(onlineClient, state.online.room, {
+        eventType: "clear",
+        lines: event.lines,
+        attackLines: lines,
+        combo: event.combo,
+        score: state.score,
+        elapsedMs: Math.floor(state.elapsedMs),
+      });
       sendAttack(onlineClient, state.online.room, lines);
+    }
     if (isAiSession()) {
       state.ai.height = Math.max(0, state.ai.height - lines);
       state.ai.attackMs = Math.max(0, state.ai.attackMs - lines * 1200);
@@ -1862,6 +1879,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       serverRecords: serverRecordsForUi(),
       dailyLeaderboard: dailyLeaderboardForUi(),
       dailyLeaderboardDate: state.serverDaily.date,
+      rankedLeaderboard: rankedLeaderboardForUi(),
       achievements: ACHIEVEMENTS.map(([id, title, description]) => ({
         title,
         description,
@@ -1890,6 +1908,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     }));
   }
 
+  function rankedLeaderboardForUi() {
+    return (state.serverRanked.leaderboard || []).slice(0, 20).map((entry) => ({
+      name: entry.name,
+      rating: Number(entry.rating) || 1000,
+      wins: Number(entry.wins) || 0,
+      losses: Number(entry.losses) || 0,
+    }));
+  }
+
   async function loadServerRecords() {
     if (!location.protocol.startsWith("http")) return;
     try {
@@ -1912,11 +1939,31 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       state.serverDaily = {
         date: String(data.date || localDateKey()),
         seed: String(data.seed || ""),
+        runToken: String(data.runToken || ""),
+        runSignature: String(data.runSignature || ""),
+        runExpiresAt: Number(data.runExpiresAt) || 0,
         leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
       };
       syncUi();
       if (ui.isOverlayVisible("statsOverlay")) renderStats();
       return state.serverDaily;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadServerRanked() {
+    if (!location.protocol.startsWith("http")) return null;
+    try {
+      const response = await fetch("/api/ranked", { cache: "no-store" });
+      const data = await response.json();
+      state.serverRanked = {
+        leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
+        queueWaiting: Number(data.queueWaiting) || 0,
+      };
+      syncUi();
+      if (ui.isOverlayVisible("statsOverlay")) renderStats();
+      return state.serverRanked;
     } catch {
       return null;
     }
@@ -1931,17 +1978,26 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         body: JSON.stringify({
           playerId: storage.loadRankedPlayerId("") || loadOrCreatePlayerId(),
           accountToken: storage.loadAccountToken?.(""),
+          runToken: state.serverDaily.runToken,
+          runSignature: state.serverDaily.runSignature,
           name: storage.loadPlayerName("Игрок") || state.online.name || "Игрок",
           score: state.score,
           lines: state.lines,
           level: state.level,
           timeMs: Math.floor(state.elapsedMs),
+          pieces: state.pieces,
+          bestCombo: state.bestComboRun,
+          tSpins: state.tSpinCount,
+          perfectClears: state.perfectClearCount,
         }),
       });
       const data = await response.json();
       state.serverDaily = {
         date: String(data.date || state.daily.date),
         seed: String(data.seed || state.daily.seed || ""),
+        runToken: String(data.runToken || ""),
+        runSignature: String(data.runSignature || ""),
+        runExpiresAt: Number(data.runExpiresAt) || 0,
         leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
       };
       if (ui.isOverlayVisible("statsOverlay")) renderStats();
@@ -1983,6 +2039,45 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
           : `Вход: ${data.account?.displayName || data.account?.username}`,
       );
       syncUi();
+    } catch {
+      ui.setAccountStatus?.(
+        state.settings.language === "en"
+          ? "Account server unavailable"
+          : "Сервер аккаунтов недоступен",
+      );
+    }
+  }
+
+  async function changeAccountPassword() {
+    const form = ui.getAccountForm?.() || {};
+    const token = storage.loadAccountToken?.("");
+    if (!token) {
+      showToast(state.settings.language === "en" ? "Login first" : "Сначала войди");
+      return;
+    }
+    try {
+      const response = await fetch("/api/account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: "changePassword",
+          token,
+          currentPassword: form.password,
+          newPassword: form.password,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        showToast(data.error || "Password error");
+        return;
+      }
+      ui.setAccountSession?.(data.account);
+      showToast(
+        state.settings.language === "en" ? "Password updated" : "Пароль обновлён",
+      );
     } catch {
       ui.setAccountStatus?.(
         state.settings.language === "en"
@@ -2367,6 +2462,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     ui.showOverlay("statsOverlay");
     loadServerRecords();
     loadServerDaily();
+    loadServerRanked();
   }
 
   function closeStats() {
@@ -2876,6 +2972,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       },
       loginAccount: () => submitAccount("login"),
       registerAccount: () => submitAccount("register"),
+      changeAccountPassword,
       logoutAccount,
       copyRoomLink,
       shareRoomLink,
@@ -2964,6 +3061,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         showToast("Сеть вернулась");
         loadServerRecords();
         loadServerDaily();
+        loadServerRanked();
       },
       beforeUnload: saveCurrentGame,
       resize: () => {
@@ -3041,5 +3139,6 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   bootPwa();
   loadServerRecords();
   loadServerDaily();
+  loadServerRanked();
   requestAnimationFrame(update);
 })();
