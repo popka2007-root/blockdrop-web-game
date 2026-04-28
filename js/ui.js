@@ -1253,7 +1253,7 @@ export function createUi(options = {}) {
     const boardWidth = cell * cols;
     const x0 = (width - boardWidth) / 2;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(255,255,255,0.035)";
+    ctx.fillStyle = "rgba(24, 31, 39, 0.92)";
     round(ctx, x0, 0, boardWidth, cell * rows, 8, true, false);
 
     if (opponentHeight) {
