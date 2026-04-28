@@ -17,6 +17,7 @@ const MAX_RECORD_SCORE = 99999999;
 const MAX_PAYLOAD_KEYS = 18;
 const MAX_BOARD_PREVIEW_ROWS = 15;
 const MAX_BOARD_PREVIEW_COLS = 10;
+const ROOM_PLAYER_LIMIT = 2;
 const RECONNECT_GRACE_MS = 12000;
 const COUNTDOWN_STEP_MS = 700;
 const UPDATE_KEYS = new Set([
@@ -451,12 +452,12 @@ function emptyState() {
   };
 }
 
-function createRoom(id, maxPlayers = 2, durationSec = 180) {
+function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
   return {
     id,
     players: new Map(),
     spectators: new Map(),
-    maxPlayers: clamp(maxPlayers, 2, 8),
+    maxPlayers: ROOM_PLAYER_LIMIT,
     durationSec: clamp(durationSec, 60, 1800),
     tournament: null,
     match: {
@@ -654,13 +655,13 @@ function joinRoom(client, data) {
     safeClose(client, "Bad room");
     return;
   }
-  const maxPlayers = clamp(safeNumber(data.maxPlayers) || 2, 2, 8);
+  const maxPlayers = ROOM_PLAYER_LIMIT;
   const durationSec = clamp(safeNumber(data.durationSec) || 180, 60, 1800);
   if (!rooms.has(roomId))
     rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
   const room = rooms.get(roomId);
   if (room.match.status === "lobby") {
-    room.maxPlayers = maxPlayers;
+    room.maxPlayers = ROOM_PLAYER_LIMIT;
     room.durationSec = durationSec;
   }
 
@@ -728,7 +729,7 @@ function updateClientState(client, data) {
 function startTournament(roomId, data) {
   const room = rooms.get(roomId);
   if (!room) return;
-  room.maxPlayers = clamp(safeNumber(data.maxPlayers) || room.maxPlayers, 2, 8);
+  room.maxPlayers = ROOM_PLAYER_LIMIT;
   room.durationSec = clamp(
     safeNumber(data.durationSec) || room.durationSec,
     60,
@@ -746,7 +747,7 @@ function startTournament(roomId, data) {
 }
 
 function maybeAutoStart(room) {
-  if (!room || room.maxPlayers !== 2) return;
+  if (!room || room.maxPlayers !== ROOM_PLAYER_LIMIT) return;
   if (room.match.status !== "lobby" && room.match.status !== "finished") return;
   if (room.players.size !== 2 || room.countdownTimer) return;
   startCountdown(room, "matchStart");
