@@ -29,6 +29,32 @@ export const format = {
   },
 };
 
+export function localDateKey(date = new Date()) {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) return "";
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function getGhostOverlayHeight({
+  ghostRun,
+  mode,
+  running,
+  ghostReplay = false,
+  elapsedMs = 0,
+} = {}) {
+  if (!ghostReplay || !running || !ghostRun || ghostRun.mode !== mode) return 0;
+  const samples = Array.isArray(ghostRun.samples) ? ghostRun.samples : [];
+  let current = null;
+  for (const sample of samples) {
+    if ((Number(sample?.time) || 0) > elapsedMs) break;
+    current = sample;
+  }
+  return Math.max(0, Number(current?.height) || 0);
+}
+
 export const validate = {
   roomName: (name) => /^[A-Z0-9]{1,16}$/.test(String(name || "")),
   playerName: (name) => {
