@@ -20,6 +20,11 @@ afterEach(async () => {
   } catch {
     // no records were written
   }
+  try {
+    fs.unlinkSync(path.join(process.cwd(), "ranked.json"));
+  } catch {
+    // no ranked data was written
+  }
 });
 
 function startServer(port) {
@@ -110,7 +115,14 @@ function decodeTextFrames(buffer) {
 
 function connectClient(
   port,
-  { room = "DUEL", name = "Player", maxPlayers = 2, durationSec = 180 } = {},
+  {
+    room = "DUEL",
+    name = "Player",
+    maxPlayers = 2,
+    durationSec = 180,
+    ranked = false,
+    playerId = "",
+  } = {},
 ) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ port, host: "127.0.0.1" });
@@ -190,6 +202,8 @@ function connectClient(
           name,
           maxPlayers,
           durationSec,
+          ranked,
+          playerId,
         });
         if (!settled) {
           settled = true;
@@ -488,5 +502,99 @@ describe("online PvP room flow", () => {
       ).resolves.toBeTruthy();
     },
     12000,
+  );
+
+  it(
+    "stores ranked ratings and completes a best-of-3 series",
+    async () => {
+      const port = 18926;
+      await startServer(port);
+
+      const first = await connectClient(port, {
+        room: "ranked",
+        name: "Alpha",
+        ranked: true,
+        playerId: "alpha-id",
+      });
+      const firstHello = await first.waitForType("hello");
+      await expect(first.waitForType("rankedProfile")).resolves.toMatchObject({
+        playerId: "alpha-id",
+        rating: 1000,
+      });
+
+      const second = await connectClient(port, {
+        room: "ranked",
+        name: "Bravo",
+        ranked: true,
+        playerId: "bravo-id",
+      });
+      const secondHello = await second.waitForType("hello");
+      await second.waitForType("rankedProfile");
+      await first.waitForType("matchStart", () => true, 6000);
+
+      first.send({
+        type: "update",
+        room: "ranked",
+        name: "Alpha",
+        score: 5000,
+        lines: 12,
+        level: 2,
+        height: 4,
+        sentGarbage: 8,
+        receivedGarbage: 2,
+        mode: "Classic",
+        time: "1:10",
+        status: "Playing",
+        force: true,
+      });
+      second.send({
+        type: "update",
+        room: "ranked",
+        name: "Bravo",
+        score: 2400,
+        lines: 7,
+        level: 1,
+        height: 16,
+        sentGarbage: 2,
+        receivedGarbage: 8,
+        mode: "Classic",
+        time: "1:10",
+        status: "Playing",
+        force: true,
+      });
+      second.send({ type: "matchOver", room: "ranked", result: "loss" });
+
+      const firstResult = await first.waitForType(
+        "matchFinished",
+        (message) => message.ranked?.winner?.playerId === "alpha-id",
+      );
+      expect(firstResult.ranked.winner.ratingBefore).toBe(1000);
+      expect(firstResult.ranked.winner.ratingAfter).toBeGreaterThan(1000);
+      expect(firstResult.ranked.loser.ratingAfter).toBeLessThan(1000);
+      expect(firstResult.series.completed).toBe(false);
+      expect(firstResult.series.wins[firstHello.id]).toBe(1);
+
+      first.send({ type: "rematchReady", room: "ranked" });
+      second.send({ type: "rematchReady", room: "ranked" });
+      await first.waitForType("rematchStart", () => true, 6000);
+
+      second.send({ type: "matchOver", room: "ranked", result: "loss" });
+      const finalResult = await first.waitForType(
+        "matchFinished",
+        (message) => message.series?.completed === true,
+      );
+      expect(finalResult.series.winnerId).toBe(firstHello.id);
+      expect(finalResult.series.wins[firstHello.id]).toBe(2);
+      expect(finalResult.series.wins[secondHello.id] || 0).toBe(0);
+
+      const rankedStore = JSON.parse(
+        fs.readFileSync(path.join(process.cwd(), "ranked.json"), "utf8"),
+      );
+      expect(rankedStore.players["alpha-id"].wins).toBe(2);
+      expect(rankedStore.players["alpha-id"].bestWinStreak).toBe(2);
+      expect(rankedStore.players["bravo-id"].losses).toBe(2);
+      expect(rankedStore.players["bravo-id"].bestLossStreak).toBe(2);
+    },
+    16000,
   );
 });

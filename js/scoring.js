@@ -8,6 +8,10 @@ const RANKS = [
   ["Легенда", SCORING_THRESHOLDS.LEGEND],
 ];
 
+function t(language, ru, en) {
+  return language === "en" ? en : ru;
+}
+
 export function scoreLineClear(count, level = 1) {
   return SCORE_TABLE[Math.min(count, 4)] * level;
 }
@@ -47,17 +51,27 @@ export function resultBadgeForGame({
   daily,
   bestClearInGame,
   bestComboRun,
+  bestBackToBackRun = 0,
+  totalTSpins = 0,
+  totalPerfectClears = 0,
   holes,
   score,
   bestScore,
+  language = "ru",
 }) {
-  if (won && mode === "sprint") return "Сильный спринт";
-  if (daily) return "Daily Challenge";
-  if (bestClearInGame >= 4) return "Tetris-момент";
-  if (bestComboRun >= 4) return "Комбо-машина";
-  if (holes >= 8) return "Много дыр";
-  if (score >= bestScore) return "Новый рекорд";
-  return "Стабильная партия";
+  if (won && mode === "sprint")
+    return t(language, "Сильный спринт", "Strong sprint");
+  if (daily) return t(language, "Ежедневный челлендж", "Daily Challenge");
+  if (totalPerfectClears > 0)
+    return t(language, "Perfect Clear", "Perfect Clear");
+  if (totalTSpins > 0) return t(language, "T-Spin серия", "T-Spin run");
+  if (bestBackToBackRun >= 3) return t(language, "B2B цепь", "B2B chain");
+  if (bestClearInGame >= 4) return t(language, "Момент Tetris", "Tetris moment");
+  if (bestComboRun >= 4)
+    return t(language, "Комбо-машина", "Combo machine");
+  if (holes >= 8) return t(language, "Много дыр", "Too many holes");
+  if (score >= bestScore) return t(language, "Новый рекорд", "New record");
+  return t(language, "Стабильная партия", "Steady run");
 }
 
 export function resultHighlightsForGame({
@@ -65,15 +79,35 @@ export function resultHighlightsForGame({
   dailyLabel,
   bestClearInGame,
   bestComboRun,
+  bestMoment = "",
+  bestBackToBackRun = 0,
+  totalPerfectClears = 0,
   apm,
+  language = "ru",
 }) {
+  const moment =
+    bestMoment ||
+    (bestClearInGame >= 4
+      ? "Tetris"
+      : bestComboRun >= 2
+        ? t(language, `Комбо x${bestComboRun}`, `Combo x${bestComboRun}`)
+        : t(language, "Ровная партия", "Clean run"));
+
   return [
-    { label: "Режим", value: modeName },
+    { label: t(language, "Режим", "Mode"), value: modeName },
     {
-      label: "Лучший момент",
-      value: bestClearInGame >= 4 ? "Tetris" : `Комбо x${bestComboRun}`,
+      label: t(language, "Лучший момент", "Best moment"),
+      value: moment,
     },
     { label: "APM", value: apm },
-    { label: "Daily best", value: dailyLabel },
+    {
+      label: "B2B",
+      value: bestBackToBackRun ? `x${bestBackToBackRun}` : "—",
+    },
+    {
+      label: "Perfect Clear",
+      value: totalPerfectClears || "—",
+    },
+    { label: t(language, "Дейлик", "Daily best"), value: dailyLabel },
   ];
 }

@@ -15,6 +15,8 @@ import {
   buildUpdateMessage,
   defaultServerUrl,
   normalizePlayerName,
+  normalizePlayerId,
+  loadOrCreatePlayerId,
   normalizeRoomId,
   parseServerMessage,
   roomFromLocation,
@@ -88,6 +90,8 @@ describe("online module", () => {
         name: "<P1>",
         maxPlayers: "4",
         durationSec: "180",
+        ranked: true,
+        playerId: " player<id> ",
       }),
     ).toEqual({
       type: "join",
@@ -95,12 +99,27 @@ describe("online module", () => {
       name: "P1",
       maxPlayers: 4,
       durationSec: 180,
+      ranked: true,
+      playerId: "playerid",
     });
 
     expect(
       buildUpdateMessage({ room: "abc", name: "P1", score: 12.8, level: 0 })
         .level,
     ).toBe(1);
+  });
+
+  it("keeps a stable local ranked player id", () => {
+    expect(normalizePlayerId(" abc<>._-123 ")).toBe("abc._-123");
+    const bucket = new Map();
+    const storage = {
+      getItem: vi.fn((key) => bucket.get(key) || null),
+      setItem: vi.fn((key, value) => bucket.set(key, value)),
+    };
+    const first = loadOrCreatePlayerId(storage, "ranked-id");
+    const second = loadOrCreatePlayerId(storage, "ranked-id");
+    expect(first).toBeTruthy();
+    expect(second).toBe(first);
   });
 
   it("parses server messages defensively", () => {

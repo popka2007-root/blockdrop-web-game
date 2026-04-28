@@ -2,6 +2,7 @@ export const BOARD_PREVIEW_ROWS = 15;
 export const BOARD_PREVIEW_COLS = 10;
 export const ONLINE_UPDATE_INTERVAL_MS = 125;
 export const ONLINE_PING_INTERVAL_MS = 4000;
+export const RANKED_PLAYER_ID_KEY = "blockdrop-ranked-player-id-v1";
 
 export function normalizeRoomId(value) {
   return String(value || "")
@@ -18,6 +19,40 @@ export function normalizePlayerName(value) {
       .trim()
       .slice(0, 18) || "Player"
   );
+}
+
+export function normalizePlayerId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_.-]/g, "")
+    .slice(0, 64);
+}
+
+export function createLocalPlayerId(random = globalThis.crypto) {
+  if (random?.randomUUID) return random.randomUUID();
+  const values = new Uint8Array(16);
+  if (random?.getRandomValues) random.getRandomValues(values);
+  else {
+    for (let i = 0; i < values.length; i += 1) {
+      values[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return [...values].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export function loadOrCreatePlayerId(
+  storage = globalThis.localStorage,
+  key = RANKED_PLAYER_ID_KEY,
+) {
+  try {
+    const existing = normalizePlayerId(storage?.getItem(key));
+    if (existing) return existing;
+    const created = createLocalPlayerId();
+    storage?.setItem(key, created);
+    return created;
+  } catch {
+    return createLocalPlayerId();
+  }
 }
 
 export function attackLinesForClear(count) {
@@ -75,13 +110,22 @@ export function buildRoomInviteText(locationLike, room, language = "ru") {
     : `Заходи в комнату BlockDrop ${safeRoom}: ${url}`;
 }
 
-export function buildJoinMessage({ room, name, maxPlayers, durationSec }) {
+export function buildJoinMessage({
+  room,
+  name,
+  maxPlayers,
+  durationSec,
+  ranked = false,
+  playerId = "",
+}) {
   return {
     type: "join",
     room: normalizeRoomId(room),
     name: normalizePlayerName(name),
     maxPlayers: Number(maxPlayers) || 2,
     durationSec: Number(durationSec) || 180,
+    ranked: Boolean(ranked),
+    playerId: normalizePlayerId(playerId),
   };
 }
 
@@ -194,6 +238,9 @@ export function createOnlineClient() {
     connected: false,
     reconnecting: false,
     role: "player",
+    ranked: false,
+    playerId: "",
+    rating: 1000,
     pingMs: 0,
     room: "",
     name: "",
@@ -265,7 +312,7 @@ export function disconnectOnline(client) {
 
 export function connectOnline(
   client,
-  { server, room, name, maxPlayers, durationSec },
+  { server, room, name, maxPlayers, durationSec, ranked = false, playerId = "" },
 ) {
   disconnectOnline(client);
   const socket = new WebSocket(server);
@@ -273,6 +320,8 @@ export function connectOnline(
   client.room = normalizeRoomId(room);
   client.name = normalizePlayerName(name);
   client.role = "player";
+  client.ranked = Boolean(ranked);
+  client.playerId = normalizePlayerId(playerId);
 
   socket.addEventListener("open", () => {
     client.connected = true;
@@ -284,6 +333,8 @@ export function connectOnline(
         name: client.name,
         maxPlayers,
         durationSec,
+        ranked: client.ranked,
+        playerId: client.playerId,
       }),
     );
     startOnlinePing(client);
@@ -303,6 +354,9 @@ export function connectOnline(
         return;
       }
       if (payload.type === "role") client.role = payload.role || "player";
+      if (payload.type === "rankedProfile") {
+        client.rating = Math.max(0, Math.floor(Number(payload.rating) || 1000));
+      }
       emitOnlineMessage(client, payload);
     } catch (error) {
       emitOnlineMessage(client, { type: "error", message: error.message });

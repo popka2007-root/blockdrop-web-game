@@ -22,6 +22,8 @@ import {
     pingMs: 0,
     connected: false,
     roomState: null,
+    rankedProfile: null,
+    rankedResult: null,
     lastMatchKey: "",
     countdown: 0,
   };
@@ -87,6 +89,7 @@ import {
 
     if (data.type === "hello") state.selfId = data.id || state.selfId;
     if (data.type === "role") state.role = data.role || "player";
+    if (data.type === "rankedProfile") state.rankedProfile = data;
     if (data.type === "pong") state.pingMs = Math.max(0, Date.now() - Number(data.ts || 0));
     if (data.type === "state" || data.type === "roomState") {
       state.room = data.room || state.room;
@@ -107,7 +110,10 @@ import {
     if (data.type === "reconnecting") {
       showPvpToast(`${data.name || "Соперник"} переподключается...`);
     }
-    if (data.type === "matchFinished") handleMatchFinished(data);
+    if (data.type === "matchFinished") {
+      state.rankedResult = data.ranked || null;
+      handleMatchFinished(data);
+    }
     if (data.type === "notice" && data.code === "spectator") showPvpToast("Вы зритель");
     renderPvpPanel();
   }
@@ -186,6 +192,28 @@ import {
       <div><b>${stats.losses}</b><span>Поражений</span></div>
       <div><b>${stats.winrate}%</b><span>Winrate</span></div>
     `;
+
+    const profile = state.rankedProfile;
+    const rating =
+      profile?.rating ||
+      state.rankedResult?.winner?.ratingAfter ||
+      state.rankedResult?.loser?.ratingAfter;
+    const streak =
+      profile?.streak ??
+      state.rankedResult?.winner?.streak ??
+      state.rankedResult?.loser?.streak;
+    if (rating) {
+      summary.insertAdjacentHTML(
+        "afterbegin",
+        `<div><b>${rating}</b><span>MMR</span></div>`,
+      );
+    }
+    if (Number.isFinite(Number(streak))) {
+      summary.insertAdjacentHTML(
+        "beforeend",
+        `<div><b>${formatStreak(streak)}</b><span>Streak</span></div>`,
+      );
+    }
 
     const entries = loadMatchHistory(HISTORY_KEY).slice(0, 3);
     history.innerHTML = entries.length
@@ -275,6 +303,19 @@ import {
     const result = winnerId === state.selfId ? "win" : loserId === state.selfId ? "loss" : "spectate";
     if (result === "win" || result === "loss") {
       const opponent = (state.roomState?.players || []).find((player) => player.id !== state.selfId);
+      const rankedSide =
+        data.ranked?.winner?.id === state.selfId
+          ? data.ranked.winner
+          : data.ranked?.loser?.id === state.selfId
+            ? data.ranked.loser
+            : null;
+      if (rankedSide) {
+        state.rankedProfile = {
+          ...state.rankedProfile,
+          rating: rankedSide.ratingAfter,
+          streak: rankedSide.streak,
+        };
+      }
       saveOnlineStats(result, STATS_KEY);
       saveMatchHistoryEntry(
         {
@@ -286,6 +327,9 @@ import {
           ),
           lines: Number(getTextNumber("linesValue")) || 0,
           score: Number(getTextNumber("scoreValue")) || 0,
+          ratingBefore: rankedSide?.ratingBefore || 0,
+          ratingAfter: rankedSide?.ratingAfter || 0,
+          ratingDelta: rankedSide?.ratingDelta || 0,
           mode: document.getElementById("startMode")?.selectedOptions?.[0]?.textContent || "Classic",
           date: new Date().toISOString(),
         },
@@ -308,6 +352,13 @@ import {
       error: "Ошибка соединения",
       reconnecting: "Переподключение...",
     }[value] || value;
+  }
+
+  function formatStreak(value) {
+    const streak = Number(value) || 0;
+    if (streak > 0) return `W${streak}`;
+    if (streak < 0) return `L${Math.abs(streak)}`;
+    return "0";
   }
 
   function showPvpToast(message) {

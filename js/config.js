@@ -198,6 +198,64 @@ export const ATTACK_TABLE = {
   4: 4,
 };
 
+export const ADVANCED_SCORING = {
+  line: {
+    0: 0,
+    1: 100,
+    2: 300,
+    3: 500,
+    4: 800,
+  },
+  tSpin: {
+    0: 400,
+    1: 800,
+    2: 1200,
+    3: 1600,
+  },
+  tSpinMini: {
+    0: 100,
+    1: 200,
+  },
+  combo: [0, 0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500],
+  perfectClear: {
+    0: 0,
+    1: 800,
+    2: 1200,
+    3: 1800,
+    4: 2000,
+  },
+  backToBackMultiplier: 1.5,
+};
+
+export const ADVANCED_ATTACK = {
+  line: {
+    0: 0,
+    1: 0,
+    2: 1,
+    3: 2,
+    4: 4,
+  },
+  tSpin: {
+    0: 0,
+    1: 2,
+    2: 4,
+    3: 6,
+  },
+  tSpinMini: {
+    0: 0,
+    1: 1,
+  },
+  combo: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5],
+  perfectClear: {
+    0: 0,
+    1: 4,
+    2: 6,
+    3: 8,
+    4: 10,
+  },
+  backToBackBonus: 1,
+};
+
 export const SRS_KICKS = {
   normal: {
     "0>1": [

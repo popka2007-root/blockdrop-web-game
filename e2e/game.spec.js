@@ -197,6 +197,7 @@ test("language switch updates settings, help, and online labels", async ({
   await page.locator("#friendButton").click();
   await expect(page.locator("#onlineOverlay h2")).toHaveText("Online room");
   await expect(page.locator("label[for='onlineRoomInput']")).toHaveText("Room");
+  await expect(page.locator(".toggle-row")).toContainText("Ranked PvP");
   await expect(page.locator("#connectOnlineButton")).toHaveText("Start game");
 });
 

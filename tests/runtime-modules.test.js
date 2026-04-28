@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { FLOW_STATE } from "../js/config.js";
 import { advanceFrameClock, decayFlashes } from "../js/runtime-loop.js";
-import { rankInfo, rankTextForScore, scoreLineClear } from "../js/scoring.js";
+import {
+  rankInfo,
+  rankTextForScore,
+  resultBadgeForGame,
+  resultHighlightsForGame,
+  scoreLineClear,
+} from "../js/scoring.js";
 import {
   countHoles,
   currentHeight,
@@ -47,6 +53,8 @@ describe("runtime helper modules", () => {
       level: 1,
       combo: 0,
       bestComboRun: 0,
+      backToBackChain: 2,
+      bestBackToBackRun: 3,
       pieces: 2,
       hardDrops: 1,
       holds: 1,
@@ -54,6 +62,11 @@ describe("runtime helper modules", () => {
       moves: 0,
       softDrops: 0,
       bestClearInGame: 1,
+      tSpinCount: 2,
+      tSpinMiniCount: 1,
+      perfectClearCount: 1,
+      bestMomentEvent: { isTSpin: true, lines: 2 },
+      lastRotation: { active: true, from: 0, to: 1 },
       sessionHistory: [],
       survivalStreak: 1,
       lastStreakMs: 1000,
@@ -76,6 +89,10 @@ describe("runtime helper modules", () => {
     expect(target.gameOver).toBe(false);
     expect(target.phase).toBe(FLOW_STATE.PLAYING);
     expect(target.holdUsed).toBe(true);
+    expect(target.bestBackToBackRun).toBe(3);
+    expect(target.tSpinCount).toBe(2);
+    expect(target.perfectClearCount).toBe(1);
+    expect(target.lastRotation).toMatchObject({ active: true });
   });
 
   it("advances frame timing and decays row flashes", () => {
@@ -88,5 +105,47 @@ describe("runtime helper modules", () => {
         FLASH_GROW_MS: 160,
       }),
     ).toEqual([{ row: 1, life: 0.5, width: 1 }]);
+  });
+
+  it("formats result badges and highlights for special clears", () => {
+    expect(
+      resultBadgeForGame({
+        won: false,
+        mode: "classic",
+        daily: null,
+        bestClearInGame: 4,
+        bestComboRun: 3,
+        bestBackToBackRun: 4,
+        totalTSpins: 2,
+        totalPerfectClears: 1,
+        holes: 0,
+        score: 3200,
+        bestScore: 5000,
+        language: "en",
+      }),
+    ).toBe("Perfect Clear");
+
+    expect(
+      resultHighlightsForGame({
+        modeName: "Classic",
+        dailyLabel: "—",
+        bestClearInGame: 4,
+        bestComboRun: 3,
+        bestMoment: "T-Spin Double • B2B",
+        bestBackToBackRun: 4,
+        totalPerfectClears: 1,
+        apm: 36,
+        language: "en",
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Best moment",
+          value: "T-Spin Double • B2B",
+        }),
+        expect.objectContaining({ label: "B2B", value: "x4" }),
+        expect.objectContaining({ label: "Perfect Clear", value: 1 }),
+      ]),
+    );
   });
 });
