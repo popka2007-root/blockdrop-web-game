@@ -118,6 +118,7 @@ const UI_IDS = [
   "onlineAdvancedSummary",
   "onlineRoomInput",
   "onlineNameInput",
+  "onlineRankedToggle",
   "onlineMaxPlayersSelect",
   "onlineDurationSelect",
   "onlinePlayers",
@@ -228,6 +229,7 @@ const UI_TEXT = {
     roomCode: "Код комнаты",
     room: "Комната",
     name: "Имя",
+    ranked: "Ranked PvP",
     notConnected: "Не подключено",
     tournamentServer: "Турнир",
     server: "Сервер",
@@ -303,6 +305,7 @@ const UI_TEXT = {
     roomCode: "Room code",
     room: "Room",
     name: "Name",
+    ranked: "Ranked PvP",
     notConnected: "Not connected",
     tournamentServer: "Tournament",
     server: "Server",
@@ -777,6 +780,7 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#onlineOverlay h2"), text.online);
     setLabel('label[for="onlineRoomInput"]', text.room);
     setLabel('label[for="onlineNameInput"]', text.name);
+    setText(documentRef.querySelector(".toggle-row span"), text.ranked);
     setText(documentRef.querySelector(".room-card span"), text.roomCode);
     refs.roomQr.setAttribute(
       "alt",
@@ -1557,7 +1561,18 @@ export function createUi(options = {}) {
     }
 
     refs.startGhostButton.disabled = false;
-    refs.replaySummary.textContent = `${ghostRun.score} · ${escapeHtml(ghostRun.mode)} · ${new Date(ghostRun.date).toLocaleDateString("ru-RU")}`;
+    const summaryParts = [];
+    if (ghostRun.summary?.bestMoment) summaryParts.push(ghostRun.summary.bestMoment);
+    if (ghostRun.summary?.bestBackToBack)
+      summaryParts.push(`B2B x${ghostRun.summary.bestBackToBack}`);
+    if (ghostRun.summary?.perfectClears)
+      summaryParts.push(`PC ${ghostRun.summary.perfectClears}`);
+    refs.replaySummary.textContent = [
+      ghostRun.score,
+      ghostRun.mode,
+      new Date(ghostRun.date).toLocaleDateString("ru-RU"),
+      ...summaryParts,
+    ].join(" · ");
     const maxHeight = Math.max(
       1,
       ...ghostRun.samples.map((sample) => Number(sample.height) || 0),
@@ -1636,6 +1651,7 @@ export function createUi(options = {}) {
       server: refs.onlineServerInput.value.trim(),
       room: refs.onlineRoomInput.value.trim(),
       name: refs.onlineNameInput.value.trim(),
+      ranked: Boolean(refs.onlineRankedToggle?.checked),
       maxPlayers: Number(refs.onlineMaxPlayersSelect.value),
       durationSec: Number(refs.onlineDurationSelect.value),
     };
@@ -1643,6 +1659,10 @@ export function createUi(options = {}) {
 
   function setOnlineRoom(room) {
     refs.onlineRoomInput.value = room;
+  }
+
+  function setOnlineRanked(ranked) {
+    if (refs.onlineRankedToggle) refs.onlineRankedToggle.checked = Boolean(ranked);
   }
 
   function renderRoomInvite({ room, url }) {
@@ -1969,6 +1989,7 @@ export function createUi(options = {}) {
     setOnlineDefaults,
     getOnlineForm,
     setOnlineRoom,
+    setOnlineRanked,
     renderRoomInvite,
     setOnlineStatus,
     setOnlineButtonState,

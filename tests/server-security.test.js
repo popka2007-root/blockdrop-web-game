@@ -17,6 +17,11 @@ afterEach(() => {
   } catch {
     // no records were written
   }
+  try {
+    fs.unlinkSync(path.join(process.cwd(), "ranked.json"));
+  } catch {
+    // no ranked data was written
+  }
 });
 
 function startServer(port) {

@@ -12,6 +12,8 @@ const SAVE_KEYS = [
   "level",
   "combo",
   "bestComboRun",
+  "backToBackChain",
+  "bestBackToBackRun",
   "pieces",
   "hardDrops",
   "holds",
@@ -19,6 +21,11 @@ const SAVE_KEYS = [
   "moves",
   "softDrops",
   "bestClearInGame",
+  "tSpinCount",
+  "tSpinMiniCount",
+  "perfectClearCount",
+  "bestMomentEvent",
+  "lastRotation",
   "sessionHistory",
   "survivalStreak",
   "lastStreakMs",
@@ -48,6 +55,19 @@ export function applySaveSnapshot(state, save, phase) {
   state.sessionHistory = Array.isArray(save.sessionHistory)
     ? save.sessionHistory
     : [];
+  state.backToBackChain = Number(save.backToBackChain) || 0;
+  state.bestBackToBackRun = Number(save.bestBackToBackRun) || 0;
+  state.tSpinCount = Number(save.tSpinCount) || 0;
+  state.tSpinMiniCount = Number(save.tSpinMiniCount) || 0;
+  state.perfectClearCount = Number(save.perfectClearCount) || 0;
+  state.bestMomentEvent =
+    save.bestMomentEvent && typeof save.bestMomentEvent === "object"
+      ? save.bestMomentEvent
+      : null;
+  state.lastRotation =
+    save.lastRotation && typeof save.lastRotation === "object"
+      ? save.lastRotation
+      : null;
   state.survivalStreak = Number(save.survivalStreak) || 0;
   state.lastStreakMs = Number(save.lastStreakMs) || state.elapsedMs || 0;
   state.currentGhostRun = Array.isArray(save.currentGhostRun)

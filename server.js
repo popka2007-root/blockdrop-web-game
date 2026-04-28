@@ -6,6 +6,7 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
 const RECORDS_FILE = path.join(ROOT, "records.json");
+const RANKED_FILE = path.join(ROOT, "ranked.json");
 const MAX_RECORDS = 50;
 const MAX_WS_FRAME_BYTES = 4096;
 const MAX_WS_MESSAGES_PER_CHUNK = 12;
@@ -20,6 +21,10 @@ const MAX_BOARD_PREVIEW_COLS = 10;
 const ROOM_PLAYER_LIMIT = 2;
 const RECONNECT_GRACE_MS = 12000;
 const COUNTDOWN_STEP_MS = 700;
+const RANKED_START_RATING = 1000;
+const RANKED_MIN_RATING = 100;
+const RANKED_MAX_RATING = 3000;
+const RANKED_K_FACTOR = 32;
 const UPDATE_KEYS = new Set([
   "type",
   "room",
@@ -144,6 +149,7 @@ function handleHealth(req, res) {
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     rooms: rooms.size,
     records: readRecords().length,
+    rankedPlayers: Object.keys(readRankedStore().players).length,
     revision: readRevision(),
   };
 
@@ -293,6 +299,82 @@ function writeRecords(records) {
   }
 }
 
+function readRankedStore() {
+  try {
+    const raw = fs.readFileSync(RANKED_FILE, "utf8");
+    const store = JSON.parse(raw);
+    return store && typeof store === "object" && store.players
+      ? { players: store.players }
+      : { players: {} };
+  } catch {
+    return { players: {} };
+  }
+}
+
+function writeRankedStore(store) {
+  try {
+    fs.writeFileSync(RANKED_FILE, JSON.stringify(store, null, 2));
+  } catch (error) {
+    console.error("Cannot write ranked data:", error.message);
+  }
+}
+
+function defaultRankedPlayer(id, name = "Player") {
+  return {
+    id,
+    name: cleanName(name),
+    rating: RANKED_START_RATING,
+    wins: 0,
+    losses: 0,
+    streak: 0,
+    bestWinStreak: 0,
+    bestLossStreak: 0,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeRankedPlayer(record, id, name = "Player") {
+  const fallback = defaultRankedPlayer(id, name);
+  const streak = clampSigned(record?.streak, -999, 999);
+  return {
+    ...fallback,
+    ...record,
+    id,
+    name: cleanName(name || record?.name || fallback.name),
+    rating: clamp(safeNumber(record?.rating) || RANKED_START_RATING, RANKED_MIN_RATING, RANKED_MAX_RATING),
+    wins: clamp(safeNumber(record?.wins), 0, 999999),
+    losses: clamp(safeNumber(record?.losses), 0, 999999),
+    streak,
+    bestWinStreak: clamp(safeNumber(record?.bestWinStreak), 0, 999999),
+    bestLossStreak: clamp(safeNumber(record?.bestLossStreak), 0, 999999),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function getRankedProfile(id, name = "Player") {
+  const safeId = cleanPlayerId(id);
+  if (!safeId) return null;
+  const store = readRankedStore();
+  const profile = normalizeRankedPlayer(store.players[safeId], safeId, name);
+  store.players[safeId] = profile;
+  writeRankedStore(store);
+  return profile;
+}
+
+function publicRankedProfile(profile) {
+  if (!profile) return null;
+  return {
+    playerId: profile.id,
+    name: profile.name,
+    rating: profile.rating,
+    wins: profile.wins,
+    losses: profile.losses,
+    streak: profile.streak,
+    bestWinStreak: profile.bestWinStreak,
+    bestLossStreak: profile.bestLossStreak,
+  };
+}
+
 function sendJson(res, payload, status = 200) {
   writeHead(res, status, {
     "Content-Type": "application/json; charset=utf-8",
@@ -351,6 +433,9 @@ function createClient(socket) {
     socket,
     room: "",
     role: "player",
+    ranked: false,
+    playerId: "",
+    rankedProfile: null,
     name: "Player",
     state: emptyState(),
     disconnectedAt: 0,
@@ -455,6 +540,7 @@ function emptyState() {
 function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
   return {
     id,
+    ranked: false,
     players: new Map(),
     spectators: new Map(),
     maxPlayers: ROOM_PLAYER_LIMIT,
@@ -468,6 +554,16 @@ function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
       loserId: "",
       reason: "",
     },
+    series: {
+      active: false,
+      bestOf: 3,
+      targetWins: 2,
+      wins: {},
+      matchNumber: 1,
+      completed: false,
+      winnerId: "",
+    },
+    lastRankedResult: null,
     countdownTimer: null,
     rematchReady: new Set(),
     reconnects: new Map(),
@@ -643,6 +739,8 @@ function sanitizeBoardPreview(value) {
 function joinRoom(client, data) {
   removeClient(client, "rejoin");
   const roomId = cleanCode(data.room) || "LOBBY";
+  const rankedRequested = data.ranked === true;
+  const playerId = cleanPlayerId(data.playerId);
   if (
     data.room &&
     roomId !==
@@ -663,17 +761,31 @@ function joinRoom(client, data) {
   if (room.match.status === "lobby") {
     room.maxPlayers = ROOM_PLAYER_LIMIT;
     room.durationSec = durationSec;
+    if (room.players.size === 0 && room.spectators.size === 0) {
+      room.ranked = rankedRequested;
+    }
   }
 
   client.room = roomId;
   client.name = cleanName(data.name);
+  client.ranked = Boolean(room.ranked);
+  client.playerId = client.ranked ? playerId || client.id : "";
+  client.rankedProfile = client.ranked
+    ? getRankedProfile(client.playerId, client.name)
+    : null;
   client.state = emptyState();
 
   const reconnectId = findReconnectSlot(room, client.name);
   if (reconnectId) {
+    const slot = room.reconnects.get(reconnectId);
     clearReconnect(room, reconnectId);
     client.id = reconnectId;
     client.role = "player";
+    client.ranked = Boolean(slot?.ranked || room.ranked);
+    client.playerId = slot?.playerId || client.playerId;
+    client.rankedProfile =
+      slot?.rankedProfile ||
+      (client.ranked ? getRankedProfile(client.playerId, client.name) : null);
     room.players.set(client.id, client);
   } else if (room.players.size < room.maxPlayers && room.match.status !== "playing") {
     client.role = "player";
@@ -685,6 +797,12 @@ function joinRoom(client, data) {
 
   send(client, { type: "hello", id: client.id });
   send(client, { type: "role", role: client.role });
+  if (client.rankedProfile) {
+    send(client, {
+      type: "rankedProfile",
+      ...publicRankedProfile(client.rankedProfile),
+    });
+  }
   if (client.role === "spectator") {
     send(client, {
       type: "notice",
@@ -750,7 +868,21 @@ function maybeAutoStart(room) {
   if (!room || room.maxPlayers !== ROOM_PLAYER_LIMIT) return;
   if (room.match.status !== "lobby" && room.match.status !== "finished") return;
   if (room.players.size !== 2 || room.countdownTimer) return;
+  if (room.ranked && !room.series.active) startRankedSeries(room);
   startCountdown(room, "matchStart");
+}
+
+function startRankedSeries(room) {
+  room.series = {
+    active: true,
+    bestOf: 3,
+    targetWins: 2,
+    wins: Object.fromEntries([...room.players.keys()].map((id) => [id, 0])),
+    matchNumber: 1,
+    completed: false,
+    winnerId: "",
+  };
+  room.lastRankedResult = null;
 }
 
 function startCountdown(room, finalType) {
@@ -798,7 +930,11 @@ function markRematchReady(client) {
   room.rematchReady.add(client.id);
   broadcastRoom(room.id);
   const allReady = [...room.players.keys()].every((id) => room.rematchReady.has(id));
-  if (allReady) startCountdown(room, "rematchStart");
+  if (allReady) {
+    if (room.ranked && room.series.completed) startRankedSeries(room);
+    else if (room.ranked && !room.series.active) startRankedSeries(room);
+    startCountdown(room, "rematchStart");
+  }
 }
 
 function finishMatchFromClient(client, result) {
@@ -806,7 +942,7 @@ function finishMatchFromClient(client, result) {
   if (!room || room.match.status !== "playing") return;
   const other = [...room.players.values()].find((player) => player.id !== client.id);
   if (!other) return;
-  const clientWon = result === "win";
+  const clientWon = room.ranked ? false : result === "win";
   finishMatch(room, {
     reason: "gameOver",
     winnerId: clientWon ? client.id : other.id,
@@ -820,13 +956,148 @@ function finishMatch(room, { reason, winnerId, loserId }) {
   room.match.winnerId = winnerId;
   room.match.loserId = loserId;
   room.rematchReady.clear();
+  const ranked = room.ranked
+    ? finalizeRankedMatch(room, { winnerId, loserId, reason })
+    : null;
   broadcast(room, {
     type: "matchFinished",
     reason,
     winnerId,
     loserId,
+    ranked,
+    series: seriesPayload(room),
   });
   broadcastRoom(room.id);
+}
+
+function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
+  const winner = rankedParticipant(room, winnerId);
+  const loser = rankedParticipant(room, loserId);
+  if (!winner?.playerId || !loser?.playerId || winner.playerId === loser.playerId)
+    return null;
+
+  const store = readRankedStore();
+  const winnerBefore = normalizeRankedPlayer(
+    store.players[winner.playerId],
+    winner.playerId,
+    winner.name,
+  );
+  const loserBefore = normalizeRankedPlayer(
+    store.players[loser.playerId],
+    loser.playerId,
+    loser.name,
+  );
+  const expectedWinner =
+    1 / (1 + 10 ** ((loserBefore.rating - winnerBefore.rating) / 400));
+  const delta = clamp(
+    Math.round(RANKED_K_FACTOR * (1 - expectedWinner)),
+    8,
+    RANKED_K_FACTOR,
+  );
+  const winnerAfter = {
+    ...winnerBefore,
+    name: cleanName(winner.name),
+    rating: clamp(
+      winnerBefore.rating + delta,
+      RANKED_MIN_RATING,
+      RANKED_MAX_RATING,
+    ),
+    wins: winnerBefore.wins + 1,
+    streak: winnerBefore.streak >= 0 ? winnerBefore.streak + 1 : 1,
+    updatedAt: new Date().toISOString(),
+  };
+  winnerAfter.bestWinStreak = Math.max(
+    winnerAfter.bestWinStreak,
+    winnerAfter.streak,
+  );
+  const loserAfter = {
+    ...loserBefore,
+    name: cleanName(loser.name),
+    rating: clamp(
+      loserBefore.rating - delta,
+      RANKED_MIN_RATING,
+      RANKED_MAX_RATING,
+    ),
+    losses: loserBefore.losses + 1,
+    streak: loserBefore.streak <= 0 ? loserBefore.streak - 1 : -1,
+    updatedAt: new Date().toISOString(),
+  };
+  loserAfter.bestLossStreak = Math.max(
+    loserAfter.bestLossStreak,
+    Math.abs(loserAfter.streak),
+  );
+
+  store.players[winner.playerId] = winnerAfter;
+  store.players[loser.playerId] = loserAfter;
+  writeRankedStore(store);
+  applyRankedProfileToParticipant(room, winnerId, winnerAfter);
+  applyRankedProfileToParticipant(room, loserId, loserAfter);
+
+  if (room.series.active && !room.series.completed) {
+    room.series.wins[winnerId] = (room.series.wins[winnerId] || 0) + 1;
+    if (room.series.wins[winnerId] >= room.series.targetWins) {
+      room.series.completed = true;
+      room.series.winnerId = winnerId;
+    } else {
+      room.series.matchNumber += 1;
+    }
+  }
+
+  room.lastRankedResult = {
+    reason,
+    winner: rankedResultPayload(winner, winnerBefore, winnerAfter),
+    loser: rankedResultPayload(loser, loserBefore, loserAfter),
+    series: seriesPayload(room),
+  };
+  return room.lastRankedResult;
+}
+
+function rankedParticipant(room, id) {
+  const client = room.players.get(id);
+  if (client) {
+    return {
+      id,
+      playerId: client.playerId,
+      name: client.name,
+      state: client.state,
+    };
+  }
+  const slot = room.reconnects.get(id);
+  if (!slot) return null;
+  return {
+    id,
+    playerId: slot.playerId,
+    name: slot.name,
+    state: slot.state,
+  };
+}
+
+function applyRankedProfileToParticipant(room, id, profile) {
+  const client = room.players.get(id);
+  if (client) client.rankedProfile = profile;
+  const slot = room.reconnects.get(id);
+  if (slot) slot.rankedProfile = profile;
+}
+
+function rankedResultPayload(participant, before, after) {
+  return {
+    id: participant.id,
+    playerId: participant.playerId,
+    name: participant.name,
+    ratingBefore: before.rating,
+    ratingAfter: after.rating,
+    ratingDelta: after.rating - before.rating,
+    streak: after.streak,
+    bestWinStreak: after.bestWinStreak,
+    bestLossStreak: after.bestLossStreak,
+    stats: {
+      score: participant.state.score,
+      lines: participant.state.lines,
+      sentGarbage: participant.state.sentGarbage,
+      receivedGarbage: participant.state.receivedGarbage,
+      time: participant.state.time,
+    },
+  };
 }
 
 function allowMessage(client) {
@@ -971,6 +1242,9 @@ function tournamentPayload(room) {
 function matchPayload(room) {
   return {
     ...room.match,
+    ranked: room.ranked,
+    series: seriesPayload(room),
+    rankedResult: room.lastRankedResult,
     rematchReady: [...room.rematchReady],
     reconnecting: [...room.reconnects.entries()].map(([id, slot]) => ({
       id,
@@ -980,12 +1254,22 @@ function matchPayload(room) {
   };
 }
 
+function seriesPayload(room) {
+  return {
+    ...room.series,
+    wins: { ...room.series.wins },
+  };
+}
+
 function playersPayload(room) {
   const players = {};
   for (const client of room.players.values()) {
     players[client.id] = {
       id: client.id,
       role: "player",
+      ranked: client.ranked,
+      rating: client.rankedProfile?.rating,
+      streak: client.rankedProfile?.streak,
       name: client.name,
       ...client.state,
     };
@@ -994,6 +1278,9 @@ function playersPayload(room) {
     players[id] = {
       id,
       role: "player",
+      ranked: slot.ranked,
+      rating: slot.rankedProfile?.rating,
+      streak: slot.rankedProfile?.streak,
       name: slot.name,
       disconnected: true,
       ...slot.state,
@@ -1046,6 +1333,9 @@ function removeClient(client, reason = "close") {
       }, RECONNECT_GRACE_MS);
       room.reconnects.set(id, {
         name: client.name,
+        ranked: client.ranked,
+        playerId: client.playerId,
+        rankedProfile: client.rankedProfile,
         state: client.state,
         expiresAt,
         timer,
@@ -1072,6 +1362,13 @@ function cleanCode(value) {
     .slice(0, 16);
 }
 
+function cleanPlayerId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_.-]/g, "")
+    .slice(0, 64);
+}
+
 function cleanName(value) {
   return (
     String(value || "Player")
@@ -1088,6 +1385,12 @@ function safeNumber(value) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function clampSigned(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(min, Math.min(max, Math.floor(number)));
 }
 
 function decodeFrames(buffer) {

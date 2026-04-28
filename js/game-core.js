@@ -1,4 +1,6 @@
 import {
+  ADVANCED_ATTACK,
+  ADVANCED_SCORING,
   ATTACK_TABLE,
   COLS,
   PIECES,
@@ -87,6 +89,113 @@ export function lineScore(count, level = 1) {
 
 export function attackLinesForClear(count) {
   return ATTACK_TABLE[Math.min(count, 4)] || 0;
+}
+
+function occupiedOrBlocked(board, x, y) {
+  return x < 0 || x >= COLS || y < 0 || y >= ROWS || Boolean(board[y][x]);
+}
+
+export function detectTSpinType(board, piece, lastRotation = null) {
+  if (!lastRotation?.active || piece?.kind !== "T") return "";
+  const center = { x: piece.x + 1, y: piece.y + 1 };
+  const corners = {
+    nw: occupiedOrBlocked(board, center.x - 1, center.y - 1),
+    ne: occupiedOrBlocked(board, center.x + 1, center.y - 1),
+    sw: occupiedOrBlocked(board, center.x - 1, center.y + 1),
+    se: occupiedOrBlocked(board, center.x + 1, center.y + 1),
+  };
+  const occupied = Object.values(corners).filter(Boolean).length;
+  if (occupied < 3) return "";
+
+  const frontCornerKeys =
+    {
+      0: ["nw", "ne"],
+      1: ["ne", "se"],
+      2: ["sw", "se"],
+      3: ["nw", "sw"],
+    }[piece.rotation] || ["nw", "ne"];
+  const frontFilled = frontCornerKeys.filter((key) => corners[key]).length;
+
+  return frontFilled === 2 ? "full" : "mini";
+}
+
+export function isBoardEmpty(board) {
+  return board.every((row) => row.every((cell) => !cell));
+}
+
+function lookupCombo(table, combo) {
+  if (combo <= 0) return 0;
+  if (combo < table.length) return table[combo];
+  return table[table.length - 1] + (combo - (table.length - 1));
+}
+
+export function buildClearEvent({
+  lines = 0,
+  level = 1,
+  combo = 0,
+  perfectClear = false,
+  backToBackActive = false,
+  tSpinType = "",
+  streakBonus = 0,
+} = {}) {
+  const safeLines = Math.max(0, Math.min(4, Math.floor(Number(lines) || 0)));
+  const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+  const safeCombo = Math.max(0, Math.floor(Number(combo) || 0));
+  const spinType = tSpinType === "mini" ? "mini" : tSpinType === "full" ? "full" : "";
+  const isTSpin = spinType === "full";
+  const isMini = spinType === "mini";
+  const difficult = safeLines === 4 || (isTSpin && safeLines > 0);
+  const backToBack = difficult && backToBackActive;
+
+  const baseValue = isTSpin
+    ? ADVANCED_SCORING.tSpin[safeLines] || 0
+    : isMini
+      ? ADVANCED_SCORING.tSpinMini[safeLines] || 0
+      : ADVANCED_SCORING.line[safeLines] || 0;
+  const baseScore = baseValue * safeLevel;
+  const backToBackScore = backToBack ? Math.round(baseScore * (ADVANCED_SCORING.backToBackMultiplier - 1)) : 0;
+  const perfectClearScore = perfectClear
+    ? (ADVANCED_SCORING.perfectClear[safeLines] || ADVANCED_SCORING.perfectClear[4]) *
+      safeLevel
+    : 0;
+  const comboScore = lookupCombo(ADVANCED_SCORING.combo, safeCombo);
+  const score = baseScore + backToBackScore + perfectClearScore + comboScore + Math.max(0, Math.round(streakBonus));
+
+  const baseAttack = isTSpin
+    ? ADVANCED_ATTACK.tSpin[safeLines] || 0
+    : isMini
+      ? ADVANCED_ATTACK.tSpinMini[safeLines] || 0
+      : ADVANCED_ATTACK.line[safeLines] || 0;
+  const comboAttack = lookupCombo(ADVANCED_ATTACK.combo, safeCombo);
+  const backToBackAttack = backToBack ? ADVANCED_ATTACK.backToBackBonus : 0;
+  const perfectClearAttack = perfectClear
+    ? ADVANCED_ATTACK.perfectClear[safeLines] || ADVANCED_ATTACK.perfectClear[4]
+    : 0;
+
+  return {
+    lines: safeLines,
+    level: safeLevel,
+    combo: safeCombo,
+    tSpinType: spinType,
+    isTSpin,
+    isMini,
+    difficult,
+    backToBack,
+    backToBackEligible: difficult,
+    perfectClear,
+    baseScore,
+    comboScore,
+    backToBackScore,
+    perfectClearScore,
+    streakBonus: Math.max(0, Math.round(streakBonus)),
+    score,
+    baseAttack,
+    comboAttack,
+    backToBackAttack,
+    perfectClearAttack,
+    attackLines:
+      baseAttack + comboAttack + backToBackAttack + perfectClearAttack,
+  };
 }
 
 export function holdPiece(state) {

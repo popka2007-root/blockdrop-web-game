@@ -63,6 +63,9 @@ export function normalizeMatchHistoryEntry(entry = {}) {
     durationSec: Math.max(0, Math.floor(Number(entry.durationSec) || 0)),
     lines: Math.max(0, Math.floor(Number(entry.lines) || 0)),
     score: Math.max(0, Math.floor(Number(entry.score) || 0)),
+    ratingBefore: Math.max(0, Math.floor(Number(entry.ratingBefore) || 0)),
+    ratingAfter: Math.max(0, Math.floor(Number(entry.ratingAfter) || 0)),
+    ratingDelta: Math.floor(Number(entry.ratingDelta) || 0),
     date: entry.date || new Date().toISOString(),
     mode: String(entry.mode || "Classic")
       .replace(/[<>]/g, "")
@@ -181,6 +184,12 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     },
     savePlayerName(value) {
       saveText(keys.playerName, value, storage);
+    },
+    loadRankedPlayerId(fallback = "") {
+      return loadText(keys.rankedPlayerId, fallback, storage);
+    },
+    saveRankedPlayerId(value) {
+      saveText(keys.rankedPlayerId, value, storage);
     },
     loadMatchHistory(fallback = []) {
       return loadMatchHistory(keys.matchHistory, storage) || fallback;

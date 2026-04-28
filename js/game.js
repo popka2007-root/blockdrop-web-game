@@ -30,22 +30,22 @@ import {
   defaultServerUrl,
   disconnectOnline as closeOnlineSocket,
   generateRoomCode,
+  loadOrCreatePlayerId,
   normalizeRoomId,
   onOnlineMessage,
   roomFromLocation,
   sendAttack,
   sendOnlineMessage,
+  sendRematchReady,
   sendScoreUpdate,
 } from "./online.js";
 import { advanceFrameClock, decayFlashes } from "./runtime-loop.js";
 import {
   addPositiveScore,
-  attackLinesForClear,
   rankInfo,
   rankTextForScore,
   resultBadgeForGame,
   resultHighlightsForGame,
-  scoreLineClear,
 } from "./scoring.js";
 import {
   countHoles as boardCountHoles,
@@ -56,7 +56,13 @@ import {
 import { applySaveSnapshot, buildSavePayload } from "./save-load.js";
 import { createGameStorage } from "./storage.js";
 import { createUi } from "./ui.js";
-import { createBag, makeBoard } from "./game-core.js";
+import {
+  buildClearEvent,
+  createBag,
+  detectTSpinType,
+  isBoardEmpty,
+  makeBoard,
+} from "./game-core.js";
 
 (() => {
   "use strict";
@@ -73,6 +79,7 @@ import { createBag, makeBoard } from "./game-core.js";
     ghostRun: "blockdrop-ghost-run-v1",
     lastRoom: "tetris-last-room",
     playerName: "blockdrop-player-name",
+    rankedPlayerId: "blockdrop-ranked-player-id-v1",
   };
 
   const COLORS = {
@@ -311,6 +318,8 @@ import { createBag, makeBoard } from "./game-core.js";
     level: 1,
     combo: 0,
     bestComboRun: 0,
+    backToBackChain: 0,
+    bestBackToBackRun: 0,
     pieces: 0,
     hardDrops: 0,
     incomingGarbage: 0,
@@ -324,6 +333,11 @@ import { createBag, makeBoard } from "./game-core.js";
     moves: 0,
     softDrops: 0,
     bestClearInGame: 0,
+    tSpinCount: 0,
+    tSpinMiniCount: 0,
+    perfectClearCount: 0,
+    bestMomentEvent: null,
+    lastRotation: null,
     sessionHistory: [],
     running: false,
     paused: false,
@@ -346,6 +360,10 @@ import { createBag, makeBoard } from "./game-core.js";
       connected: false,
       room: "",
       name: "",
+      ranked: false,
+      rating: 1000,
+      rankedResult: null,
+      series: null,
       peers: {},
       tournament: null,
       lastSent: 0,
@@ -402,7 +420,7 @@ import { createBag, makeBoard } from "./game-core.js";
   }
 
   function loadStats() {
-    return {
+    const defaults = {
       games: 0,
       totalScore: 0,
       totalLines: 0,
@@ -421,6 +439,14 @@ import { createBag, makeBoard } from "./game-core.js";
       totalRotations: 0,
       totalMoves: 0,
       totalSoftDrops: 0,
+      totalTetrises: 0,
+      totalTSpins: 0,
+      totalTSpinMinis: 0,
+      totalPerfectClears: 0,
+      totalBackToBackClears: 0,
+      bestBackToBack: 0,
+      totalSentGarbage: 0,
+      totalReceivedGarbage: 0,
       modeCounts: {
         classic: 0,
         sprint: 0,
@@ -431,7 +457,23 @@ import { createBag, makeBoard } from "./game-core.js";
       },
       daily: { date: "", score: 0, lines: 0 },
       pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
-      ...storage.loadStats({}),
+    };
+    const saved = storage.loadStats({});
+    return {
+      ...defaults,
+      ...saved,
+      modeCounts: {
+        ...defaults.modeCounts,
+        ...(saved.modeCounts || {}),
+      },
+      daily: {
+        ...defaults.daily,
+        ...(saved.daily || {}),
+      },
+      pieceCounts: {
+        ...defaults.pieceCounts,
+        ...(saved.pieceCounts || {}),
+      },
     };
   }
 
@@ -580,6 +622,8 @@ import { createBag, makeBoard } from "./game-core.js";
     );
     state.combo = 0;
     state.bestComboRun = 0;
+    state.backToBackChain = 0;
+    state.bestBackToBackRun = 0;
     state.pieces = 0;
     state.hardDrops = 0;
     state.incomingGarbage = 0;
@@ -596,6 +640,11 @@ import { createBag, makeBoard } from "./game-core.js";
     state.moves = 0;
     state.softDrops = 0;
     state.bestClearInGame = 0;
+    state.tSpinCount = 0;
+    state.tSpinMiniCount = 0;
+    state.perfectClearCount = 0;
+    state.bestMomentEvent = null;
+    state.lastRotation = null;
     state.sessionHistory = [];
     state.running = true;
     state.paused = false;
@@ -655,6 +704,7 @@ import { createBag, makeBoard } from "./game-core.js";
     state.active = makePiece(state.queue.shift());
     fillQueue();
     state.holdUsed = false;
+    state.lastRotation = null;
     state.lockDelayMs = 0;
     state.lockResets = 0;
     if (!valid(state.active)) finish(false, "Башня дошла до верхней границы.");
@@ -676,6 +726,7 @@ import { createBag, makeBoard } from "./game-core.js";
     if (!state.running || state.gameOver || count <= 0) return;
     state.incomingGarbage += count;
     state.receivedGarbage += count;
+    state.stats.totalReceivedGarbage += count;
     resetStreak();
     addGarbage(count);
     shakeBoard();
@@ -715,6 +766,7 @@ import { createBag, makeBoard } from "./game-core.js";
     };
     if (!valid(candidate)) return false;
     state.active = candidate;
+    if (dx !== 0) state.lastRotation = null;
     if (dx !== 0) resetLockDelayIfGrounded();
     if (scoreSoft && dy > 0) addScore(1);
     if (dx !== 0) {
@@ -741,10 +793,18 @@ import { createBag, makeBoard } from "./game-core.js";
         : (state.active.kind === "I" ? SRS_KICKS.I : SRS_KICKS.normal)[
             `${from}>${to}`
           ] || [[0, 0]];
-    for (const [dx, dy] of kicks) {
+    for (const [kickIndex, [dx, dy]] of kicks.entries()) {
       const candidate = { ...rotated, x: rotated.x + dx, y: rotated.y + dy };
       if (valid(candidate)) {
         state.active = candidate;
+        state.lastRotation = {
+          active: true,
+          from,
+          to,
+          direction: normalizedDirection,
+          kickIndex,
+          usedKick: kickIndex > 0,
+        };
         resetLockDelayIfGrounded();
         state.rotations += 1;
         state.stats.totalRotations += 1;
@@ -808,27 +868,41 @@ import { createBag, makeBoard } from "./game-core.js";
       spawn();
     }
     state.holdUsed = true;
+    state.lastRotation = null;
     playEvent("hold");
   }
 
   function lock() {
     if (!state.active) return;
     const modeConfig = getModeConfig(state.mode);
-    const lockedKind = state.active.kind;
+    const lockedPiece = { ...state.active };
+    const lockedKind = lockedPiece.kind;
     const beforeMetrics = {
       holes: countHoles(),
       height: currentHeight(),
       bumpiness: surfaceBumpiness(),
     };
-    for (const c of cells(state.active))
+    for (const c of cells(lockedPiece))
       state.board[c.y][c.x] = {
-        kind: state.active.kind,
+        kind: lockedPiece.kind,
       };
-    state.stats.pieceCounts[state.active.kind] += 1;
+    state.stats.pieceCounts[lockedPiece.kind] += 1;
     state.pieces += 1;
     state.stats.totalPieces += 1;
+    const tSpinType = detectTSpinType(state.board, lockedPiece, state.lastRotation);
     state.active = null;
     const count = clearLines();
+    const perfectClear = count > 0 && isBoardEmpty(state.board);
+    const combo = count > 0 ? state.combo + 1 : 0;
+    const clearEvent = buildClearEvent({
+      lines: count,
+      level: state.level,
+      combo,
+      perfectClear,
+      backToBackActive: state.backToBackChain > 0,
+      tSpinType,
+      streakBonus: count > 0 ? streakScoreBonus() : 0,
+    });
     const afterMetrics = {
       holes: countHoles(),
       height: currentHeight(),
@@ -837,22 +911,54 @@ import { createBag, makeBoard } from "./game-core.js";
     state.sessionHistory.push({
       kind: lockedKind,
       clear: count,
+      special: clearEvent.tSpinType,
+      perfectClear: clearEvent.perfectClear,
+      backToBack: clearEvent.backToBack,
+      attack: clearEvent.attackLines,
+      score: clearEvent.score,
       holesDelta: afterMetrics.holes - beforeMetrics.holes,
       heightDelta: afterMetrics.height - beforeMetrics.height,
       bumpinessDelta: afterMetrics.bumpiness - beforeMetrics.bumpiness,
     });
     if (state.sessionHistory.length > 60) state.sessionHistory.shift();
+    if (clearEvent.score > 0) addScore(clearEvent.score);
+    if (clearEvent.isTSpin) {
+      state.tSpinCount += 1;
+      state.stats.totalTSpins += 1;
+    } else if (clearEvent.isMini) {
+      state.tSpinMiniCount += 1;
+      state.stats.totalTSpinMinis += 1;
+    }
+    if (clearEvent.perfectClear) {
+      state.perfectClearCount += 1;
+      state.stats.totalPerfectClears += 1;
+    }
+    if (!clearEvent.isTSpin && !clearEvent.isMini && count === 4) {
+      state.stats.totalTetrises += 1;
+    }
+    if (clearEvent.backToBackEligible) {
+      state.backToBackChain = clearEvent.backToBack
+        ? state.backToBackChain + 1
+        : 1;
+      state.bestBackToBackRun = Math.max(
+        state.bestBackToBackRun,
+        state.backToBackChain,
+      );
+      state.stats.bestBackToBack = Math.max(
+        state.stats.bestBackToBack,
+        state.bestBackToBackRun,
+      );
+      if (clearEvent.backToBack) state.stats.totalBackToBackClears += 1;
+    } else if (count > 0) {
+      state.backToBackChain = 0;
+    }
+    rememberBestMoment(clearEvent);
     if (count > 0) {
       const previousLevel = state.level;
-      state.combo += 1;
+      state.combo = combo;
       state.bestComboRun = Math.max(state.bestComboRun, state.combo);
       state.bestClearInGame = Math.max(state.bestClearInGame, count);
       state.lines += count;
-      addScore(
-        scoreLineClear(count, state.level) +
-          state.combo * 25 +
-          streakScoreBonus(),
-      );
       state.level = modeConfig.relaxed
         ? modeConfig.startLevel
         : Math.min(
@@ -862,8 +968,8 @@ import { createBag, makeBoard } from "./game-core.js";
               DIFFICULTY[state.difficulty].startLevel -
               1,
           );
-      playEvent(count === 4 ? "tetris" : "line");
-      if (count === 4) burst(44);
+      playEvent(clearEvent.isTSpin || count === 4 ? "tetris" : "line");
+      if (clearEvent.isTSpin || count === 4 || clearEvent.perfectClear) burst(44);
       if (state.combo >= 2)
         playEvent("combo", {
           freq: SOUND_EVENTS.combo.freq + state.combo * 18,
@@ -873,16 +979,20 @@ import { createBag, makeBoard } from "./game-core.js";
         playEvent("levelUp");
         burst(26);
       }
-      buzz(count === 4 ? "tetris" : "clear");
-      const comboText = state.combo >= 2 ? `. Комбо x${state.combo}` : "";
-      if (count === 4) showToast("Четыре линии сразу!");
-      else if (count >= 2) showToast(`${count} линии${comboText}`);
-      sendAttackForClear(count);
-      burst(count === 4 ? 34 : 18);
+      buzz(clearEvent.isTSpin || count === 4 ? "tetris" : "clear");
+      showToast(formatClearEventToast(clearEvent));
+      sendAttackForEvent(clearEvent);
+      burst(clearEvent.isTSpin || count === 4 ? 34 : 18);
       shakeBoard();
     } else {
       state.combo = 0;
+      if (clearEvent.isTSpin || clearEvent.isMini) {
+        playEvent("line");
+        buzz("clear");
+        showToast(formatClearEventToast(clearEvent));
+      }
     }
+    state.lastRotation = null;
     if (modeConfig.targetLines && state.lines >= modeConfig.targetLines) {
       finish(true, `${modeConfig.goalText} выполнено.`);
       return;
@@ -916,10 +1026,11 @@ import { createBag, makeBoard } from "./game-core.js";
     return rows.length;
   }
 
-  function sendAttackForClear(count) {
-    const lines = attackLinesForClear(count);
+  function sendAttackForEvent(event) {
+    const lines = Number(event?.attackLines) || 0;
     if (!lines || (!state.online.connected && !state.ai.enabled)) return;
     state.sentGarbage += lines;
+    state.stats.totalSentGarbage += lines;
     if (state.online.connected)
       sendAttack(onlineClient, state.online.room, lines);
     if (state.ai.enabled) {
@@ -928,11 +1039,6 @@ import { createBag, makeBoard } from "./game-core.js";
     }
     playEvent("attack", { duration: 0.09 });
     burst(12);
-    showToast(
-      state.ai.enabled && !state.online.connected
-        ? `Атака AI: +${lines}`
-        : `Атака соперникам: +${lines}`,
-    );
   }
 
   function addScore(value) {
@@ -973,6 +1079,82 @@ import { createBag, makeBoard } from "./game-core.js";
     }
   }
 
+  function lineClearLabel(lines) {
+    const labels = {
+      1: onlineText("Одиночная", "Single"),
+      2: onlineText("Дабл", "Double"),
+      3: onlineText("Трипл", "Triple"),
+      4: "Tetris",
+    };
+    return labels[lines] || "";
+  }
+
+  function clearEventLabel(event) {
+    if (!event) return "";
+    if (event.isTSpin) {
+      return event.lines === 0
+        ? "T-Spin"
+        : `T-Spin ${lineClearLabel(event.lines)}`;
+    }
+    if (event.isMini) {
+      return event.lines === 0
+        ? "T-Spin Mini"
+        : `T-Spin Mini ${lineClearLabel(event.lines)}`;
+    }
+    return lineClearLabel(event.lines);
+  }
+
+  function clearEventRank(event) {
+    if (!event) return 0;
+    return (
+      (event.perfectClear ? 1000 : 0) +
+      (event.isTSpin ? 700 : 0) +
+      (event.isMini ? 500 : 0) +
+      (event.lines === 4 ? 350 : 0) +
+      Math.max(0, event.lines) * 20 +
+      Math.max(0, event.combo) +
+      Math.max(0, event.attackLines || 0)
+    );
+  }
+
+  function rememberBestMoment(event) {
+    if (!event || clearEventRank(event) <= 0) return;
+    if (
+      !state.bestMomentEvent ||
+      clearEventRank(event) > clearEventRank(state.bestMomentEvent)
+    ) {
+      state.bestMomentEvent = { ...event };
+    }
+  }
+
+  function formatClearEventToast(event) {
+    const parts = [];
+    const label = clearEventLabel(event);
+    if (label) parts.push(label);
+    if (event?.backToBack) parts.push("B2B");
+    if (event?.perfectClear) parts.push("Perfect Clear");
+    if ((event?.combo || 0) >= 2) {
+      parts.push(onlineText(`Комбо x${event.combo}`, `Combo x${event.combo}`));
+    }
+    if (!parts.length && event?.attackLines) {
+      parts.push(
+        onlineText(`Атака +${event.attackLines}`, `Attack +${event.attackLines}`),
+      );
+    }
+    return parts.join(" • ");
+  }
+
+  function bestMomentLabel() {
+    if (state.bestMomentEvent) return formatClearEventToast(state.bestMomentEvent);
+    if (state.bestComboRun >= 2) {
+      return onlineText(
+        `Комбо x${state.bestComboRun}`,
+        `Combo x${state.bestComboRun}`,
+      );
+    }
+    return lineClearLabel(state.bestClearInGame);
+  }
+
   function resultBadge(won) {
     return resultBadgeForGame({
       won,
@@ -980,21 +1162,31 @@ import { createBag, makeBoard } from "./game-core.js";
       daily: state.daily,
       bestClearInGame: state.bestClearInGame,
       bestComboRun: state.bestComboRun,
+      bestBackToBackRun: state.bestBackToBackRun,
+      totalTSpins: state.tSpinCount,
+      totalPerfectClears: state.perfectClearCount,
       holes: countHoles(),
       score: state.score,
       bestScore: state.stats.bestScore,
+      language: state.settings.language,
     });
   }
 
   function resultHighlights() {
+    const modeConfig = getModeConfig(state.mode);
     return resultHighlightsForGame({
-      modeName: getModeConfig(state.mode).name,
+      modeName:
+        state.settings.language === "en" ? modeConfig.nameEn : modeConfig.name,
       dailyLabel: state.daily
         ? `${state.stats.daily?.score || state.score} · ${state.daily.date}`
         : "—",
       bestClearInGame: state.bestClearInGame,
       bestComboRun: state.bestComboRun,
+      bestMoment: bestMomentLabel(),
+      bestBackToBackRun: state.bestBackToBackRun,
+      totalPerfectClears: state.perfectClearCount,
       apm: actionsPerMinute(),
+      language: state.settings.language,
     });
   }
 
@@ -1012,6 +1204,10 @@ import { createBag, makeBoard } from "./game-core.js";
     state.stats.bestClear = Math.max(
       state.stats.bestClear,
       state.bestClearInGame,
+    );
+    state.stats.bestBackToBack = Math.max(
+      state.stats.bestBackToBack,
+      state.bestBackToBackRun,
     );
     if (won) state.stats.modeWins += 1;
     if (won && state.mode === "sprint") state.stats.sprintWins += 1;
@@ -1078,7 +1274,17 @@ import { createBag, makeBoard } from "./game-core.js";
     shakeBoard();
     if (won) burst(50);
     sendOnlineUpdate(true);
+    sendOnlineMatchResult(won);
     submitServerRecord();
+  }
+
+  function sendOnlineMatchResult(won) {
+    if (!state.online.connected || onlineClient.role === "spectator") return;
+    sendOnlineMessage(onlineClient, {
+      type: "matchOver",
+      room: state.online.room,
+      result: won ? "win" : "loss",
+    });
   }
 
   function pause() {
@@ -1237,6 +1443,13 @@ import { createBag, makeBoard } from "./game-core.js";
       score: state.score,
       mode: state.mode,
       date: new Date().toISOString(),
+      summary: {
+        tSpins: state.tSpinCount,
+        tSpinMinis: state.tSpinMiniCount,
+        perfectClears: state.perfectClearCount,
+        bestBackToBack: state.bestBackToBackRun,
+        bestMoment: bestMomentLabel(),
+      },
       samples: state.currentGhostRun,
     };
     storage.saveGhostRun(state.ghostRun);
@@ -1467,8 +1680,10 @@ import { createBag, makeBoard } from "./game-core.js";
   function createFriendRoom() {
     const room = generateRoomCode();
     ui.setOnlineRoom(room);
+    ui.setOnlineRanked(false);
     storage.saveRoomCode(room);
     state.online.room = room;
+    state.online.ranked = false;
     const link = roomInviteUrl(room);
     if (location.protocol.startsWith("http"))
       history.replaceState(null, "", link);
@@ -1484,11 +1699,14 @@ import { createBag, makeBoard } from "./game-core.js";
     const {
       server,
       name: rawName,
+      ranked,
       maxPlayers,
       durationSec,
     } = ui.getOnlineForm();
     const room = ensureRoomCode();
     const name = (rawName || defaultPlayerName()).slice(0, 18);
+    const playerId = loadOrCreatePlayerId();
+    storage.saveRankedPlayerId(playerId);
     storage.savePlayerName(name);
     storage.saveRoomCode(room);
     ui.setOnlineRoom(room);
@@ -1496,6 +1714,7 @@ import { createBag, makeBoard } from "./game-core.js";
     try {
       state.online.room = room;
       state.online.name = name;
+      state.online.ranked = Boolean(ranked);
       ui.setOnlineStatus(onlineText("Подключение...", "Connecting..."));
       openOnlineSocket(onlineClient, {
         server,
@@ -1503,6 +1722,8 @@ import { createBag, makeBoard } from "./game-core.js";
         name,
         maxPlayers,
         durationSec,
+        ranked,
+        playerId,
       });
       state.online.connected = false;
     } catch {
@@ -1525,6 +1746,19 @@ import { createBag, makeBoard } from "./game-core.js";
 
     if (data.type === "hello") {
       state.online.id = data.id;
+      return;
+    }
+
+    if (data.type === "rankedProfile") {
+      state.online.ranked = true;
+      state.online.rating = Number(data.rating) || state.online.rating;
+      showToast(
+        onlineText(
+          `Ranked: ${state.online.rating} MMR`,
+          `Ranked: ${state.online.rating} MMR`,
+        ),
+      );
+      renderOnlinePanel();
       return;
     }
 
@@ -1552,7 +1786,36 @@ import { createBag, makeBoard } from "./game-core.js";
     if (data.type === "state") {
       state.online.peers = data.players || {};
       state.online.tournament = data.tournament || null;
+      state.online.series = data.match?.series || null;
+      state.online.ranked = Boolean(data.match?.ranked || state.online.ranked);
+      state.online.rankedResult =
+        data.match?.rankedResult || state.online.rankedResult;
       renderOnlinePlayers();
+      renderOnlinePanel();
+      return;
+    }
+
+    if (data.type === "countdown") {
+      showToast(onlineText(`PvP старт: ${data.value}`, `PvP starts: ${data.value}`));
+      return;
+    }
+
+    if (data.type === "matchStart" || data.type === "rematchStart") {
+      ui.hideOverlay("onlineOverlay");
+      startGame(ui.getStartMode(), state.difficulty, { seed: data.seed });
+      syncUi();
+      showToast(
+        data.type === "rematchStart"
+          ? onlineText("Раунд серии начался", "Series round started")
+          : onlineText("Ranked PvP начался", "Ranked PvP started"),
+      );
+      return;
+    }
+
+    if (data.type === "matchFinished") {
+      state.online.rankedResult = data.ranked || null;
+      state.online.series = data.series || state.online.series;
+      showRankedResultToast(data);
       renderOnlinePanel();
       return;
     }
@@ -1573,6 +1836,9 @@ import { createBag, makeBoard } from "./game-core.js";
     state.online.connected = false;
     state.online.peers = {};
     state.online.tournament = null;
+    state.online.ranked = false;
+    state.online.rankedResult = null;
+    state.online.series = null;
     renderOnlinePanel();
     renderOnlinePlayers();
     updateOnlineControls();
@@ -1641,10 +1907,28 @@ import { createBag, makeBoard } from "./game-core.js";
     startGame(state.mode, state.difficulty);
   }
 
+  function requestRematch() {
+    if (!state.online.connected) {
+      startTournament();
+      return;
+    }
+    if (onlineClient.role === "spectator") {
+      showToast(onlineText("Зритель не может начать реванш", "Spectators cannot rematch"));
+      return;
+    }
+    sendRematchReady(onlineClient, state.online.room);
+    showToast(onlineText("Ждём готовность соперника", "Waiting for opponent"));
+  }
+
   function renderOnlinePlayers() {
     const players = Object.values(state.online.peers || {}).sort(
       (a, b) => b.score - a.score,
-    );
+    ).map((player) => ({
+      ...player,
+      status: player.ranked
+        ? `${player.rating || 1000} MMR · ${player.status || "Lobby"}`
+        : player.status,
+    }));
     ui.renderOnlinePlayers(players, state.online.tournament, formatTime);
   }
 
@@ -1671,11 +1955,31 @@ import { createBag, makeBoard } from "./game-core.js";
       .slice(0, 4);
     ui.renderOnlinePanel({
       connected: state.online.connected,
-      room: state.online.room,
+      room: state.online.ranked ? `Ranked ${state.online.room}` : state.online.room,
       tournament: state.online.tournament,
       players,
       formatTime,
     });
+  }
+
+  function showRankedResultToast(data) {
+    const ranked = data.ranked;
+    if (!ranked) {
+      showToast(onlineText("Матч завершён", "Match finished"));
+      return;
+    }
+    const self =
+      ranked.winner?.id === state.online.id ? ranked.winner : ranked.loser;
+    const result =
+      ranked.winner?.id === state.online.id
+        ? onlineText("Победа", "Win")
+        : onlineText("Поражение", "Loss");
+    const series = ranked.series?.completed
+      ? onlineText("Серия завершена", "Series complete")
+      : onlineText("Серия продолжается", "Series continues");
+    showToast(
+      `${result}: ${self.ratingBefore} -> ${self.ratingAfter} (${self.ratingDelta >= 0 ? "+" : ""}${self.ratingDelta}) · ${series}`,
+    );
   }
 
   function showTournamentResults(playersObject) {
@@ -1787,6 +2091,28 @@ import { createBag, makeBoard } from "./game-core.js";
           ? onlineText(`до ${rank.next}`, `to ${rank.next}`)
           : onlineText("максимальный ранг", "max rank"),
         progress: rank.progress,
+      },
+      {
+        label: onlineText("Спецприёмы", "Special clears"),
+        value: onlineText(
+          `T ${state.stats.totalTSpins} / PC ${state.stats.totalPerfectClears}`,
+          `T ${state.stats.totalTSpins} / PC ${state.stats.totalPerfectClears}`,
+        ),
+        note: onlineText(
+          `мини ${state.stats.totalTSpinMinis}`,
+          `mini ${state.stats.totalTSpinMinis}`,
+        ),
+      },
+      {
+        label: onlineText("PvP-давление", "PvP pressure"),
+        value: onlineText(
+          `+${state.stats.totalSentGarbage}`,
+          `+${state.stats.totalSentGarbage}`,
+        ),
+        note: onlineText(
+          `B2B x${state.stats.bestBackToBack}`,
+          `B2B x${state.stats.bestBackToBack}`,
+        ),
       },
     ];
 
@@ -1950,15 +2276,15 @@ import { createBag, makeBoard } from "./game-core.js";
         ? MODES[state.mode].nameEn
         : MODES[state.mode].name;
     return onlineText(
-      `Тетрис: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${modeName}.`,
-      `Tetris: ${state.score} points, ${state.lines} lines, level ${state.level}, mode ${modeName}.`,
+      `Тетрис: ${state.score} очков, ${state.lines} линий, уровень ${state.level}, режим ${modeName}. Лучший момент: ${bestMomentLabel() || "—"}.`,
+      `Tetris: ${state.score} points, ${state.lines} lines, level ${state.level}, mode ${modeName}. Best moment: ${bestMomentLabel() || "—"}.`,
     );
   }
 
   function statsText() {
     return onlineText(
-      `Моя статистика в Тетрис: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}.`,
-      `My Tetris stats: best ${state.stats.bestScore}, lines ${state.stats.totalLines}, games ${state.stats.games}.`,
+      `Моя статистика в Тетрис: рекорд ${state.stats.bestScore}, линий ${state.stats.totalLines}, игр ${state.stats.games}, T-Spin ${state.stats.totalTSpins}, Perfect Clear ${state.stats.totalPerfectClears}.`,
+      `My Tetris stats: best ${state.stats.bestScore}, lines ${state.stats.totalLines}, games ${state.stats.games}, T-Spin ${state.stats.totalTSpins}, Perfect Clear ${state.stats.totalPerfectClears}.`,
     );
   }
 
@@ -2023,6 +2349,16 @@ import { createBag, makeBoard } from "./game-core.js";
       tips.push([
         "Мало серий",
         "После очистки линии попробуй сразу готовить следующую. Даже комбо x2 уже заметно ускоряет набор очков.",
+      ]);
+    if (state.lines >= 8 && state.tSpinCount === 0)
+      tips.push([
+        "Нет T-Spin давления",
+        "Ты уже держишь поле под контролем, но не ищешь T-слоты. Даже один T-Spin Double заметно усиливает и скоринг, и PvP-атаку.",
+      ]);
+    if (state.bestBackToBackRun < 2 && state.bestClearInGame >= 4)
+      tips.push([
+        "Обрывается B2B",
+        "После Tetris старайся не сбрасывать темп одиночными линиями. Следующий сильный клир подряд теперь даёт дополнительную атаку.",
       ]);
     if (state.hardDrops < 5 && state.elapsedMs > 60000)
       tips.push([
@@ -2691,7 +3027,7 @@ import { createBag, makeBoard } from "./game-core.js";
         syncUi();
       },
       rematch: () => {
-        startTournament();
+        requestRematch();
         syncUi();
       },
       resume: () => {
