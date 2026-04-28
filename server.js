@@ -14,7 +14,12 @@ const MAX_UPDATES_PER_SECOND = 8;
 const MAX_ATTACKS_PER_SECOND = 4;
 const MAX_ATTACK_LINES_PER_10S = 18;
 const MAX_RECORD_SCORE = 99999999;
-const MAX_PAYLOAD_KEYS = 16;
+const MAX_PAYLOAD_KEYS = 18;
+const MAX_BOARD_PREVIEW_ROWS = 15;
+const MAX_BOARD_PREVIEW_COLS = 10;
+const ROOM_PLAYER_LIMIT = 2;
+const RECONNECT_GRACE_MS = 12000;
+const COUNTDOWN_STEP_MS = 700;
 const UPDATE_KEYS = new Set([
   "type",
   "room",
@@ -29,8 +34,13 @@ const UPDATE_KEYS = new Set([
   "time",
   "status",
   "force",
+  "boardPreview",
+  "fieldPreview",
 ]);
 const ATTACK_KEYS = new Set(["type", "room", "lines"]);
+const REMATCH_KEYS = new Set(["type", "room"]);
+const MATCH_OVER_KEYS = new Set(["type", "room", "result"]);
+const PING_KEYS = new Set(["type", "ts"]);
 const rooms = new Map();
 const startedAt = Date.now();
 
@@ -226,9 +236,7 @@ function sanitizeRecord(data) {
     score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
-    mode: String(
-      data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430",
-    )
+    mode: String(data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430")
       .replace(/[<>]/g, "")
       .slice(0, 24),
     time: String(data.time || "0:00")
@@ -330,12 +338,23 @@ server.on("upgrade", (req, socket) => {
     ].join("\r\n"),
   );
 
-  const client = {
+  const client = createClient(socket);
+  socket.on("data", (chunk) => handleSocketData(client, chunk));
+  socket.on("close", () => removeClient(client, "close"));
+  socket.on("error", () => removeClient(client, "error"));
+  send(client, { type: "hello", id: client.id });
+});
+
+function createClient(socket) {
+  return {
     id: crypto.randomUUID(),
     socket,
     room: "",
+    role: "player",
     name: "Player",
     state: emptyState(),
+    disconnectedAt: 0,
+    disconnectTimer: null,
     buckets: {
       windowStartedAt: Date.now(),
       messages: 0,
@@ -347,36 +366,32 @@ server.on("upgrade", (req, socket) => {
       attackLines: 0,
     },
   };
+}
 
-  socket.on("data", (chunk) => {
-    if (chunk.length > MAX_WS_FRAME_BYTES + 32) {
-      safeClose(client, "Frame too large");
+function handleSocketData(client, chunk) {
+  if (chunk.length > MAX_WS_FRAME_BYTES + 32) {
+    safeClose(client, "Frame too large");
+    return;
+  }
+  let messages;
+  try {
+    messages = decodeFrames(chunk);
+  } catch {
+    safeClose(client, "Bad frame");
+    return;
+  }
+  if (messages.length > MAX_WS_MESSAGES_PER_CHUNK) {
+    safeClose(client, "Too many frames");
+    return;
+  }
+  for (const message of messages) {
+    if (!allowMessage(client) || message.length > MAX_WS_FRAME_BYTES) {
+      safeClose(client, "Rate limited");
       return;
     }
-    let messages;
-    try {
-      messages = decodeFrames(chunk);
-    } catch {
-      safeClose(client, "Bad frame");
-      return;
-    }
-    if (messages.length > MAX_WS_MESSAGES_PER_CHUNK) {
-      safeClose(client, "Too many frames");
-      return;
-    }
-    for (const message of messages) {
-      if (!allowMessage(client) || message.length > MAX_WS_FRAME_BYTES) {
-        safeClose(client, "Rate limited");
-        return;
-      }
-      handleMessage(client, message);
-    }
-  });
-
-  socket.on("close", () => removeClient(client));
-  socket.on("error", () => removeClient(client));
-  sendFrame(socket, JSON.stringify({ type: "hello", id: client.id }));
-});
+    handleMessage(client, message);
+  }
+}
 
 function isValidWebSocketKey(key) {
   if (typeof key !== "string") return false;
@@ -433,16 +448,29 @@ function emptyState() {
     mode: "Classic",
     time: "0:00",
     status: "Lobby",
+    boardPreview: [],
   };
 }
 
-function createRoom(id, maxPlayers = 4, durationSec = 180) {
+function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
   return {
     id,
-    clients: new Map(),
-    maxPlayers: clamp(maxPlayers, 2, 8),
+    players: new Map(),
+    spectators: new Map(),
+    maxPlayers: ROOM_PLAYER_LIMIT,
     durationSec: clamp(durationSec, 60, 1800),
     tournament: null,
+    match: {
+      status: "lobby",
+      seed: "",
+      startedAt: 0,
+      winnerId: "",
+      loserId: "",
+      reason: "",
+    },
+    countdownTimer: null,
+    rematchReady: new Set(),
+    reconnects: new Map(),
   };
 }
 
@@ -465,9 +493,16 @@ function handleMessage(client, raw) {
     return;
   }
 
+  if (data.type === "ping") {
+    if (!hasOnlyKeys(data, PING_KEYS)) return;
+    send(client, { type: "pong", ts: safeNumber(data.ts) });
+    return;
+  }
+
   if (!client.room) return;
 
   if (data.type === "update") {
+    if (client.role !== "player") return;
     if (!allowTypedMessage(client, "update")) return;
     if (!validateUpdatePayload(client, data)) {
       safeClose(client, "Bad update");
@@ -479,6 +514,7 @@ function handleMessage(client, raw) {
   }
 
   if (data.type === "attack") {
+    if (client.role !== "player") return;
     if (!allowTypedMessage(client, "attack")) return;
     if (!validateAttackPayload(client, data)) {
       safeClose(client, "Bad attack");
@@ -491,7 +527,22 @@ function handleMessage(client, raw) {
   }
 
   if (data.type === "startTournament") {
+    if (client.role !== "player") return;
     startTournament(client.room, data);
+    return;
+  }
+
+  if (data.type === "rematchReady") {
+    if (client.role !== "player") return;
+    if (!hasOnlyKeys(data, REMATCH_KEYS) || !matchesClientRoom(client, data)) return;
+    markRematchReady(client);
+    return;
+  }
+
+  if (data.type === "matchOver") {
+    if (client.role !== "player") return;
+    if (!hasOnlyKeys(data, MATCH_OVER_KEYS) || !matchesClientRoom(client, data)) return;
+    finishMatchFromClient(client, data.result);
     return;
   }
 
@@ -548,6 +599,7 @@ function validateUpdatePayload(client, data) {
   if (data.time != null && !/^\d{1,3}:\d{2}$/.test(String(data.time)))
     return false;
   if (data.force != null && typeof data.force !== "boolean") return false;
+  if (!isSafeBoardPreview(data.boardPreview || data.fieldPreview)) return false;
   return (
     isIntegerInRange(data.score ?? 0, 0, MAX_RECORD_SCORE) &&
     isIntegerInRange(data.lines ?? 0, 0, 9999) &&
@@ -566,8 +618,30 @@ function validateAttackPayload(client, data) {
   );
 }
 
+function isSafeBoardPreview(value) {
+  if (value == null) return true;
+  if (!Array.isArray(value) || value.length > MAX_BOARD_PREVIEW_ROWS) return false;
+  return value.every(
+    (row) =>
+      Array.isArray(row) &&
+      row.length <= MAX_BOARD_PREVIEW_COLS &&
+      row.every((cell) => cell === 0 || cell === 1 || cell === true || cell === false),
+  );
+}
+
+function sanitizeBoardPreview(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-MAX_BOARD_PREVIEW_ROWS).map((row) =>
+    row.slice(0, MAX_BOARD_PREVIEW_COLS).map((cell) => {
+      if (cell === true) return 1;
+      if (cell === false) return 0;
+      return Number(cell) > 0 ? 1 : 0;
+    }),
+  );
+}
+
 function joinRoom(client, data) {
-  removeClient(client);
+  removeClient(client, "rejoin");
   const roomId = cleanCode(data.room) || "LOBBY";
   if (
     data.room &&
@@ -581,28 +655,59 @@ function joinRoom(client, data) {
     safeClose(client, "Bad room");
     return;
   }
-  const maxPlayers = clamp(safeNumber(data.maxPlayers) || 2, 2, 8);
+  const maxPlayers = ROOM_PLAYER_LIMIT;
   const durationSec = clamp(safeNumber(data.durationSec) || 180, 60, 1800);
   if (!rooms.has(roomId))
     rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
   const room = rooms.get(roomId);
-  room.maxPlayers = maxPlayers;
-  room.durationSec = durationSec;
-
-  if (room.clients.size >= room.maxPlayers) {
-    sendFrame(
-      client.socket,
-      JSON.stringify({ type: "error", message: "Room is full" }),
-    );
-    return;
+  if (room.match.status === "lobby") {
+    room.maxPlayers = ROOM_PLAYER_LIMIT;
+    room.durationSec = durationSec;
   }
 
   client.room = roomId;
   client.name = cleanName(data.name);
   client.state = emptyState();
-  room.clients.set(client.id, client);
-  sendFrame(client.socket, JSON.stringify({ type: "hello", id: client.id }));
+
+  const reconnectId = findReconnectSlot(room, client.name);
+  if (reconnectId) {
+    clearReconnect(room, reconnectId);
+    client.id = reconnectId;
+    client.role = "player";
+    room.players.set(client.id, client);
+  } else if (room.players.size < room.maxPlayers && room.match.status !== "playing") {
+    client.role = "player";
+    room.players.set(client.id, client);
+  } else {
+    client.role = "spectator";
+    room.spectators.set(client.id, client);
+  }
+
+  send(client, { type: "hello", id: client.id });
+  send(client, { type: "role", role: client.role });
+  if (client.role === "spectator") {
+    send(client, {
+      type: "notice",
+      code: "spectator",
+      message: "Room is full, spectator mode enabled",
+    });
+  }
   broadcastRoom(roomId);
+  maybeAutoStart(room);
+}
+
+function findReconnectSlot(room, name) {
+  const normalized = cleanName(name).toLowerCase();
+  for (const [id, slot] of room.reconnects.entries()) {
+    if (slot.name.toLowerCase() === normalized) return id;
+  }
+  return "";
+}
+
+function clearReconnect(room, id) {
+  const slot = room.reconnects.get(id);
+  if (slot?.timer) clearTimeout(slot.timer);
+  room.reconnects.delete(id);
 }
 
 function updateClientState(client, data) {
@@ -617,13 +722,14 @@ function updateClientState(client, data) {
     mode: String(data.mode || "Classic").slice(0, 24),
     time: String(data.time || "0:00").slice(0, 12),
     status: String(data.status || "Playing").slice(0, 18),
+    boardPreview: sanitizeBoardPreview(data.boardPreview || data.fieldPreview),
   };
 }
 
 function startTournament(roomId, data) {
   const room = rooms.get(roomId);
   if (!room) return;
-  room.maxPlayers = clamp(safeNumber(data.maxPlayers) || room.maxPlayers, 2, 8);
+  room.maxPlayers = ROOM_PLAYER_LIMIT;
   room.durationSec = clamp(
     safeNumber(data.durationSec) || room.durationSec,
     60,
@@ -638,6 +744,89 @@ function startTournament(roomId, data) {
   };
   broadcastRoom(roomId);
   scheduleTournamentEnd(roomId, room.durationSec * 1000 + 250);
+}
+
+function maybeAutoStart(room) {
+  if (!room || room.maxPlayers !== ROOM_PLAYER_LIMIT) return;
+  if (room.match.status !== "lobby" && room.match.status !== "finished") return;
+  if (room.players.size !== 2 || room.countdownTimer) return;
+  startCountdown(room, "matchStart");
+}
+
+function startCountdown(room, finalType) {
+  room.match.status = "countdown";
+  room.match.seed = `pvp:${room.id}:${Date.now()}:${Math.random()}`;
+  room.rematchReady.clear();
+  let value = 3;
+  const tick = () => {
+    if (!rooms.has(room.id) || room.players.size < 2) {
+      room.match.status = "lobby";
+      room.countdownTimer = null;
+      broadcastRoom(room.id);
+      return;
+    }
+    if (value > 0) {
+      broadcast(room, { type: "countdown", value });
+      value -= 1;
+      room.countdownTimer = setTimeout(tick, COUNTDOWN_STEP_MS);
+      return;
+    }
+    room.countdownTimer = null;
+    room.match.status = "playing";
+    room.match.startedAt = Date.now();
+    room.match.winnerId = "";
+    room.match.loserId = "";
+    room.match.reason = "";
+    for (const player of room.players.values()) player.state = emptyState();
+    broadcast(room, {
+      type: finalType,
+      seed: room.match.seed,
+      startedAt: room.match.startedAt,
+    });
+    broadcastRoom(room.id);
+  };
+  tick();
+}
+
+function markRematchReady(client) {
+  const room = rooms.get(client.room);
+  if (!room || client.role !== "player") return;
+  if (room.players.size < 2) {
+    send(client, { type: "error", message: "Opponent left" });
+    return;
+  }
+  room.rematchReady.add(client.id);
+  broadcastRoom(room.id);
+  const allReady = [...room.players.keys()].every((id) => room.rematchReady.has(id));
+  if (allReady) startCountdown(room, "rematchStart");
+}
+
+function finishMatchFromClient(client, result) {
+  const room = rooms.get(client.room);
+  if (!room || room.match.status !== "playing") return;
+  const other = [...room.players.values()].find((player) => player.id !== client.id);
+  if (!other) return;
+  const clientWon = result === "win";
+  finishMatch(room, {
+    reason: "gameOver",
+    winnerId: clientWon ? client.id : other.id,
+    loserId: clientWon ? other.id : client.id,
+  });
+}
+
+function finishMatch(room, { reason, winnerId, loserId }) {
+  room.match.status = "finished";
+  room.match.reason = reason;
+  room.match.winnerId = winnerId;
+  room.match.loserId = loserId;
+  room.rematchReady.clear();
+  broadcast(room, {
+    type: "matchFinished",
+    reason,
+    winnerId,
+    loserId,
+  });
+  broadcastRoom(room.id);
 }
 
 function allowMessage(client) {
@@ -676,15 +865,8 @@ function allowAttackLines(client, lines) {
 }
 
 function safeClose(client, reason = "Policy violation") {
-  removeClient(client);
-  try {
-    sendFrame(
-      client.socket,
-      JSON.stringify({ type: "error", message: reason }),
-    );
-  } catch {
-    client.socket = null;
-  }
+  send(client, { type: "error", message: reason });
+  removeClient(client, "policy");
   try {
     client.socket.end();
   } catch {
@@ -702,14 +884,11 @@ function scheduleTournamentEnd(roomId, delay) {
     )
       return;
     room.tournament.active = false;
-    const players = playersPayload(room);
-    const payload = JSON.stringify({
+    broadcast(room, {
       type: "tournamentEnd",
       tournament: tournamentPayload(room),
-      players,
+      players: playersPayload(room),
     });
-    for (const client of room.clients.values())
-      sendFrame(client.socket, payload);
     broadcastRoom(roomId);
   }, delay);
 }
@@ -717,26 +896,61 @@ function scheduleTournamentEnd(roomId, delay) {
 function broadcastAttack(attacker, lines) {
   const room = rooms.get(attacker.room);
   if (!room || lines <= 0) return;
-  const payload = JSON.stringify({
-    type: "attack",
-    from: attacker.name,
-    lines: clamp(lines, 1, 6),
-  });
-  for (const client of room.clients.values()) {
-    if (client.id !== attacker.id) sendFrame(client.socket, payload);
-  }
+  broadcast(
+    room,
+    {
+      type: "garbage",
+      from: attacker.name,
+      fromId: attacker.id,
+      lines: clamp(lines, 1, 6),
+    },
+    (client) => client.id !== attacker.id,
+  );
+  broadcast(
+    room,
+    {
+      type: "attack",
+      from: attacker.name,
+      lines: clamp(lines, 1, 6),
+    },
+    (client) => client.id !== attacker.id,
+  );
 }
 
 function broadcastRoom(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
-  const payload = JSON.stringify({
+  broadcast(room, {
     type: "state",
     room: roomId,
     tournament: tournamentPayload(room),
+    match: matchPayload(room),
     players: playersPayload(room),
+    spectators: spectatorsPayload(room),
   });
-  for (const client of room.clients.values()) sendFrame(client.socket, payload);
+  broadcast(room, {
+    type: "roomState",
+    room: roomId,
+    tournament: tournamentPayload(room),
+    match: matchPayload(room),
+    players: Object.values(playersPayload(room)),
+    spectators: Object.values(spectatorsPayload(room)),
+  });
+}
+
+function broadcast(room, payload, predicate = () => true) {
+  const message = JSON.stringify(payload);
+  for (const client of [...room.players.values(), ...room.spectators.values()]) {
+    if (predicate(client)) sendFrame(client.socket, message);
+  }
+}
+
+function send(client, payload) {
+  try {
+    sendFrame(client.socket, JSON.stringify(payload));
+  } catch {
+    // Ignore writes to already closed sockets.
+  }
 }
 
 function tournamentPayload(room) {
@@ -754,26 +968,101 @@ function tournamentPayload(room) {
   };
 }
 
+function matchPayload(room) {
+  return {
+    ...room.match,
+    rematchReady: [...room.rematchReady],
+    reconnecting: [...room.reconnects.entries()].map(([id, slot]) => ({
+      id,
+      name: slot.name,
+      remainingMs: Math.max(0, slot.expiresAt - Date.now()),
+    })),
+  };
+}
+
 function playersPayload(room) {
   const players = {};
-  for (const client of room.clients.values()) {
+  for (const client of room.players.values()) {
     players[client.id] = {
       id: client.id,
+      role: "player",
       name: client.name,
       ...client.state,
+    };
+  }
+  for (const [id, slot] of room.reconnects.entries()) {
+    players[id] = {
+      id,
+      role: "player",
+      name: slot.name,
+      disconnected: true,
+      ...slot.state,
     };
   }
   return players;
 }
 
-function removeClient(client) {
+function spectatorsPayload(room) {
+  const spectators = {};
+  for (const client of room.spectators.values()) {
+    spectators[client.id] = {
+      id: client.id,
+      role: "spectator",
+      name: client.name,
+    };
+  }
+  return spectators;
+}
+
+function removeClient(client, reason = "close") {
   if (!client.room) return;
   const room = rooms.get(client.room);
   if (!room) return;
-  room.clients.delete(client.id);
-  if (room.clients.size === 0) rooms.delete(client.room);
-  else broadcastRoom(client.room);
+  const roomId = client.room;
+  if (client.role === "spectator") {
+    room.spectators.delete(client.id);
+  } else if (room.players.has(client.id)) {
+    room.players.delete(client.id);
+    if (room.match.status === "playing" && reason !== "rejoin") {
+      const expiresAt = Date.now() + RECONNECT_GRACE_MS;
+      const id = client.id;
+      const timer = setTimeout(() => {
+        const currentRoom = rooms.get(roomId);
+        if (!currentRoom || !currentRoom.reconnects.has(id)) return;
+        currentRoom.reconnects.delete(id);
+        const winner = [...currentRoom.players.keys()][0];
+        if (winner) {
+          finishMatch(currentRoom, {
+            reason: "disconnect",
+            winnerId: winner,
+            loserId: id,
+          });
+        } else if (currentRoom.players.size === 0 && currentRoom.spectators.size === 0) {
+          rooms.delete(roomId);
+        } else {
+          currentRoom.match.status = "finished";
+          broadcastRoom(roomId);
+        }
+      }, RECONNECT_GRACE_MS);
+      room.reconnects.set(id, {
+        name: client.name,
+        state: client.state,
+        expiresAt,
+        timer,
+      });
+      broadcast(room, { type: "reconnecting", playerId: id, name: client.name });
+    }
+  }
   client.room = "";
+  if (
+    room.players.size === 0 &&
+    room.spectators.size === 0 &&
+    room.reconnects.size === 0
+  ) {
+    rooms.delete(roomId);
+  } else {
+    broadcastRoom(roomId);
+  }
 }
 
 function cleanCode(value) {

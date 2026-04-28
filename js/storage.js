@@ -8,11 +8,19 @@ export function loadJson(key, fallback, storage = globalThis.localStorage) {
 }
 
 export function saveJson(key, value, storage = globalThis.localStorage) {
-  storage?.setItem(key, JSON.stringify(value));
+  try {
+    storage?.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can be unavailable in private mode or strict browser settings.
+  }
 }
 
 export function removeItem(key, storage = globalThis.localStorage) {
-  storage?.removeItem(key);
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // Ignore storage failures; gameplay should continue.
+  }
 }
 
 export function loadText(
@@ -29,7 +37,11 @@ export function loadText(
 }
 
 export function saveText(key, value, storage = globalThis.localStorage) {
-  storage?.setItem(key, String(value));
+  try {
+    storage?.setItem(key, String(value));
+  } catch {
+    // Ignore storage failures; gameplay should continue.
+  }
 }
 
 export function loadNumber(
@@ -39,6 +51,76 @@ export function loadNumber(
 ) {
   const value = Number(loadText(key, fallback, storage));
   return Number.isFinite(value) ? value : fallback;
+}
+
+export function normalizeMatchHistoryEntry(entry = {}) {
+  const result = entry.result === "win" ? "win" : "loss";
+  return {
+    result,
+    opponent: String(entry.opponent || "Player")
+      .replace(/[<>]/g, "")
+      .slice(0, 18),
+    durationSec: Math.max(0, Math.floor(Number(entry.durationSec) || 0)),
+    lines: Math.max(0, Math.floor(Number(entry.lines) || 0)),
+    score: Math.max(0, Math.floor(Number(entry.score) || 0)),
+    date: entry.date || new Date().toISOString(),
+    mode: String(entry.mode || "Classic")
+      .replace(/[<>]/g, "")
+      .slice(0, 24),
+  };
+}
+
+export function loadMatchHistory(
+  key = "blockdrop-online-match-history-v1",
+  storage = globalThis.localStorage,
+) {
+  const history = loadJson(key, [], storage);
+  return Array.isArray(history)
+    ? history.slice(0, 10).map(normalizeMatchHistoryEntry)
+    : [];
+}
+
+export function saveMatchHistoryEntry(
+  entry,
+  key = "blockdrop-online-match-history-v1",
+  storage = globalThis.localStorage,
+) {
+  const history = [normalizeMatchHistoryEntry(entry), ...loadMatchHistory(key, storage)]
+    .slice(0, 10);
+  saveJson(key, history, storage);
+  return history;
+}
+
+export function loadOnlineStats(
+  key = "blockdrop-online-stats-v1",
+  storage = globalThis.localStorage,
+) {
+  const raw = loadJson(key, {}, storage);
+  const wins = Math.max(0, Math.floor(Number(raw.wins) || 0));
+  const losses = Math.max(0, Math.floor(Number(raw.losses) || 0));
+  const totalMatches = wins + losses;
+  return {
+    wins,
+    losses,
+    totalMatches,
+    winrate: totalMatches ? Math.round((wins / totalMatches) * 100) : 0,
+  };
+}
+
+export function saveOnlineStats(
+  result,
+  key = "blockdrop-online-stats-v1",
+  storage = globalThis.localStorage,
+) {
+  const stats = loadOnlineStats(key, storage);
+  if (result === "win") stats.wins += 1;
+  else if (result === "loss") stats.losses += 1;
+  stats.totalMatches = stats.wins + stats.losses;
+  stats.winrate = stats.totalMatches
+    ? Math.round((stats.wins / stats.totalMatches) * 100)
+    : 0;
+  saveJson(key, stats, storage);
+  return stats;
 }
 
 export function createGameStorage(keys, storage = globalThis.localStorage) {
@@ -99,6 +181,18 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     },
     savePlayerName(value) {
       saveText(keys.playerName, value, storage);
+    },
+    loadMatchHistory(fallback = []) {
+      return loadMatchHistory(keys.matchHistory, storage) || fallback;
+    },
+    saveMatchHistoryEntry(value) {
+      return saveMatchHistoryEntry(value, keys.matchHistory, storage);
+    },
+    loadOnlineStats() {
+      return loadOnlineStats(keys.onlineStats, storage);
+    },
+    saveOnlineStats(result) {
+      return saveOnlineStats(result, keys.onlineStats, storage);
     },
   };
 }
