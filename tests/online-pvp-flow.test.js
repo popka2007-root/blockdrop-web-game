@@ -667,7 +667,9 @@ describe("online PvP room flow", () => {
       expect(finalResult.series.wins[firstHello.id]).toBe(2);
       expect(finalResult.series.wins[secondHello.id] || 0).toBe(0);
 
-      const db = new Database(path.join(process.cwd(), "blockdrop.sqlite"));
+      const db = new Database(
+        process.env.BLOCKDROP_DB_FILE || path.join(process.cwd(), "blockdrop.sqlite"),
+      );
       const rankedRows = db
         .prepare(
           "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players ORDER BY player_id ASC",
