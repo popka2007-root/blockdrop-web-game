@@ -1,0 +1,130 @@
+name: Release Deploy
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref or tag to deploy"
+        required: false
+        default: ""
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Validate release metadata
+        run: npm run release:validate
+
+  publish-release:
+    needs: release-check
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  deploy:
+    needs:
+      - release-check
+      - publish-release
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        startsWith(github.ref, 'refs/tags/') &&
+        secrets.VPS_HOST != '' &&
+        secrets.VPS_USER != '' &&
+        secrets.VPS_PASSWORD != '' &&
+        secrets.TARGET_URL != ''
+      }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy tagged release
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+          DEPLOY_REF: ${{ github.ref_name }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          sshpass -p "$VPS_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" <<EOF
+          set -e
+          cd /opt/tetris
+          cp -a /opt/tetris "/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
+          git fetch origin --tags
+          git checkout "$DEPLOY_REF"
+          npm install
+          git rev-parse HEAD > REVISION
+          BLOCKDROP_DEPLOY_REASON=github-actions npm run verify
+          systemctl restart tetris.service
+          curl --fail http://127.0.0.1:8787/health
+          curl --fail http://127.0.0.1:8787/metrics
+          EOF
+
+      - name: Check public health
+        env:
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+          EXPECTED_REVISION: ${{ github.sha }}
+          EXPECTED_VERSION: ${{ github.ref_name }}
+        run: npm run health:check
+
+      - name: Run public smoke
+        env:
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: npm run smoke:prod

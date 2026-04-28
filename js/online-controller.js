@@ -4,9 +4,11 @@ import {
   defaultServerUrl,
   disconnectOnline as closeOnlineSocket,
   generateRoomCode,
+  loadRankedIdentityToken,
   loadOrCreatePlayerId,
   normalizeRoomId,
   onOnlineMessage,
+  saveRankedIdentityToken,
   sendOnlineMessage,
   sendRematchReady,
   sendScoreUpdate,
@@ -207,6 +209,7 @@ export function createOnlineController({
     const room = ensureRoomCode();
     const name = (rawName || defaultPlayerName()).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
+    const identityToken = loadRankedIdentityToken();
     const mode = normalizeModeKey(ui.getStartMode());
     storage.saveRankedPlayerId(playerId);
     storage.savePlayerName(name);
@@ -228,6 +231,7 @@ export function createOnlineController({
         mode,
         ranked,
         playerId,
+        identityToken,
       });
       state.online.connected = false;
     } catch {
@@ -360,6 +364,10 @@ export function createOnlineController({
     if (data.type === "rankedProfile") {
       state.online.ranked = true;
       state.online.rating = Number(data.rating) || state.online.rating;
+      if (data.identityToken) {
+        saveRankedIdentityToken(data.identityToken);
+        onlineClient.identityToken = data.identityToken;
+      }
       emitOnlineEvent("rankedProfile", { profile: data });
       showToast(
         onlineText(

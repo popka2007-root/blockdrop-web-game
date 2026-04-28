@@ -107,6 +107,8 @@ const UI_IDS = [
   "statsGrid",
   "leaderboard",
   "serverLeaderboard",
+  "dailyLeaderboardTitle",
+  "dailyLeaderboard",
   "achievementsList",
   "helpButton",
   "helpOverlay",
@@ -222,6 +224,7 @@ const UI_TEXT = {
     mainMenu: "Главное меню",
     bestGames: "Лучшие игры",
     serverRecords: "Серверные рекорды",
+    dailyLeaderboard: "Испытание дня",
     achievements: "Достижения",
     shareStats: "Поделиться статистикой",
     coach: "Бот-тренер",
@@ -298,6 +301,7 @@ const UI_TEXT = {
     mainMenu: "Main menu",
     bestGames: "Best games",
     serverRecords: "Server records",
+    dailyLeaderboard: "Daily challenge",
     achievements: "Achievements",
     shareStats: "Share stats",
     coach: "Coach bot",
@@ -759,6 +763,10 @@ export function createUi(options = {}) {
     );
     setText(
       documentRef.querySelector("#statsOverlay h3:nth-of-type(3)"),
+      text.dailyLeaderboard,
+    );
+    setText(
+      documentRef.querySelector("#statsOverlay h3:nth-of-type(4)"),
       text.achievements,
     );
     setText(refs.closeStatsButton, text.close);
@@ -1505,7 +1513,14 @@ export function createUi(options = {}) {
     return stateWasRunning;
   }
 
-  function renderStats({ statsRows, scores, serverRecords, achievements }) {
+  function renderStats({
+    statsRows,
+    scores,
+    serverRecords,
+    dailyLeaderboard = [],
+    dailyLeaderboardDate = "",
+    achievements,
+  }) {
     const language = refs.languageSelect.value;
     refs.statsGrid.classList.add("stats-cards");
     refs.statsGrid.innerHTML = statsRows
@@ -1536,6 +1551,21 @@ export function createUi(options = {}) {
           )
           .join("")
       : `<div class="score-row"><span>${language === "en" ? "No server records yet" : "Пока нет связи с сервером"}</span><span>—</span></div>`;
+    refs.dailyLeaderboardTitle.textContent = dailyLeaderboardDate
+      ? `${
+          language === "en" ? "Daily challenge" : "Испытание дня"
+        } ${dailyLeaderboardDate}`
+      : language === "en"
+        ? "Daily challenge"
+        : "Испытание дня";
+    refs.dailyLeaderboard.innerHTML = dailyLeaderboard.length
+      ? dailyLeaderboard
+          .map(
+            (entry, index) =>
+              `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.name)} В· ${entry.lines}L В· ${escapeHtml(entry.time)}</span><span>${entry.score}</span></div>`,
+          )
+          .join("")
+      : `<div class="score-row"><span>${language === "en" ? "No daily runs yet" : "Пока нет ежедневных результатов"}</span><span>—</span></div>`;
     refs.achievementsList.innerHTML = achievements
       .map((item) => {
         const prefix = item.unlocked ? "✓ " : "";
