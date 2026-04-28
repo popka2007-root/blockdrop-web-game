@@ -130,7 +130,7 @@ import {
 
   function ensurePvpPanel() {
     if (document.getElementById("pvpEnhancements")) return;
-    const host = document.getElementById("onlinePanel") || document.getElementById("sidePanel");
+    const host = document.getElementById("sidePanel") || document.getElementById("onlinePanel");
     if (!host) return;
     const panel = document.createElement("div");
     panel.id = "pvpEnhancements";
