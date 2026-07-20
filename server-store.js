@@ -16,6 +16,12 @@ const MAX_RECORDS = 50;
 const RANKED_START_RATING = 1000;
 const RANKED_MIN_RATING = 100;
 const RANKED_MAX_RATING = 3000;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function hashSessionToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
 
 function safeNumber(value) {
   const number = Number(value);
@@ -176,6 +182,7 @@ function createServerStore({
       account_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS ranked_matches (
@@ -257,6 +264,17 @@ function createServerStore({
     );
   `);
 
+  const sessionColumns = db
+    .prepare("PRAGMA table_info(account_sessions)")
+    .all();
+  if (!sessionColumns.some((column) => column.name === "expires_at")) {
+    db.exec(
+      "ALTER TABLE account_sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  // Sessions created by older versions were stored in plaintext and had no expiry.
+  db.prepare("DELETE FROM account_sessions WHERE expires_at = 0").run();
+
   const getMetaStmt = db.prepare("SELECT value FROM meta WHERE key = ?");
   const setMetaStmt = db.prepare(
     "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -265,7 +283,9 @@ function createServerStore({
   const countRankedStmt = db.prepare(
     "SELECT COUNT(*) AS total FROM ranked_players",
   );
-  const countAccountsStmt = db.prepare("SELECT COUNT(*) AS total FROM accounts");
+  const countAccountsStmt = db.prepare(
+    "SELECT COUNT(*) AS total FROM accounts",
+  );
   const countDailyStmt = db.prepare(
     "SELECT COUNT(*) AS total FROM daily_scores WHERE date_key = ?",
   );
@@ -377,13 +397,15 @@ function createServerStore({
     "UPDATE accounts SET password_hash = ?, last_login_at = ? WHERE id = ?",
   );
   const insertSessionStmt = db.prepare(`
-    INSERT INTO account_sessions(token, account_id, created_at, last_seen_at)
-    VALUES(?, ?, ?, ?)
+    INSERT INTO account_sessions(token, account_id, created_at, last_seen_at, expires_at)
+    VALUES(?, ?, ?, ?, ?)
   `);
   const getSessionStmt = db.prepare(`
     SELECT
       sessions.token,
       sessions.account_id AS accountId,
+      sessions.last_seen_at AS lastSeenAt,
+      sessions.expires_at AS expiresAt,
       accounts.id,
       accounts.username,
       accounts.display_name AS displayName,
@@ -398,6 +420,12 @@ function createServerStore({
   );
   const deleteSessionStmt = db.prepare(
     "DELETE FROM account_sessions WHERE token = ?",
+  );
+  const deleteAccountSessionsStmt = db.prepare(
+    "DELETE FROM account_sessions WHERE account_id = ?",
+  );
+  const deleteExpiredSessionsStmt = db.prepare(
+    "DELETE FROM account_sessions WHERE expires_at <= ?",
   );
   const insertMatchStmt = db.prepare(`
     INSERT OR REPLACE INTO ranked_matches(
@@ -524,9 +552,8 @@ function createServerStore({
     return value;
   }
 
-  const identitySigningKey = getOrCreateMeta(
-    "identity-signing-key",
-    () => crypto.randomBytes(32).toString("hex"),
+  const identitySigningKey = getOrCreateMeta("identity-signing-key", () =>
+    crypto.randomBytes(32).toString("hex"),
   );
 
   function migrateLegacyFiles() {
@@ -556,9 +583,8 @@ function createServerStore({
     if (!hasRanked) {
       try {
         const raw = JSON.parse(fs.readFileSync(rankedFile, "utf8"));
-        const players = raw?.players && typeof raw.players === "object"
-          ? raw.players
-          : {};
+        const players =
+          raw?.players && typeof raw.players === "object" ? raw.players : {};
         for (const [playerId, record] of Object.entries(players)) {
           const safeId = cleanPlayerId(playerId);
           if (!safeId) continue;
@@ -654,7 +680,9 @@ function createServerStore({
     );
     return {
       ...normalized,
-      identitySecret: String(profile.identitySecret || normalized.identitySecret || ""),
+      identitySecret: String(
+        profile.identitySecret || normalized.identitySecret || "",
+      ),
     };
   }
 
@@ -791,9 +819,9 @@ function createServerStore({
 
   function changeAccountPassword({ token, currentPassword, newPassword }) {
     const safeToken = normalizeSessionToken(token);
-    const session = safeToken ? getSessionStmt.get(safeToken) : null;
-    if (!session) return { ok: false, code: "invalidSession" };
-    const row = getAccountByUsernameStmt.get(session.username);
+    const sessionAccount = safeToken ? getAccountBySession(safeToken) : null;
+    if (!sessionAccount) return { ok: false, code: "invalidSession" };
+    const row = getAccountByUsernameStmt.get(sessionAccount.username);
     if (!row || !verifyPassword(currentPassword, row.passwordHash)) {
       return { ok: false, code: "invalidCredentials" };
     }
@@ -803,9 +831,16 @@ function createServerStore({
     });
     if (!credentials.ok) return { ok: false, code: credentials.code };
     const now = new Date().toISOString();
-    updateAccountPasswordStmt.run(hashPassword(credentials.password), now, row.id);
+    updateAccountPasswordStmt.run(
+      hashPassword(credentials.password),
+      now,
+      row.id,
+    );
+    deleteAccountSessionsStmt.run(row.id);
+    const replacementToken = createAccountSession(row.id);
     return {
       ok: true,
+      token: replacementToken,
       account: {
         id: row.id,
         username: row.username,
@@ -819,16 +854,33 @@ function createServerStore({
   function createAccountSession(accountId) {
     const token = createSessionToken();
     const now = new Date().toISOString();
-    insertSessionStmt.run(token, accountId, now, now);
+    insertSessionStmt.run(
+      hashSessionToken(token),
+      accountId,
+      now,
+      now,
+      Date.now() + SESSION_TTL_MS,
+    );
     return token;
   }
 
   function getAccountBySession(token) {
     const safeToken = normalizeSessionToken(token);
     if (!safeToken) return null;
-    const row = getSessionStmt.get(safeToken);
+    const tokenHash = hashSessionToken(safeToken);
+    const row = getSessionStmt.get(tokenHash);
     if (!row) return null;
-    touchSessionStmt.run(new Date().toISOString(), safeToken);
+    const now = Date.now();
+    const lastSeenAt = Date.parse(row.lastSeenAt);
+    if (
+      Number(row.expiresAt) <= now ||
+      !Number.isFinite(lastSeenAt) ||
+      now - lastSeenAt > SESSION_IDLE_TTL_MS
+    ) {
+      deleteSessionStmt.run(tokenHash);
+      return null;
+    }
+    touchSessionStmt.run(new Date(now).toISOString(), tokenHash);
     return {
       id: row.id,
       username: row.username,
@@ -841,7 +893,7 @@ function createServerStore({
   function logoutAccount(token) {
     const safeToken = normalizeSessionToken(token);
     if (!safeToken) return false;
-    deleteSessionStmt.run(safeToken);
+    deleteSessionStmt.run(hashSessionToken(safeToken));
     return true;
   }
 
@@ -883,8 +935,12 @@ function createServerStore({
         score: clamp(safeNumber(record.score), 0, 99999999),
         lines: clamp(safeNumber(record.lines), 0, 9999),
         level: clamp(safeNumber(record.level), 1, 99),
-        mode: String(record.mode || "Classic").replace(/[<>]/g, "").slice(0, 24),
-        time: String(record.time || "0:00").replace(/[<>]/g, "").slice(0, 12),
+        mode: String(record.mode || "Classic")
+          .replace(/[<>]/g, "")
+          .slice(0, 24),
+        time: String(record.time || "0:00")
+          .replace(/[<>]/g, "")
+          .slice(0, 12),
         date: record.date || new Date().toISOString(),
       })
       .sort(compareRecords)
@@ -922,7 +978,8 @@ function createServerStore({
     const token = crypto.randomBytes(24).toString("base64url");
     const safePlayerId = account?.id
       ? `acct.${cleanPlayerId(account.id)}`
-      : cleanPlayerId(playerId) || `guest.${crypto.randomBytes(8).toString("hex")}`;
+      : cleanPlayerId(playerId) ||
+        `guest.${crypto.randomBytes(8).toString("hex")}`;
     const startedAt = Date.now();
     const run = {
       token,
@@ -953,7 +1010,8 @@ function createServerStore({
     if (!safeToken || !signature) return { ok: false, code: "missingRun" };
     const run = getDailyRunStmt.get(safeToken);
     if (!run || run.dateKey !== dateKey) return { ok: false, code: "badRun" };
-    if (Number(run.expiresAt) < Date.now()) return { ok: false, code: "expiredRun" };
+    if (Number(run.expiresAt) < Date.now())
+      return { ok: false, code: "expiredRun" };
     if (Number(run.submittedAt) > 0) return { ok: false, code: "usedRun" };
     const expected = signDailyRun(run);
     if (!timingSafeEqualText(expected, signature)) {
@@ -1036,7 +1094,9 @@ function createServerStore({
       String(matchId || "").slice(0, 120),
       String(roomId || "").slice(0, 24),
       cleanPlayerId(playerId),
-      String(eventType || "clear").replace(/[<>]/g, "").slice(0, 24),
+      String(eventType || "clear")
+        .replace(/[<>]/g, "")
+        .slice(0, 24),
       clamp(safeNumber(lines), 0, 4),
       clamp(safeNumber(attackLines), 0, 12),
       clamp(safeNumber(combo), 0, 999),
@@ -1111,6 +1171,7 @@ function createServerStore({
     };
   }
 
+  deleteExpiredSessionsStmt.run(Date.now());
   migrateLegacyFiles();
 
   return {

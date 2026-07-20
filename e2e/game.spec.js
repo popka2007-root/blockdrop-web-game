@@ -196,8 +196,9 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await expect(page.locator("#connectOnlineButton")).toHaveText("Начать игру");
   await expect(page.locator("#roomQr")).toHaveAttribute(
     "src",
-    /create-qr-code/,
+    /\/api\/qr\?data=/,
   );
+  await expect(page.locator("#roomQr")).toHaveJSProperty("complete", true);
   await expect
     .poll(() => page.evaluate(() => window.__copiedText))
     .toContain("/room/");
@@ -253,6 +254,32 @@ test("mobile layout keeps board and controls inside viewport", async ({
   expect(controls.y + controls.height).toBeLessThanOrEqual(844);
   expect(pause?.width).toBeGreaterThanOrEqual(44);
   expect(pause?.height).toBeGreaterThanOrEqual(44);
+});
+
+test("desktop side panel never overlaps the controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.locator("#startButton").click();
+
+  const boxes = await page.evaluate(() => {
+    const side = document.querySelector("#sidePanel").getBoundingClientRect();
+    const controls = document
+      .querySelector("#controls")
+      .getBoundingClientRect();
+    const game = document.querySelector("#gameLayout").getBoundingClientRect();
+    return {
+      sideBottom: side.bottom,
+      controlsTop: controls.top,
+      gameBottom: game.bottom,
+      sideScrollable:
+        document.querySelector("#sidePanel").scrollHeight >=
+        document.querySelector("#sidePanel").clientHeight,
+    };
+  });
+
+  expect(boxes.sideBottom).toBeLessThanOrEqual(boxes.gameBottom + 1);
+  expect(boxes.sideBottom).toBeLessThanOrEqual(boxes.controlsTop + 1);
+  expect(boxes.sideScrollable).toBe(true);
 });
 
 test("mobile touch controls work without page scroll", async ({

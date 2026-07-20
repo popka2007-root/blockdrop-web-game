@@ -2,6 +2,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const QRCode = require("qrcode");
+const { WebSocket, WebSocketServer } = require("ws");
 const { createMetrics, createLogger } = require("./server-observability");
 const {
   RANKED_MAX_RATING,
@@ -13,12 +15,12 @@ const protocol = require("./shared/protocol.js");
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
 const MAX_WS_FRAME_BYTES = 4096;
-const MAX_WS_MESSAGES_PER_CHUNK = 12;
 const MAX_MESSAGES_PER_10S = 90;
 const MAX_UPDATES_PER_SECOND = 8;
 const MAX_ATTACKS_PER_SECOND = 4;
 const MAX_ATTACK_LINES_PER_10S = 18;
 const MAX_PAYLOAD_KEYS = 18;
+const HTTP_RATE_WINDOW_MS = 10 * 60 * 1000;
 const RECONNECT_GRACE_MS = 12000;
 const COUNTDOWN_STEP_MS = 700;
 const RANKED_K_FACTOR = 32;
@@ -53,6 +55,7 @@ const JOIN_KEYS = new Set(JOIN_KEY_LIST);
 const TOURNAMENT_KEYS = new Set(TOURNAMENT_KEY_LIST);
 const rooms = new Map();
 const rankedQueue = [];
+const httpRateBuckets = new Map();
 const startedAt = Date.now();
 let cachedPackageMeta = null;
 const store = createServerStore({
@@ -77,7 +80,7 @@ const securityHeaders = {
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https://api.qrserver.com",
+    "img-src 'self' data:",
     "connect-src 'self' ws: wss:",
     "manifest-src 'self'",
     "worker-src 'self'",
@@ -90,9 +93,34 @@ const securityHeaders = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 
+const PUBLIC_ROOT_FILES = new Set([
+  "/index.html",
+  "/styles.css",
+  "/manifest.webmanifest",
+  "/sw.js",
+]);
+const PUBLIC_PREFIXES = ["/js/", "/styles/", "/icons/", "/shared/"];
+
 const server = http.createServer((req, res) => {
-  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  let requestUrl;
+  try {
+    requestUrl = new URL(req.url || "/", "http://blockdrop.local");
+  } catch {
+    writeHead(res, 400);
+    res.end("Bad request");
+    return;
+  }
   metrics.increment("blockdrop_http_requests_total");
+
+  if (requestUrl.pathname === "/api/capabilities") {
+    handleCapabilitiesApi(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/qr") {
+    handleQrApi(req, res, requestUrl);
+    return;
+  }
 
   if (requestUrl.pathname === "/api/records") {
     handleRecordsApi(req, res);
@@ -105,7 +133,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (requestUrl.pathname === "/api/account") {
-    handleAccountApi(req, res, requestUrl);
+    handleAccountApi(req, res);
     return;
   }
 
@@ -136,13 +164,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
   const safePath = path
     .normalize(decodedPathname)
     .replace(/^([/\\])/, "")
     .replace(/^(\.\.[/\\])+/, "");
+  const publicPath = `/${safePath.replace(/\\/g, "/")}`;
+  if (
+    !PUBLIC_ROOT_FILES.has(publicPath) &&
+    !PUBLIC_PREFIXES.some((prefix) => publicPath.startsWith(prefix))
+  ) {
+    writeHead(res, 404);
+    res.end("Not found");
+    return;
+  }
   const filePath = path.join(ROOT, safePath);
 
-  if (!filePath.startsWith(ROOT)) {
+  const relativePath = path.relative(ROOT, filePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     writeHead(res, 403);
     res.end("Forbidden");
     return;
@@ -159,8 +202,14 @@ const server = http.createServer((req, res) => {
         mime[path.extname(filePath)] || "application/octet-stream",
       "Cache-Control": "no-cache",
     });
-    res.end(data);
+    res.end(req.method === "HEAD" ? undefined : data);
   });
+});
+
+const webSocketServer = new WebSocketServer({
+  noServer: true,
+  maxPayload: MAX_WS_FRAME_BYTES,
+  perMessageDeflate: false,
 });
 
 function safeDecodePath(pathname) {
@@ -295,6 +344,79 @@ function readPackageMeta() {
   }
 }
 
+function handleCapabilitiesApi(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  const secureTransport = isSensitiveTransportAllowed(req);
+  const payload = {
+    secureTransport,
+    authEnabled: secureTransport,
+    rankedEnabled: secureTransport,
+    casualOnlineEnabled: true,
+    maxPlayers: ROOM_PLAYER_LIMIT,
+    localQrEnabled: true,
+    version: readPackageMeta().version,
+  };
+  if (req.method === "HEAD") {
+    writeHead(res, 200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end();
+    return;
+  }
+  sendJson(res, payload);
+}
+
+async function handleQrApi(req, res, requestUrl) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  if (!allowHttpRequest(req, "qr", 80, HTTP_RATE_WINDOW_MS)) {
+    sendRateLimited(res);
+    return;
+  }
+  const rawValue = String(requestUrl.searchParams.get("data") || "").slice(
+    0,
+    512,
+  );
+  let inviteUrl;
+  try {
+    inviteUrl = new URL(rawValue);
+  } catch {
+    sendJson(res, { error: "Invalid invite URL" }, 400);
+    return;
+  }
+  const requestHost = String(req.headers.host || "").toLowerCase();
+  if (
+    !["http:", "https:"].includes(inviteUrl.protocol) ||
+    !requestHost ||
+    inviteUrl.host.toLowerCase() !== requestHost
+  ) {
+    sendJson(res, { error: "Invite URL must use this BlockDrop host" }, 400);
+    return;
+  }
+  try {
+    const svg = await QRCode.toString(inviteUrl.toString(), {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 160,
+      color: { dark: "#101827", light: "#ffffff" },
+    });
+    writeHead(res, 200, {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": "private, max-age=300",
+    });
+    res.end(req.method === "HEAD" ? undefined : svg);
+  } catch {
+    sendJson(res, { error: "QR generation failed" }, 500);
+  }
+}
+
 function handleRecordsApi(req, res) {
   if (req.method === "GET") {
     sendJson(res, { records: store.listRecords() });
@@ -303,6 +425,11 @@ function handleRecordsApi(req, res) {
 
   if (req.method !== "POST") {
     sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  if (!allowHttpRequest(req, "records", 30, HTTP_RATE_WINDOW_MS)) {
+    sendRateLimited(res);
     return;
   }
 
@@ -351,7 +478,13 @@ function handleRecordsApi(req, res) {
 function handleDailyApi(req, res, requestUrl) {
   if (req.method === "GET" || req.method === "HEAD") {
     const dateKey = serverDateKey();
-    const account = accountFromRequest(req, requestUrl.searchParams.get("accountToken"));
+    if (!allowHttpRequest(req, "daily-start", 60, HTTP_RATE_WINDOW_MS)) {
+      sendRateLimited(res);
+      return;
+    }
+    const account = isSensitiveTransportAllowed(req)
+      ? accountFromRequest(req)
+      : null;
     const playerId = cleanPlayerId(requestUrl.searchParams.get("playerId"));
     const run = store.createDailyRun({ dateKey, account, playerId });
     const payload = {
@@ -379,6 +512,11 @@ function handleDailyApi(req, res, requestUrl) {
     return;
   }
 
+  if (!allowHttpRequest(req, "daily-submit", 40, HTTP_RATE_WINDOW_MS)) {
+    sendRateLimited(res);
+    return;
+  }
+
   let body = "";
   req.on("data", (chunk) => {
     body += chunk;
@@ -394,7 +532,9 @@ function handleDailyApi(req, res, requestUrl) {
     }
 
     const dateKey = serverDateKey();
-    const account = accountFromRequest(req, data.accountToken);
+    const account = isSensitiveTransportAllowed(req)
+      ? accountFromRequest(req, data.accountToken)
+      : null;
     const entry = sanitizeDailyScore(data, dateKey, account);
     const runCheck = store.verifyDailyRun({
       token: data.runToken,
@@ -427,9 +567,20 @@ function handleDailyApi(req, res, requestUrl) {
   });
 }
 
-function handleAccountApi(req, res, requestUrl) {
+function handleAccountApi(req, res) {
+  if (!isSensitiveTransportAllowed(req)) {
+    sendJson(
+      res,
+      {
+        error: "secureTransportRequired",
+        message: "Accounts and ranked play require HTTPS",
+      },
+      426,
+    );
+    return;
+  }
   if (req.method === "GET") {
-    const account = accountFromRequest(req, requestUrl.searchParams.get("token"));
+    const account = accountFromRequest(req);
     if (!account) {
       sendJson(res, { account: null }, 401);
       return;
@@ -464,6 +615,22 @@ function handleAccountApi(req, res, requestUrl) {
       return;
     }
     const action = String(data.action || "login");
+    const usernameKey = String(data.username || "anonymous")
+      .trim()
+      .toLowerCase()
+      .slice(0, 32);
+    if (
+      !allowHttpRequest(req, `account:${action}`, 20, HTTP_RATE_WINDOW_MS) ||
+      !allowHttpRequest(
+        req,
+        `account:${action}:${usernameKey}`,
+        8,
+        HTTP_RATE_WINDOW_MS,
+      )
+    ) {
+      sendRateLimited(res);
+      return;
+    }
     const result =
       action === "register"
         ? store.createAccount(data)
@@ -480,7 +647,10 @@ function handleAccountApi(req, res, requestUrl) {
     }
     sendJson(res, {
       account: store.publicAccount(result.account),
-      token: result.token || normalizeIdentityToken(data.token) || authTokenFromRequest(req),
+      token:
+        result.token ||
+        normalizeIdentityToken(data.token) ||
+        authTokenFromRequest(req),
     });
   });
 }
@@ -512,7 +682,8 @@ function authTokenFromRequest(req) {
 }
 
 function accountFromRequest(req, explicitToken = "") {
-  const token = normalizeIdentityToken(explicitToken) || authTokenFromRequest(req);
+  const token =
+    normalizeIdentityToken(explicitToken) || authTokenFromRequest(req);
   return token ? store.getAccountBySession(token) : null;
 }
 
@@ -522,7 +693,9 @@ function sanitizeRecord(data) {
     score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
-    mode: String(data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430")
+    mode: String(
+      data.mode || "\u041a\u043b\u0430\u0441\u0441\u0438\u043a\u0430",
+    )
       .replace(/[<>]/g, "")
       .slice(0, 24),
     time: String(data.time || "0:00")
@@ -538,7 +711,9 @@ function sanitizeDailyScore(data, dateKey, account = null) {
     playerId: account?.id
       ? `acct.${cleanPlayerId(account.id)}`
       : cleanPlayerId(data.playerId),
-    name: account?.displayName || cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
+    name:
+      account?.displayName ||
+      cleanName(data.name || "\u0418\u0433\u0440\u043e\u043a"),
     score: clamp(safeNumber(data.score), 0, MAX_RECORD_SCORE),
     lines: clamp(safeNumber(data.lines), 0, 9999),
     level: clamp(safeNumber(data.level), 1, 99),
@@ -578,7 +753,8 @@ function isPlausibleDailyScore(entry, data, run) {
   if (pieces && entry.lines > pieces * 4) return false;
   if (bestCombo > entry.lines + 1) return false;
   if (tSpins > pieces) return false;
-  if (perfectClears > Math.max(1, Math.floor(entry.lines / 4) + 1)) return false;
+  if (perfectClears > Math.max(1, Math.floor(entry.lines / 4) + 1))
+    return false;
   const seconds = Math.max(1, entry.timeMs / 1000);
   const lineRateCap = seconds * 3.2 + 8;
   if (entry.lines > lineRateCap) return false;
@@ -608,7 +784,69 @@ function writeHead(res, status, headers = {}) {
   res.writeHead(status, { ...securityHeaders, ...headers });
 }
 
-server.on("upgrade", (req, socket) => {
+function requestHostName(req) {
+  const host = String(req.headers.host || "").trim();
+  if (!host) return "";
+  try {
+    return new URL(`http://${host}`).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isSensitiveTransportAllowed(req) {
+  if (process.env.BLOCKDROP_ALLOW_INSECURE_AUTH === "true") return true;
+  if (req.socket?.encrypted) return true;
+  if (process.env.BLOCKDROP_TRUST_PROXY === "true") {
+    const forwardedProtocol = String(req.headers["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
+    if (forwardedProtocol === "https") return true;
+  }
+  const hostname = requestHostName(req);
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  );
+}
+
+function clientAddress(req) {
+  if (process.env.BLOCKDROP_TRUST_PROXY === "true") {
+    const forwardedAddress = String(req.headers["x-forwarded-for"] || "")
+      .split(",")[0]
+      .trim();
+    if (forwardedAddress) return forwardedAddress.slice(0, 80);
+  }
+  return String(req.socket?.remoteAddress || "unknown").slice(0, 80);
+}
+
+function allowHttpRequest(req, bucketName, max, windowMs) {
+  const now = Date.now();
+  const key = `${clientAddress(req)}:${bucketName}`;
+  const bucket = httpRateBuckets.get(key);
+  if (!bucket || now - bucket.startedAt >= windowMs) {
+    httpRateBuckets.set(key, { startedAt: now, count: 1 });
+    if (httpRateBuckets.size > 5000) {
+      for (const [entryKey, entry] of httpRateBuckets) {
+        if (now - entry.startedAt >= windowMs) httpRateBuckets.delete(entryKey);
+      }
+    }
+    return true;
+  }
+  bucket.count += 1;
+  return bucket.count <= max;
+}
+
+function sendRateLimited(res) {
+  writeHead(res, 429, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Retry-After": String(Math.ceil(HTTP_RATE_WINDOW_MS / 1000)),
+  });
+  res.end(JSON.stringify({ error: "rateLimited" }));
+}
+
+server.on("upgrade", (req, socket, head) => {
   if (req.headers.upgrade?.toLowerCase() !== "websocket") {
     socket.destroy();
     return;
@@ -619,40 +857,36 @@ server.on("upgrade", (req, socket) => {
     socket.destroy();
     return;
   }
+  webSocketServer.handleUpgrade(req, socket, head, (webSocket) => {
+    webSocketServer.emit("connection", webSocket, req);
+  });
+});
 
-  const key = req.headers["sec-websocket-key"];
-  if (!isValidWebSocketKey(key)) {
-    metrics.increment("blockdrop_ws_bad_handshake_total");
-    socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
-    socket.destroy();
-    return;
-  }
-  const accept = crypto
-    .createHash("sha1")
-    .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-    .digest("base64");
-
-  socket.write(
-    [
-      "HTTP/1.1 101 Switching Protocols",
-      "Upgrade: websocket",
-      "Connection: Upgrade",
-      `Sec-WebSocket-Accept: ${accept}`,
-      "",
-      "",
-    ].join("\r\n"),
-  );
-
-  const client = createClient(socket);
+webSocketServer.on("connection", (socket, req) => {
+  const client = createClient(socket, {
+    authTransportAllowed: isSensitiveTransportAllowed(req),
+  });
   metrics.increment("blockdrop_ws_connections_total");
   updateLiveMetrics();
-  socket.on("data", (chunk) => handleSocketData(client, chunk));
+  socket.on("message", (message, isBinary) => {
+    if (
+      isBinary ||
+      message.length > MAX_WS_FRAME_BYTES ||
+      !allowMessage(client)
+    ) {
+      metrics.increment("blockdrop_ws_policy_close_total");
+      safeClose(client, "Rate limited or invalid frame");
+      return;
+    }
+    metrics.increment("blockdrop_ws_messages_total");
+    handleMessage(client, message.toString("utf8"));
+  });
   socket.on("close", () => removeClient(client, "close"));
   socket.on("error", () => removeClient(client, "error"));
   send(client, { type: "hello", id: client.id });
 });
 
-function createClient(socket) {
+function createClient(socket, options = {}) {
   return {
     id: crypto.randomUUID(),
     socket,
@@ -663,6 +897,7 @@ function createClient(socket) {
     identityToken: "",
     accountToken: "",
     account: null,
+    authTransportAllowed: Boolean(options.authTransportAllowed),
     rankedProfile: null,
     name: "Player",
     state: emptyState(),
@@ -681,45 +916,6 @@ function createClient(socket) {
       attackLines: 0,
     },
   };
-}
-
-function handleSocketData(client, chunk) {
-  if (chunk.length > MAX_WS_FRAME_BYTES + 32) {
-    metrics.increment("blockdrop_ws_policy_close_total");
-    safeClose(client, "Frame too large");
-    return;
-  }
-  let messages;
-  try {
-    messages = decodeFrames(chunk);
-  } catch {
-    metrics.increment("blockdrop_ws_policy_close_total");
-    safeClose(client, "Bad frame");
-    return;
-  }
-  if (messages.length > MAX_WS_MESSAGES_PER_CHUNK) {
-    metrics.increment("blockdrop_ws_policy_close_total");
-    safeClose(client, "Too many frames");
-    return;
-  }
-  for (const message of messages) {
-    if (!allowMessage(client) || message.length > MAX_WS_FRAME_BYTES) {
-      metrics.increment("blockdrop_ws_policy_close_total");
-      safeClose(client, "Rate limited");
-      return;
-    }
-    metrics.increment("blockdrop_ws_messages_total");
-    handleMessage(client, message);
-  }
-}
-
-function isValidWebSocketKey(key) {
-  if (typeof key !== "string") return false;
-  try {
-    return Buffer.from(key, "base64").length === 16;
-  } catch {
-    return false;
-  }
 }
 
 function isAllowedWebSocketOrigin(req) {
@@ -887,14 +1083,16 @@ function handleMessage(client, raw) {
 
   if (data.type === "rematchReady") {
     if (client.role !== "player") return;
-    if (!hasOnlyKeys(data, REMATCH_KEYS) || !matchesClientRoom(client, data)) return;
+    if (!hasOnlyKeys(data, REMATCH_KEYS) || !matchesClientRoom(client, data))
+      return;
     markRematchReady(client);
     return;
   }
 
   if (data.type === "matchOver") {
     if (client.role !== "player") return;
-    if (!hasOnlyKeys(data, MATCH_OVER_KEYS) || !matchesClientRoom(client, data)) return;
+    if (!hasOnlyKeys(data, MATCH_OVER_KEYS) || !matchesClientRoom(client, data))
+      return;
     finishMatchFromClient(client, data.result);
     return;
   }
@@ -986,9 +1184,13 @@ function validateUpdatePayload(client, data) {
     if (safeNumber(data.score) + 500 < client.state.score) return false;
     if (safeNumber(data.lines) < client.state.lines) return false;
     if (safeNumber(data.sentGarbage) < client.state.sentGarbage) return false;
-    if (safeNumber(data.receivedGarbage) < client.state.receivedGarbage) return false;
+    if (safeNumber(data.receivedGarbage) < client.state.receivedGarbage)
+      return false;
     const seconds = parseTimeSeconds(data.time || client.state.time);
-    const serverElapsed = Math.max(0, (Date.now() - room.match.startedAt) / 1000);
+    const serverElapsed = Math.max(
+      0,
+      (Date.now() - room.match.startedAt) / 1000,
+    );
     if (seconds > serverElapsed + 20) return false;
   }
   return (
@@ -1011,27 +1213,41 @@ function validateAttackPayload(client, data) {
 
 function isSafeBoardPreview(value) {
   if (value == null) return true;
-  if (!Array.isArray(value) || value.length > MAX_BOARD_PREVIEW_ROWS) return false;
+  if (!Array.isArray(value) || value.length > MAX_BOARD_PREVIEW_ROWS)
+    return false;
   return value.every(
     (row) =>
       Array.isArray(row) &&
       row.length <= MAX_BOARD_PREVIEW_COLS &&
-      row.every((cell) => cell === 0 || cell === 1 || cell === true || cell === false),
+      row.every(
+        (cell) => cell === 0 || cell === 1 || cell === true || cell === false,
+      ),
   );
 }
 
 function joinRoom(client, data) {
   removeClient(client, "rejoin");
   removeQueuedClient(client);
-  const accountToken = normalizeIdentityToken(data.accountToken);
+  const roomId = normalizeRoomId(data.room) || "LOBBY";
+  const room = rooms.get(roomId);
+  const rankedRequested =
+    data.rankedQueue === true || data.ranked === true || Boolean(room?.ranked);
+  if (rankedRequested && !client.authTransportAllowed) {
+    send(client, {
+      type: "error",
+      code: "secureTransportRequired",
+      message: "Ranked play requires HTTPS",
+    });
+    return;
+  }
+  const accountToken = client.authTransportAllowed
+    ? normalizeIdentityToken(data.accountToken)
+    : "";
   const account = accountToken ? store.getAccountBySession(accountToken) : null;
   if (data.rankedQueue === true) {
     joinRankedQueue(client, data, account, accountToken);
     return;
   }
-  const roomId = normalizeRoomId(data.room) || "LOBBY";
-  const room = rooms.get(roomId);
-  const rankedRequested = data.ranked === true || Boolean(room?.ranked);
   const playerId = normalizePlayerId(data.playerId);
   const identityToken = normalizeIdentityToken(data.identityToken);
   const requestedMode = normalizeMatchMode(data.mode);
@@ -1055,12 +1271,7 @@ function joinRoom(client, data) {
         type: "error",
         message: "Ranked identity mismatch",
       });
-      removeClient(client, "identity");
-      try {
-        client.socket.end();
-      } catch {
-        return;
-      }
+      safeClose(client, "Ranked identity mismatch");
       return;
     }
   }
@@ -1093,7 +1304,11 @@ function joinRoom(client, data) {
   client.rankedProfile = client.ranked ? identity?.profile || null : null;
   client.state = emptyState();
 
-  const reconnectId = findReconnectSlot(actualRoom, client.name, client.playerId);
+  const reconnectId = findReconnectSlot(
+    actualRoom,
+    client.name,
+    client.playerId,
+  );
   if (reconnectId) {
     const slot = actualRoom.reconnects.get(reconnectId);
     clearReconnect(actualRoom, reconnectId);
@@ -1160,7 +1375,9 @@ function joinRankedQueue(client, data, account, accountToken) {
     return;
   }
   const waiting = rankedQueue.find(
-    (entry) => entry.client.socket && entry.account.id !== account.id,
+    (entry) =>
+      entry.client.socket?.readyState === WebSocket.OPEN &&
+      entry.account.id !== account.id,
   );
   client.name = cleanName(account.displayName || data.name);
   client.accountToken = accountToken;
@@ -1169,7 +1386,8 @@ function joinRankedQueue(client, data, account, accountToken) {
   client.ranked = true;
   client.state = emptyState();
   for (let index = rankedQueue.length - 1; index >= 0; index -= 1) {
-    if (rankedQueue[index].account.id === account.id) rankedQueue.splice(index, 1);
+    if (rankedQueue[index].account.id === account.id)
+      rankedQueue.splice(index, 1);
   }
   if (!waiting) {
     rankedQueue.push({
@@ -1341,7 +1559,9 @@ function markRematchReady(client) {
   }
   room.rematchReady.add(client.id);
   broadcastRoom(room.id);
-  const allReady = [...room.players.keys()].every((id) => room.rematchReady.has(id));
+  const allReady = [...room.players.keys()].every((id) =>
+    room.rematchReady.has(id),
+  );
   if (allReady) {
     if (room.ranked && room.series.completed) startRankedSeries(room);
     else if (room.ranked && !room.series.active) startRankedSeries(room);
@@ -1352,7 +1572,9 @@ function markRematchReady(client) {
 function finishMatchFromClient(client, result) {
   const room = rooms.get(client.room);
   if (!room || room.match.status !== "playing") return;
-  const other = [...room.players.values()].find((player) => player.id !== client.id);
+  const other = [...room.players.values()].find(
+    (player) => player.id !== client.id,
+  );
   if (!other) return;
   const clientWon = room.ranked ? false : result === "win";
   finishMatch(room, {
@@ -1385,7 +1607,11 @@ function finishMatch(room, { reason, winnerId, loserId }) {
 function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
   const winner = rankedParticipant(room, winnerId);
   const loser = rankedParticipant(room, loserId);
-  if (!winner?.playerId || !loser?.playerId || winner.playerId === loser.playerId)
+  if (
+    !winner?.playerId ||
+    !loser?.playerId ||
+    winner.playerId === loser.playerId
+  )
     return null;
 
   const winnerBefore = store.normalizeRankedPlayer(
@@ -1620,7 +1846,11 @@ function safeClose(client, reason = "Policy violation") {
   send(client, { type: "error", message: reason });
   removeClient(client, "policy");
   try {
-    client.socket.end();
+    client.socket.close(1008, String(reason).slice(0, 120));
+    setTimeout(() => {
+      if (client.socket.readyState !== WebSocket.CLOSED)
+        client.socket.terminate();
+    }, 1000).unref?.();
   } catch {
     return;
   }
@@ -1692,14 +1922,21 @@ function broadcastRoom(roomId) {
 
 function broadcast(room, payload, predicate = () => true) {
   const message = JSON.stringify(payload);
-  for (const client of [...room.players.values(), ...room.spectators.values()]) {
-    if (predicate(client)) sendFrame(client.socket, message);
+  for (const client of [
+    ...room.players.values(),
+    ...room.spectators.values(),
+  ]) {
+    if (predicate(client) && client.socket.readyState === WebSocket.OPEN) {
+      client.socket.send(message);
+    }
   }
 }
 
 function send(client, payload) {
   try {
-    sendFrame(client.socket, JSON.stringify(payload));
+    if (client.socket.readyState === WebSocket.OPEN) {
+      client.socket.send(JSON.stringify(payload));
+    }
   } catch {
     // Ignore writes to already closed sockets.
   }
@@ -1809,7 +2046,10 @@ function removeClient(client, reason = "close") {
             winnerId: winner,
             loserId: id,
           });
-        } else if (currentRoom.players.size === 0 && currentRoom.spectators.size === 0) {
+        } else if (
+          currentRoom.players.size === 0 &&
+          currentRoom.spectators.size === 0
+        ) {
           rooms.delete(roomId);
         } else {
           currentRoom.match.status = "finished";
@@ -1828,7 +2068,11 @@ function removeClient(client, reason = "close") {
         expiresAt,
         timer,
       });
-      broadcast(room, { type: "reconnecting", playerId: id, name: client.name });
+      broadcast(room, {
+        type: "reconnecting",
+        playerId: id,
+        name: client.name,
+      });
     }
   }
   client.room = "";
@@ -1859,73 +2103,6 @@ function safeNumber(value) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
-}
-
-function decodeFrames(buffer) {
-  const messages = [];
-  let offset = 0;
-
-  while (offset + 2 <= buffer.length) {
-    const first = buffer[offset];
-    const opcode = first & 0x0f;
-    if (opcode === 0x08) break;
-    if (opcode !== 0x01) throw new Error("Unsupported frame opcode");
-
-    const second = buffer[offset + 1];
-    const masked = (second & 0x80) !== 0;
-    if (!masked) throw new Error("Unmasked client frame");
-    let length = second & 0x7f;
-    let header = 2;
-
-    if (length === 126) {
-      if (offset + 4 > buffer.length) break;
-      length = buffer.readUInt16BE(offset + 2);
-      header = 4;
-    } else if (length === 127) {
-      if (offset + 10 > buffer.length) break;
-      length = Number(buffer.readBigUInt64BE(offset + 2));
-      header = 10;
-    }
-
-    if (length > MAX_WS_FRAME_BYTES) throw new Error("Frame payload too large");
-
-    const maskOffset = offset + header;
-    const dataOffset = maskOffset + (masked ? 4 : 0);
-    const frameEnd = dataOffset + length;
-    if (frameEnd > buffer.length) break;
-
-    const payload = Buffer.from(buffer.subarray(dataOffset, frameEnd));
-    if (masked) {
-      const mask = buffer.subarray(maskOffset, maskOffset + 4);
-      for (let i = 0; i < payload.length; i += 1) payload[i] ^= mask[i % 4];
-    }
-
-    messages.push(payload.toString("utf8"));
-    offset = frameEnd;
-  }
-
-  return messages;
-}
-
-function sendFrame(socket, message) {
-  const payload = Buffer.from(message);
-  let header;
-
-  if (payload.length < 126) {
-    header = Buffer.from([0x81, payload.length]);
-  } else if (payload.length < 65536) {
-    header = Buffer.alloc(4);
-    header[0] = 0x81;
-    header[1] = 126;
-    header.writeUInt16BE(payload.length, 2);
-  } else {
-    header = Buffer.alloc(10);
-    header[0] = 0x81;
-    header[1] = 127;
-    header.writeBigUInt64BE(BigInt(payload.length), 2);
-  }
-
-  socket.write(Buffer.concat([header, payload]));
 }
 
 setInterval(() => {

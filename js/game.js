@@ -370,6 +370,19 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       leaderboard: [],
       queueWaiting: 0,
     },
+    capabilities: {
+      secureTransport:
+        location.protocol === "https:" ||
+        /^(localhost|127\.0\.0\.1)$/.test(location.hostname),
+      authEnabled:
+        location.protocol === "https:" ||
+        /^(localhost|127\.0\.0\.1)$/.test(location.hostname),
+      rankedEnabled:
+        location.protocol === "https:" ||
+        /^(localhost|127\.0\.0\.1)$/.test(location.hostname),
+      casualOnlineEnabled: true,
+      maxPlayers: 2,
+    },
     unlocked: storage.loadAchievements({}),
     online: {
       id: "",
@@ -725,6 +738,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     buzz("move");
     syncUi();
     saveCurrentGame();
+    wakeUpdate();
   }
 
   function startAiGame() {
@@ -942,7 +956,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.stats.pieceCounts[lockedPiece.kind] += 1;
     state.pieces += 1;
     state.stats.totalPieces += 1;
-    const tSpinType = detectTSpinType(state.board, lockedPiece, state.lastRotation);
+    const tSpinType = detectTSpinType(
+      state.board,
+      lockedPiece,
+      state.lastRotation,
+    );
     state.active = null;
     const count = clearLines();
     const perfectClear = count > 0 && isBoardEmpty(state.board);
@@ -1022,7 +1040,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
               1,
           );
       playEvent(clearEvent.isTSpin || count === 4 ? "tetris" : "line");
-      if (clearEvent.isTSpin || count === 4 || clearEvent.perfectClear) burst(44);
+      if (clearEvent.isTSpin || count === 4 || clearEvent.perfectClear)
+        burst(44);
       if (state.combo >= 2)
         playEvent("combo", {
           freq: SOUND_EVENTS.combo.freq + state.combo * 18,
@@ -1199,14 +1218,18 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     }
     if (!parts.length && event?.attackLines) {
       parts.push(
-        onlineText(`Атака +${event.attackLines}`, `Attack +${event.attackLines}`),
+        onlineText(
+          `Атака +${event.attackLines}`,
+          `Attack +${event.attackLines}`,
+        ),
       );
     }
     return parts.join(" • ");
   }
 
   function bestMomentLabel() {
-    if (state.bestMomentEvent) return formatClearEventToast(state.bestMomentEvent);
+    if (state.bestMomentEvent)
+      return formatClearEventToast(state.bestMomentEvent);
     if (state.bestComboRun >= 2) {
       return onlineText(
         `Комбо x${state.bestComboRun}`,
@@ -1369,6 +1392,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.phase = FLOW_STATE.PLAYING;
     state.lastTime = 0;
     ui.setPauseVisible(false);
+    wakeUpdate();
   }
 
   function returnToMainMenu() {
@@ -1416,7 +1440,33 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     );
   }
 
+  let updateScheduled = false;
+  let idleUpdateTimer = 0;
+
+  function scheduleUpdate(delay = 0) {
+    if (updateScheduled) return;
+    updateScheduled = true;
+    if (delay > 0) {
+      idleUpdateTimer = window.setTimeout(() => {
+        idleUpdateTimer = 0;
+        requestAnimationFrame(update);
+      }, delay);
+      return;
+    }
+    requestAnimationFrame(update);
+  }
+
+  function wakeUpdate() {
+    if (idleUpdateTimer) {
+      clearTimeout(idleUpdateTimer);
+      idleUpdateTimer = 0;
+      updateScheduled = false;
+    }
+    scheduleUpdate();
+  }
+
   function update(time) {
+    updateScheduled = false;
     const delta = advanceFrameClock(state, time, TIMING.MAX_FRAME_DELTA_MS);
 
     if (state.running && !state.paused && !state.gameOver) {
@@ -1429,7 +1479,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         finish(true, "Время вышло. Результат сохранён.");
         draw();
         syncUi();
-        requestAnimationFrame(update);
+        scheduleUpdate(250);
         return;
       }
       state.dropMs += delta;
@@ -1446,7 +1496,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.flashes = decayFlashes(state.flashes, delta, UI_CONFIG);
     draw();
     syncUi();
-    requestAnimationFrame(update);
+    scheduleUpdate(state.running && !state.paused && !state.gameOver ? 0 : 250);
   }
 
   function updateAiOpponent(delta) {
@@ -1638,9 +1688,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
   function buildBoardPreview() {
     const previewRows = 15;
-    const preview = state.board.slice(-previewRows).map((row) =>
-      row.map((cell) => (cell ? 1 : 0)),
-    );
+    const preview = state.board
+      .slice(-previewRows)
+      .map((row) => row.map((cell) => (cell ? 1 : 0)));
     if (state.active) {
       for (const cell of cells(state.active)) {
         const previewY = cell.y - (ROWS - previewRows);
@@ -1917,6 +1967,29 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     }));
   }
 
+  async function loadCapabilities() {
+    if (!location.protocol.startsWith("http")) {
+      ui.setOnlineCapabilities?.(state.capabilities);
+      return state.capabilities;
+    }
+    try {
+      const response = await fetch("/api/capabilities", { cache: "no-store" });
+      if (!response.ok) throw new Error("Capabilities unavailable");
+      state.capabilities = {
+        ...state.capabilities,
+        ...(await response.json()),
+      };
+    } catch {
+      // The conservative defaults keep casual rooms usable without exposing auth.
+    }
+    if (!state.capabilities.authEnabled) {
+      storage.clearAccountToken?.();
+      storage.saveAccountName?.("");
+    }
+    ui.setOnlineCapabilities?.(state.capabilities);
+    return state.capabilities;
+  }
+
   async function loadServerRecords() {
     if (!location.protocol.startsWith("http")) return;
     try {
@@ -1934,7 +2007,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   async function loadServerDaily() {
     if (!location.protocol.startsWith("http")) return null;
     try {
-      const response = await fetch("/api/daily", { cache: "no-store" });
+      const accountToken = state.capabilities.authEnabled
+        ? storage.loadAccountToken?.("")
+        : "";
+      const response = await fetch("/api/daily", {
+        cache: "no-store",
+        headers: accountToken
+          ? { Authorization: `Bearer ${accountToken}` }
+          : undefined,
+      });
       const data = await response.json();
       state.serverDaily = {
         date: String(data.date || localDateKey()),
@@ -1954,6 +2035,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
   async function loadServerRanked() {
     if (!location.protocol.startsWith("http")) return null;
+    if (!state.capabilities.rankedEnabled) return null;
     try {
       const response = await fetch("/api/ranked", { cache: "no-store" });
       const data = await response.json();
@@ -1972,12 +2054,17 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   async function submitDailyScore() {
     if (!state.daily || !location.protocol.startsWith("http")) return;
     try {
+      const accountToken = state.capabilities.authEnabled
+        ? storage.loadAccountToken?.("")
+        : "";
       const response = await fetch("/api/daily", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}),
+        },
         body: JSON.stringify({
           playerId: storage.loadRankedPlayerId("") || loadOrCreatePlayerId(),
-          accountToken: storage.loadAccountToken?.(""),
           runToken: state.serverDaily.runToken,
           runSignature: state.serverDaily.runSignature,
           name: storage.loadPlayerName("Игрок") || state.online.name || "Игрок",
@@ -2007,6 +2094,14 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   async function submitAccount(action) {
+    if (!state.capabilities.authEnabled) {
+      showToast(
+        state.settings.language === "en"
+          ? "Accounts require HTTPS"
+          : "Аккаунты станут доступны после подключения HTTPS",
+      );
+      return;
+    }
     const form = ui.getAccountForm?.() || {};
     try {
       const response = await fetch("/api/account", {
@@ -2049,10 +2144,20 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   async function changeAccountPassword() {
+    if (!state.capabilities.authEnabled) {
+      showToast(
+        state.settings.language === "en"
+          ? "Accounts require HTTPS"
+          : "Аккаунты станут доступны после подключения HTTPS",
+      );
+      return;
+    }
     const form = ui.getAccountForm?.() || {};
     const token = storage.loadAccountToken?.("");
     if (!token) {
-      showToast(state.settings.language === "en" ? "Login first" : "Сначала войди");
+      showToast(
+        state.settings.language === "en" ? "Login first" : "Сначала войди",
+      );
       return;
     }
     try {
@@ -2064,9 +2169,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         },
         body: JSON.stringify({
           action: "changePassword",
-          token,
           currentPassword: form.password,
-          newPassword: form.password,
+          newPassword: form.newPassword,
         }),
       });
       const data = await response.json();
@@ -2074,9 +2178,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         showToast(data.error || "Password error");
         return;
       }
+      if (data.token) storage.saveAccountToken?.(data.token);
       ui.setAccountSession?.(data.account);
       showToast(
-        state.settings.language === "en" ? "Password updated" : "Пароль обновлён",
+        state.settings.language === "en"
+          ? "Password updated"
+          : "Пароль обновлён",
       );
     } catch {
       ui.setAccountStatus?.(
@@ -2092,7 +2199,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     storage.clearAccountToken?.();
     storage.saveAccountName?.("");
     ui.setAccountSession?.(null);
-    if (token && location.protocol.startsWith("http")) {
+    if (token && state.capabilities.authEnabled) {
       fetch("/api/account", {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -3134,11 +3241,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   bindUi();
   applyUrlParams();
   applySettings();
+  ui.setOnlineCapabilities?.(state.capabilities);
   syncUi();
   draw();
   bootPwa();
+  loadCapabilities().then(() => loadServerRanked());
   loadServerRecords();
   loadServerDaily();
-  loadServerRanked();
-  requestAnimationFrame(update);
+  scheduleUpdate();
 })();

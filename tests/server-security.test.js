@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -46,6 +47,46 @@ function startServer(port) {
       }
     });
     serverProcess.on("error", reject);
+  });
+}
+
+function requestWithHost(port, requestPath, host, options = {}) {
+  return new Promise((resolve, reject) => {
+    const body = options.body ? JSON.stringify(options.body) : "";
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: requestPath,
+        method: options.method || "GET",
+        headers: {
+          Host: host,
+          ...(body
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(body),
+              }
+            : {}),
+        },
+      },
+      (response) => {
+        let responseBody = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        response.on("end", () =>
+          resolve({
+            status: response.statusCode,
+            headers: response.headers,
+            body: responseBody,
+          }),
+        );
+      },
+    );
+    request.on("error", reject);
+    if (body) request.write(body);
+    request.end();
   });
 }
 
@@ -120,6 +161,69 @@ describe("server hardening", () => {
     const response = await fetch(`http://127.0.0.1:${port}/styles.css`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/css");
+  });
+
+  it("never exposes source, database, repository, or traversal paths", async () => {
+    const port = 18913;
+    await startServer(port);
+    for (const requestPath of [
+      "/server.js",
+      "/server-store.js",
+      "/package-lock.json",
+      "/blockdrop.sqlite",
+      "/.git/HEAD",
+      "/.github/workflows/release-deploy.yml",
+      "/js/%2e%2e/server.js",
+      "/js/%5c..%5cserver.js",
+    ]) {
+      const response = await requestWithHost(port, requestPath, "127.0.0.1");
+      expect(response.status, requestPath).toBe(404);
+    }
+  });
+
+  it("disables accounts and ranked capabilities on plain public HTTP", async () => {
+    const port = 18914;
+    await startServer(port);
+    const capabilities = await requestWithHost(
+      port,
+      "/api/capabilities",
+      "45.148.117.119",
+    );
+    expect(JSON.parse(capabilities.body)).toMatchObject({
+      secureTransport: false,
+      authEnabled: false,
+      rankedEnabled: false,
+      casualOnlineEnabled: true,
+    });
+
+    const account = await requestWithHost(
+      port,
+      "/api/account",
+      "45.148.117.119",
+      {
+        method: "POST",
+        body: {
+          action: "register",
+          username: "unsafeuser",
+          password: "password123",
+        },
+      },
+    );
+    expect(account.status).toBe(426);
+    expect(JSON.parse(account.body).error).toBe("secureTransportRequired");
+  });
+
+  it("generates same-origin room QR codes locally", async () => {
+    const port = 18915;
+    await startServer(port);
+    const response = await requestWithHost(
+      port,
+      `/api/qr?data=${encodeURIComponent(`http://127.0.0.1/room/FRIENDS`)}`,
+      "127.0.0.1",
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("image/svg+xml");
+    expect(response.body).toContain("<svg");
   });
 
   it("rejects malformed encoded paths without crashing", async () => {
@@ -205,16 +309,25 @@ describe("server hardening", () => {
       }),
     });
     expect(passwordChange.status).toBe(200);
+    const passwordPayload = await passwordChange.json();
+    expect(passwordPayload.token).toBeTruthy();
+
+    const revokedSession = await fetch(`http://127.0.0.1:${port}/api/account`, {
+      headers: { Authorization: `Bearer ${accountPayload.token}` },
+    });
+    expect(revokedSession.status).toBe(401);
 
     const runResponse = await fetch(`http://127.0.0.1:${port}/api/daily`, {
-      headers: { Authorization: `Bearer ${accountPayload.token}` },
+      headers: { Authorization: `Bearer ${passwordPayload.token}` },
     });
     const run = await runResponse.json();
     const daily = await fetch(`http://127.0.0.1:${port}/api/daily`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${passwordPayload.token}`,
+      },
       body: JSON.stringify({
-        accountToken: accountPayload.token,
         runToken: run.runToken,
         runSignature: run.runSignature,
         playerId: "local",

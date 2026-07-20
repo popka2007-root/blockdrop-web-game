@@ -8,6 +8,13 @@ const expectedRevision = process.env.EXPECTED_REVISION || "";
 const viewports = [
   { name: "desktop", width: 1280, height: 800, isMobile: false },
   { name: "mobile", width: 390, height: 844, isMobile: true },
+  {
+    name: "galaxy-s25-fe",
+    width: 360,
+    height: 780,
+    deviceScaleFactor: 3,
+    isMobile: true,
+  },
 ];
 
 function assert(condition, message) {
@@ -20,30 +27,64 @@ async function readHealth(page) {
   return response.json();
 }
 
-async function smokeAccountAndDaily(page) {
+async function readCapabilities(page) {
+  const response = await page.request.get(`${targetUrl}/api/capabilities`);
+  assert(response.ok(), `/api/capabilities returned ${response.status()}`);
+  return response.json();
+}
+
+async function smokeAccountAndDaily(page, capabilities) {
   const suffix = Math.random().toString(36).slice(2, 10);
-  const accountResponse = await page.request.post(`${targetUrl}/api/account`, {
-    data: {
-      action: "register",
-      username: `smoke_${suffix}`,
-      password: "password123",
-      displayName: "Smoke",
-    },
-  });
-  assert(accountResponse.ok(), `account register returned ${accountResponse.status()}`);
-  const account = await accountResponse.json();
-  assert(account.token, "account token missing");
+  let account = null;
+  if (capabilities.authEnabled) {
+    const accountResponse = await page.request.post(
+      `${targetUrl}/api/account`,
+      {
+        data: {
+          action: "register",
+          username: `smoke_${suffix}`,
+          password: "password123",
+          displayName: "Smoke",
+        },
+      },
+    );
+    assert(
+      accountResponse.ok(),
+      `account register returned ${accountResponse.status()}`,
+    );
+    account = await accountResponse.json();
+    assert(account.token, "account token missing");
+  } else {
+    const accountResponse = await page.request.post(
+      `${targetUrl}/api/account`,
+      {
+        data: {
+          action: "register",
+          username: `smoke_${suffix}`,
+          password: "password123",
+        },
+      },
+    );
+    assert(
+      accountResponse.status() === 426,
+      `unsafe account endpoint returned ${accountResponse.status()}`,
+    );
+  }
 
   const dailyResponse = await page.request.get(`${targetUrl}/api/daily`, {
-    headers: { Authorization: `Bearer ${account.token}` },
+    headers: account?.token
+      ? { Authorization: `Bearer ${account.token}` }
+      : undefined,
   });
   assert(dailyResponse.ok(), `/api/daily returned ${dailyResponse.status()}`);
   const daily = await dailyResponse.json();
   assert(daily.runToken && daily.runSignature, "daily run signature missing");
 
   const submitResponse = await page.request.post(`${targetUrl}/api/daily`, {
+    headers: account?.token
+      ? { Authorization: `Bearer ${account.token}` }
+      : undefined,
     data: {
-      accountToken: account.token,
       runToken: daily.runToken,
       runSignature: daily.runSignature,
       playerId: "smoke",
@@ -58,13 +99,20 @@ async function smokeAccountAndDaily(page) {
       perfectClears: 0,
     },
   });
-  assert(submitResponse.ok(), `daily submit returned ${submitResponse.status()}`);
-  return { account: account.account.username, dailyDate: daily.date };
+  assert(
+    submitResponse.ok(),
+    `daily submit returned ${submitResponse.status()}`,
+  );
+  return {
+    account: account?.account?.username || "disabled-without-https",
+    dailyDate: daily.date,
+  };
 }
 
 async function smokeViewport(browser, viewport) {
   const page = await browser.newPage({
     viewport: { width: viewport.width, height: viewport.height },
+    deviceScaleFactor: viewport.deviceScaleFactor || 1,
     isMobile: viewport.isMobile,
   });
   const errors = [];
@@ -117,12 +165,16 @@ async function smokeViewport(browser, viewport) {
     `${viewport.name}: room code invalid`,
   );
   assert(
-    qrSrc && qrSrc.includes("create-qr-code"),
+    qrSrc && qrSrc.includes("/api/qr?data="),
     `${viewport.name}: QR missing`,
   );
   await page.locator("#closeOnlineButton").click();
-  await page.waitForFunction(() => document.querySelector("#onlineOverlay")?.hidden === true);
-  await page.waitForFunction(() => document.querySelector("#startOverlay")?.hidden === false);
+  await page.waitForFunction(
+    () => document.querySelector("#onlineOverlay")?.hidden === true,
+  );
+  await page.waitForFunction(
+    () => document.querySelector("#startOverlay")?.hidden === false,
+  );
 
   await page.locator("#dailyButton").click();
   await page.waitForTimeout(250);
@@ -144,7 +196,22 @@ async function smokeViewport(browser, viewport) {
   try {
     const healthPage = await browser.newPage();
     const health = await readHealth(healthPage);
-    const accountDaily = await smokeAccountAndDaily(healthPage);
+    const capabilities = await readCapabilities(healthPage);
+    const accountDaily = await smokeAccountAndDaily(healthPage, capabilities);
+    for (const privatePath of [
+      "/server.js",
+      "/package-lock.json",
+      "/blockdrop.sqlite",
+      "/.git/HEAD",
+    ]) {
+      const privateResponse = await healthPage.request.get(
+        `${targetUrl}${privatePath}`,
+      );
+      assert(
+        privateResponse.status() === 404,
+        `${privatePath} is publicly exposed (${privateResponse.status()})`,
+      );
+    }
     await healthPage.close();
     assert(health.ok === true, "health ok flag is false");
     assert(health.service === "blockdrop-web-game", "health service mismatch");
@@ -160,7 +227,11 @@ async function smokeViewport(browser, viewport) {
     }
 
     console.log(
-      JSON.stringify({ targetUrl, health, accountDaily, results }, null, 2),
+      JSON.stringify(
+        { targetUrl, health, capabilities, accountDaily, results },
+        null,
+        2,
+      ),
     );
   } finally {
     await browser.close();

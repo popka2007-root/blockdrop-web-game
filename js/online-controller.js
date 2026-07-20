@@ -211,13 +211,20 @@ export function createOnlineController({
   }
 
   function connectOnline() {
-    const { server, name: rawName, ranked, maxPlayers, durationSec } =
-      ui.getOnlineForm();
+    const {
+      server,
+      name: rawName,
+      ranked,
+      maxPlayers,
+      durationSec,
+    } = ui.getOnlineForm();
     const room = ensureRoomCode();
     const name = (rawName || defaultPlayerName()).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
     const identityToken = loadRankedIdentityToken();
-    const accountToken = storage.loadAccountToken?.("") || loadAccountToken();
+    const accountToken = state.capabilities?.authEnabled
+      ? storage.loadAccountToken?.("") || loadAccountToken()
+      : "";
     const mode = normalizeModeKey(ui.getStartMode());
     storage.saveRankedPlayerId(playerId);
     storage.savePlayerName(name);
@@ -249,6 +256,15 @@ export function createOnlineController({
   }
 
   function findRankedMatch() {
+    if (!state.capabilities?.rankedEnabled) {
+      showToast(
+        onlineText(
+          "Ranked станет доступен после подключения HTTPS",
+          "Ranked play requires HTTPS",
+        ),
+      );
+      return;
+    }
     const accountToken = storage.loadAccountToken?.("") || loadAccountToken();
     if (!accountToken) {
       showToast(
@@ -259,8 +275,17 @@ export function createOnlineController({
       );
       return;
     }
-    const { server, name: rawName, maxPlayers, durationSec } = ui.getOnlineForm();
-    const name = (rawName || storage.loadAccountName?.("") || defaultPlayerName()).slice(0, 18);
+    const {
+      server,
+      name: rawName,
+      maxPlayers,
+      durationSec,
+    } = ui.getOnlineForm();
+    const name = (
+      rawName ||
+      storage.loadAccountName?.("") ||
+      defaultPlayerName()
+    ).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
     const identityToken = loadRankedIdentityToken();
     const mode = normalizeModeKey(ui.getStartMode());
@@ -271,7 +296,9 @@ export function createOnlineController({
       state.online.name = name;
       state.online.ranked = true;
       ui.setOnlineRanked(true);
-      ui.setOnlineStatus(onlineText("Ищем ranked матч...", "Finding ranked match..."));
+      ui.setOnlineStatus(
+        onlineText("Ищем ranked матч...", "Finding ranked match..."),
+      );
       openOnlineSocket(onlineClient, {
         server,
         room: "RANKED",
@@ -388,7 +415,9 @@ export function createOnlineController({
   onOnlineMessage(onlineClient, (data) => {
     if (data.type === "open") {
       state.online.connected = true;
-      ui.setOnlineStatus(onlineText(`Комната ${data.room}`, `Room ${data.room}`));
+      ui.setOnlineStatus(
+        onlineText(`Комната ${data.room}`, `Room ${data.room}`),
+      );
       if (globalThis.location.protocol.startsWith("http")) {
         globalThis.history.replaceState(null, "", roomInviteUrl(data.room));
       }
@@ -432,7 +461,9 @@ export function createOnlineController({
     }
 
     if (data.type === "queued") {
-      ui.setOnlineStatus(onlineText("Ожидание соперника...", "Waiting for opponent..."));
+      ui.setOnlineStatus(
+        onlineText("Ожидание соперника...", "Waiting for opponent..."),
+      );
       showToast(onlineText("Ranked очередь", "Ranked queue"));
       return;
     }
@@ -440,7 +471,12 @@ export function createOnlineController({
     if (data.type === "matchFound") {
       state.online.room = data.room || state.online.room;
       ui.setOnlineRoom(state.online.room);
-      ui.setOnlineStatus(onlineText(`Матч найден: ${state.online.room}`, `Match found: ${state.online.room}`));
+      ui.setOnlineStatus(
+        onlineText(
+          `Матч найден: ${state.online.room}`,
+          `Match found: ${state.online.room}`,
+        ),
+      );
       showToast(onlineText("Соперник найден", "Opponent found"));
       return;
     }
@@ -478,7 +514,9 @@ export function createOnlineController({
     if (data.type === "state") {
       state.online.peers = data.players || {};
       state.online.tournament = data.tournament || null;
-      state.online.mode = normalizeModeKey(data.match?.mode || state.online.mode);
+      state.online.mode = normalizeModeKey(
+        data.match?.mode || state.online.mode,
+      );
       state.online.series = data.match?.series || null;
       state.online.ranked = Boolean(data.match?.ranked || state.online.ranked);
       state.online.rankedResult =
@@ -500,7 +538,9 @@ export function createOnlineController({
 
     if (data.type === "countdown") {
       emitOnlineEvent("countdown", { value: data.value || 0 });
-      showToast(onlineText(`PvP старт: ${data.value}`, `PvP starts: ${data.value}`));
+      showToast(
+        onlineText(`PvP старт: ${data.value}`, `PvP starts: ${data.value}`),
+      );
       return;
     }
 

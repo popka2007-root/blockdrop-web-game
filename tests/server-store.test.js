@@ -56,7 +56,17 @@ describe("server store", () => {
     expect(created.ok).toBe(true);
     expect(created.account.username).toBe("alpha_user");
     expect(created.token).toBeTruthy();
-    expect(store.publicAccount(store.getAccountBySession(created.token))).toEqual({
+    const storedSession = store.db
+      .prepare("SELECT token, expires_at AS expiresAt FROM account_sessions")
+      .get();
+    expect(storedSession.token).not.toBe(created.token);
+    expect(storedSession.token).toBe(
+      crypto.createHash("sha256").update(created.token).digest("hex"),
+    );
+    expect(storedSession.expiresAt).toBeGreaterThan(Date.now());
+    expect(
+      store.publicAccount(store.getAccountBySession(created.token)),
+    ).toEqual({
       id: created.account.id,
       username: "alpha_user",
       displayName: "Alpha",
@@ -74,6 +84,32 @@ describe("server store", () => {
     expect(identity.accepted).toBe(true);
     expect(identity.profile.id).toBe(`acct.${created.account.id}`);
     expect(identity.profile.name).toBe("Alpha");
+  });
+
+  it("revokes existing sessions when the password changes", () => {
+    const store = createTempStore();
+    const created = store.createAccount({
+      username: "session_user",
+      password: "password123",
+      displayName: "Session",
+    });
+    const second = store.loginAccount({
+      username: "session_user",
+      password: "password123",
+    });
+    const changed = store.changeAccountPassword({
+      token: created.token,
+      currentPassword: "password123",
+      newPassword: "password456",
+    });
+
+    expect(changed.ok).toBe(true);
+    expect(changed.token).toBeTruthy();
+    expect(store.getAccountBySession(created.token)).toBeNull();
+    expect(store.getAccountBySession(second.token)).toBeNull();
+    expect(store.getAccountBySession(changed.token)).toMatchObject({
+      username: "session_user",
+    });
   });
 
   it("creates stable ranked identities and rejects invalid tokens", () => {

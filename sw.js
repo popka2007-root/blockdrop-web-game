@@ -1,11 +1,30 @@
-const CACHE_NAME = "blockdrop-cache-v13";
+const CACHE_NAME = "blockdrop-cache-v14";
 const ASSETS = [
-  "./",
-  "index.html",
-  "sw.js",
-  "manifest.webmanifest",
-  "icons/icon-192.png",
-  "icons/icon-512.png",
+  "/",
+  "/index.html",
+  "/styles.css",
+  "/styles/pvp-enhancements.css",
+  "/manifest.webmanifest",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/shared/protocol.js",
+  "/js/audio.js",
+  "/js/config.js",
+  "/js/game-core.js",
+  "/js/game.js",
+  "/js/input.js",
+  "/js/modes.js",
+  "/js/online-controller.js",
+  "/js/online.js",
+  "/js/pvp-enhancements.js",
+  "/js/runtime-loop.js",
+  "/js/save-load.js",
+  "/js/scene-state.js",
+  "/js/scoring.js",
+  "/js/session-state.js",
+  "/js/storage.js",
+  "/js/ui.js",
+  "/js/utils.js",
 ];
 
 self.addEventListener("install", (event) => {

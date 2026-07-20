@@ -14,9 +14,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: blockdrop-release
+  cancel-in-progress: false
+
 jobs:
   release-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -31,7 +36,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
@@ -54,6 +59,7 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: write
+    timeout-minutes: 10
 
     steps:
       - name: Publish GitHub release
@@ -66,13 +72,19 @@ jobs:
       - release-check
       - publish-release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+      TARGET_URL: ${{ secrets.TARGET_URL }}
     if: >-
       ${{
         startsWith(github.ref, 'refs/tags/') &&
-        secrets.VPS_HOST != '' &&
-        secrets.VPS_USER != '' &&
-        secrets.VPS_PASSWORD != '' &&
-        secrets.TARGET_URL != ''
+        env.VPS_HOST != '' &&
+        env.VPS_USER != '' &&
+        env.VPS_PASSWORD != '' &&
+        env.TARGET_URL != ''
       }}
 
     steps:
@@ -86,7 +98,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
@@ -122,7 +134,7 @@ jobs:
           trap rollback ERR
           git fetch origin --tags
           git checkout "$DEPLOY_REF"
-          npm install
+          npm ci
           git rev-parse HEAD > REVISION
           BLOCKDROP_DB_FILE=/tmp/blockdrop-verify.sqlite BLOCKDROP_DEPLOY_REASON=github-actions npm run verify
           chown -R tetris:tetris /opt/tetris

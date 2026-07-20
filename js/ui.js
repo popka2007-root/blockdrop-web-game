@@ -122,11 +122,13 @@ const UI_IDS = [
   "onlineAdvancedSummary",
   "onlineRoomInput",
   "onlineNameInput",
+  "onlineSecurityNotice",
   "onlineRankedToggle",
   "onlineRankedLabel",
   "findRankedButton",
   "accountUsernameInput",
   "accountPasswordInput",
+  "accountNewPasswordInput",
   "accountStatus",
   "accountLoginButton",
   "accountRegisterButton",
@@ -546,7 +548,68 @@ export function createUi(options = {}) {
   const holdCtx = refs.hold.getContext("2d");
   let toastTimer = 0;
   let tutorialIndex = 0;
+  let onlineCapabilities = null;
+  let focusBeforeDialog = null;
   const canvasSizes = new WeakMap();
+  const overlays = [...root.querySelectorAll(".overlay")];
+
+  for (const [index, overlay] of overlays.entries()) {
+    const modal = overlay.querySelector(".modal");
+    const heading = modal?.querySelector("h1, h2, h3");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-hidden", String(overlay.hidden));
+    if (heading) {
+      heading.id ||= `blockdrop-dialog-title-${index + 1}`;
+      overlay.setAttribute("aria-labelledby", heading.id);
+    }
+    modal?.setAttribute("tabindex", "-1");
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") return;
+      const focusable = [
+        ...overlay.querySelectorAll(
+          'button:not([disabled]):not([hidden]), input:not([disabled]):not([hidden]), select:not([disabled]):not([hidden]), summary, [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => element.getClientRects().length > 0);
+      if (!focusable.length) {
+        event.preventDefault();
+        modal?.focus({ preventScroll: true });
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && documentRef.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && documentRef.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  function setOverlayVisibility(overlay, visible, restoreFocus = true) {
+    if (!overlay) return;
+    if (visible && overlay.hidden)
+      focusBeforeDialog = documentRef.activeElement;
+    overlay.hidden = !visible;
+    overlay.setAttribute("aria-hidden", String(!visible));
+    if (visible) {
+      windowRef.setTimeout(() => {
+        const target = overlay.querySelector(
+          "button:not([disabled]):not([hidden]), input:not([disabled]):not([hidden]), select:not([disabled]):not([hidden]), .modal",
+        );
+        target?.focus({ preventScroll: true });
+      }, 0);
+    } else if (
+      restoreFocus &&
+      !overlays.some((item) => !item.hidden) &&
+      focusBeforeDialog?.isConnected
+    ) {
+      focusBeforeDialog.focus({ preventScroll: true });
+      focusBeforeDialog = null;
+    }
+  }
 
   function applySettings(settings) {
     documentRef.documentElement.dataset.theme =
@@ -817,10 +880,19 @@ export function createUi(options = {}) {
       refs.accountPasswordInput,
       language === "en" ? "8+ characters" : "8+ символов",
     );
-    setText(refs.findRankedButton, language === "en" ? "Find ranked" : "Ranked матч");
+    setText(
+      refs.findRankedButton,
+      language === "en" ? "Find ranked" : "Ranked матч",
+    );
     setText(refs.accountLoginButton, language === "en" ? "Login" : "Войти");
-    setText(refs.accountRegisterButton, language === "en" ? "Register" : "Создать");
-    setText(refs.accountPasswordButton, language === "en" ? "Password" : "Пароль");
+    setText(
+      refs.accountRegisterButton,
+      language === "en" ? "Register" : "Создать",
+    );
+    setText(
+      refs.accountPasswordButton,
+      language === "en" ? "Password" : "Пароль",
+    );
     setText(refs.accountLogoutButton, language === "en" ? "Logout" : "Выйти");
     setText(documentRef.querySelector(".room-card span"), text.roomCode);
     refs.roomQr.setAttribute(
@@ -882,6 +954,7 @@ export function createUi(options = {}) {
     );
     setText(refs.closeReplayButton, text.close);
     populateModeSelect(language);
+    if (onlineCapabilities) setOnlineCapabilities(onlineCapabilities);
   }
 
   function updateThemeSwatches(theme) {
@@ -1431,33 +1504,27 @@ export function createUi(options = {}) {
       .join("");
     refs.gameOverInsight.innerHTML = payload.insight;
     refs.serverRecordStatus.textContent = payload.serverStatus;
-    refs.gameOverOverlay.hidden = false;
+    setOverlayVisibility(refs.gameOverOverlay, true);
   }
 
   function setPauseVisible(visible) {
-    refs.pauseOverlay.hidden = !visible;
+    setOverlayVisibility(refs.pauseOverlay, visible);
   }
 
   function hideOverlays() {
-    refs.startOverlay.hidden = true;
-    refs.aiOverlay.hidden = true;
-    refs.pauseOverlay.hidden = true;
-    refs.settingsOverlay.hidden = true;
-    refs.statsOverlay.hidden = true;
-    refs.helpOverlay.hidden = true;
-    refs.coachOverlay.hidden = true;
-    refs.onlineOverlay.hidden = true;
-    refs.tournamentOverlay.hidden = true;
-    refs.replayOverlay.hidden = true;
-    refs.gameOverOverlay.hidden = true;
+    for (const overlay of overlays) setOverlayVisibility(overlay, false, false);
+    if (focusBeforeDialog?.isConnected) {
+      focusBeforeDialog.focus({ preventScroll: true });
+      focusBeforeDialog = null;
+    }
   }
 
   function showOverlay(name) {
-    refs[name].hidden = false;
+    setOverlayVisibility(refs[name], true);
   }
 
   function hideOverlay(name) {
-    refs[name].hidden = true;
+    setOverlayVisibility(refs[name], false);
   }
 
   function isOverlayVisible(name) {
@@ -1465,7 +1532,7 @@ export function createUi(options = {}) {
   }
 
   function openSettings() {
-    refs.settingsOverlay.hidden = false;
+    setOverlayVisibility(refs.settingsOverlay, true);
   }
 
   function getStartMode() {
@@ -1542,7 +1609,7 @@ export function createUi(options = {}) {
           )
           .join("")
       : `<div class="result-row"><span>${escapeHtml(noResults)}</span><span>0</span></div>`;
-    refs.tournamentOverlay.hidden = false;
+    setOverlayVisibility(refs.tournamentOverlay, true);
     return stateWasRunning;
   }
 
@@ -1630,13 +1697,14 @@ export function createUi(options = {}) {
           : "Запись появится после нового локального рекорда.";
       refs.replayTimeline.innerHTML = "";
       refs.startGhostButton.disabled = true;
-      refs.replayOverlay.hidden = false;
+      setOverlayVisibility(refs.replayOverlay, true);
       return;
     }
 
     refs.startGhostButton.disabled = false;
     const summaryParts = [];
-    if (ghostRun.summary?.bestMoment) summaryParts.push(ghostRun.summary.bestMoment);
+    if (ghostRun.summary?.bestMoment)
+      summaryParts.push(ghostRun.summary.bestMoment);
     if (ghostRun.summary?.bestBackToBack)
       summaryParts.push(`B2B x${ghostRun.summary.bestBackToBack}`);
     if (ghostRun.summary?.perfectClears)
@@ -1669,7 +1737,7 @@ export function createUi(options = {}) {
         return `<div class="replay-step"><span>${escapeHtml(formatTime(sample.time))}</span><i style="height:${height}%"></i><b style="height:${score}%"></b></div>`;
       })
       .join("");
-    refs.replayOverlay.hidden = false;
+    setOverlayVisibility(refs.replayOverlay, true);
   }
 
   function renderMenuRecords({
@@ -1736,7 +1804,8 @@ export function createUi(options = {}) {
   }
 
   function setOnlineRanked(ranked) {
-    if (refs.onlineRankedToggle) refs.onlineRankedToggle.checked = Boolean(ranked);
+    if (refs.onlineRankedToggle)
+      refs.onlineRankedToggle.checked = Boolean(ranked);
   }
 
   function renderRoomInvite({ room, url }) {
@@ -1747,8 +1816,7 @@ export function createUi(options = {}) {
         ? "The link appears after room creation"
         : "Ссылка появится после генерации");
     refs.roomQr.hidden = !url;
-    if (url)
-      refs.roomQr.src = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&margin=8&data=${encodeURIComponent(url)}`;
+    if (url) refs.roomQr.src = `/api/qr?data=${encodeURIComponent(url)}`;
   }
 
   function setOnlineStatus(text) {
@@ -1769,8 +1837,44 @@ export function createUi(options = {}) {
     return {
       username: refs.accountUsernameInput.value.trim(),
       password: refs.accountPasswordInput.value,
+      newPassword: refs.accountNewPasswordInput.value,
       displayName: refs.onlineNameInput.value.trim(),
     };
+  }
+
+  function setOnlineCapabilities(capabilities = {}) {
+    onlineCapabilities = capabilities;
+    const authEnabled = Boolean(capabilities.authEnabled);
+    const rankedEnabled = Boolean(capabilities.rankedEnabled);
+    const maxPlayers = Math.max(2, Number(capabilities.maxPlayers) || 2);
+    refs.onlineSecurityNotice.hidden = authEnabled;
+    refs.onlineSecurityNotice.textContent =
+      refs.languageSelect.value === "en"
+        ? "Accounts and ranked matches will become available over HTTPS. Casual rooms work on this address."
+        : "Аккаунты и рейтинговые матчи включатся после подключения HTTPS. Обычные комнаты уже доступны по текущему адресу.";
+    refs.onlineRankedToggle.closest(".ranked-controls").hidden = !rankedEnabled;
+    refs.findRankedButton.hidden = !rankedEnabled;
+    if (!rankedEnabled) refs.onlineRankedToggle.checked = false;
+
+    const accountElements = [
+      refs.accountUsernameInput.closest(".setting"),
+      refs.accountPasswordInput.closest(".setting"),
+      refs.accountNewPasswordInput.closest(".setting"),
+      refs.accountStatus,
+      refs.accountLoginButton,
+      refs.accountRegisterButton,
+      refs.accountPasswordButton,
+      refs.accountLogoutButton,
+    ];
+    for (const element of accountElements) element.hidden = !authEnabled;
+
+    for (const option of refs.onlineMaxPlayersSelect.options) {
+      option.hidden = Number(option.value) > maxPlayers;
+      option.disabled = Number(option.value) > maxPlayers;
+    }
+    if (Number(refs.onlineMaxPlayersSelect.value) > maxPlayers) {
+      refs.onlineMaxPlayersSelect.value = String(maxPlayers);
+    }
   }
 
   function setAccountStatus(text) {
@@ -2098,6 +2202,7 @@ export function createUi(options = {}) {
     getAccountForm,
     setAccountStatus,
     setAccountSession,
+    setOnlineCapabilities,
     setOnlineRoom,
     setOnlineRanked,
     renderRoomInvite,

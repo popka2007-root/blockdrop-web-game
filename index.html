@@ -484,7 +484,11 @@
             />
           </div>
         </div>
-        <label class="toggle-row">
+        <p class="online-security-notice" id="onlineSecurityNotice" hidden>
+          Аккаунты и рейтинговые матчи включатся после подключения HTTPS.
+          Обычные комнаты уже доступны по текущему адресу.
+        </p>
+        <label class="toggle-row ranked-controls">
           <span id="onlineRankedLabel">Ranked PvP</span>
           <input id="onlineRankedToggle" type="checkbox" />
         </label>
@@ -508,6 +512,18 @@
               autocomplete="current-password"
               type="password"
               placeholder="8+ symbols"
+            />
+          </div>
+          <div class="setting account-new-password" hidden>
+            <label for="accountNewPasswordInput">Новый пароль</label>
+            <input
+              class="input"
+              id="accountNewPasswordInput"
+              maxlength="128"
+              minlength="8"
+              autocomplete="new-password"
+              type="password"
+              placeholder="8+ символов"
             />
           </div>
         </div>
