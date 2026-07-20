@@ -1,0 +1,81 @@
+const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const Database = require("better-sqlite3");
+const { pruneTier, runBackup, verifyDatabase } = require("./backup-sqlite");
+const { restoreDatabase } = require("./restore-sqlite");
+
+async function main() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "blockdrop-backup-test-"));
+  try {
+    const source = path.join(root, "source.sqlite");
+    const restored = path.join(root, "restored.sqlite");
+    const db = new Database(source);
+    db.exec("CREATE TABLE proof(id TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    const id = crypto.randomUUID();
+    db.prepare("INSERT INTO proof(id, value) VALUES(?, ?)").run(id, "verified");
+    db.close();
+
+    const backup = await runBackup({
+      source,
+      backupRoot: path.join(root, "backups"),
+      at: "2026-07-20",
+      allTiers: true,
+    });
+    if (backup.created.length !== 3)
+      throw new Error("Expected three backup tiers");
+    restoreDatabase({ backup: backup.created[0], target: restored });
+    verifyDatabase(restored);
+    const restoredDb = new Database(restored, {
+      readonly: true,
+      fileMustExist: true,
+    });
+    const proof = restoredDb.prepare("SELECT id, value FROM proof").get();
+    restoredDb.close();
+    if (proof?.id !== id || proof?.value !== "verified") {
+      throw new Error("Restored database contents do not match the source");
+    }
+
+    const retentionRoot = path.join(root, "retention");
+    for (const [tier, total, keep] of [
+      ["daily", 20, 14],
+      ["weekly", 12, 8],
+      ["monthly", 9, 6],
+    ]) {
+      const tierRoot = path.join(retentionRoot, tier);
+      fs.mkdirSync(tierRoot, { recursive: true });
+      for (let day = 1; day <= total; day += 1) {
+        fs.writeFileSync(
+          path.join(
+            tierRoot,
+            `blockdrop-2025-01-${String(day).padStart(2, "0")}.sqlite`,
+          ),
+          "retention-fixture",
+        );
+      }
+      const removed = pruneTier(retentionRoot, tier, keep);
+      if (removed.length !== total - keep) {
+        throw new Error(`Unexpected ${tier} retention result`);
+      }
+      if (fs.readdirSync(tierRoot).length !== keep) {
+        throw new Error(`Unexpected ${tier} retained file count`);
+      }
+    }
+
+    console.log(
+      JSON.stringify({
+        status: "ok",
+        tiers: backup.created.length,
+        retention: { daily: 14, weekly: 8, monthly: 6 },
+      }),
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+main().catch((error) => {
+  console.error(error.stack || error.message);
+  process.exit(1);
+});

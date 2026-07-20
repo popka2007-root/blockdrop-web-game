@@ -2,37 +2,50 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 let serverProcess = null;
+const databaseFiles = new Set();
 
 afterEach(() => {
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
   }
-  for (const file of [
-    "records.json",
-    "ranked.json",
-    "blockdrop.sqlite",
-    "blockdrop.sqlite-shm",
-    "blockdrop.sqlite-wal",
-  ]) {
-    try {
-      fs.unlinkSync(path.join(process.cwd(), file));
-    } catch {
-      // file may not exist for every test
+  for (const databaseFile of databaseFiles) {
+    for (const file of [
+      databaseFile,
+      `${databaseFile}-shm`,
+      `${databaseFile}-wal`,
+    ]) {
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        // the server process can retain a transient WAL handle on Windows
+      }
     }
   }
+  databaseFiles.clear();
 });
 
-function startServer(port) {
+function startServer(port, env = {}) {
+  const databaseFile = path.join(
+    os.tmpdir(),
+    `blockdrop-security-${crypto.randomUUID()}.sqlite`,
+  );
+  databaseFiles.add(databaseFile);
   return new Promise((resolve, reject) => {
     serverProcess = spawn(process.execPath, ["server.js"], {
       cwd: process.cwd(),
-      env: { ...process.env, PORT: String(port) },
+      env: {
+        ...process.env,
+        PORT: String(port),
+        BLOCKDROP_DB_FILE: databaseFile,
+        ...env,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -247,6 +260,48 @@ describe("server hardening", () => {
     expect(payload.service).toBe("blockdrop-web-game");
     expect(payload.rooms).toBe(0);
     expect(Number.isInteger(payload.uptimeSec)).toBe(true);
+  });
+
+  it("separates liveness and database readiness probes", async () => {
+    const port = 18918;
+    await startServer(port);
+
+    const live = await fetch(`http://127.0.0.1:${port}/health/live`);
+    const ready = await fetch(`http://127.0.0.1:${port}/health/ready`);
+
+    expect(live.status).toBe(200);
+    expect(await live.json()).toMatchObject({ ok: true, status: "live" });
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({
+      ok: true,
+      status: "ready",
+      database: "ready",
+    });
+  });
+
+  it("protects metrics with a bearer token when configured", async () => {
+    const port = 18919;
+    await startServer(port, { BLOCKDROP_METRICS_TOKEN: "test-metrics-token" });
+
+    const denied = await fetch(`http://127.0.0.1:${port}/metrics`);
+    const allowed = await fetch(`http://127.0.0.1:${port}/metrics`, {
+      headers: { Authorization: "Bearer test-metrics-token" },
+    });
+
+    expect(denied.status).toBe(404);
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toContain("blockdrop_rooms_active");
+  });
+
+  it("does not treat reverse-proxied metrics requests as localhost", async () => {
+    const port = 18920;
+    await startServer(port);
+
+    const response = await fetch(`http://127.0.0.1:${port}/metrics`, {
+      headers: { "X-Forwarded-For": "203.0.113.10" },
+    });
+
+    expect(response.status).toBe(404);
   });
 
   it("serves metrics and a stable server-side daily challenge seed", async () => {

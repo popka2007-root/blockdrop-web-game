@@ -29,13 +29,16 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
 
       - name: Unit tests
         run: npm test
+
+      - name: Verify database backup and restore
+        run: npm run db:verify-backup
 
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
@@ -58,7 +61,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Validate release metadata
         run: npm run release:validate

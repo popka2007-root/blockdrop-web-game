@@ -142,6 +142,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (requestUrl.pathname === "/health/live") {
+    handleLiveness(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/health/ready") {
+    handleReadiness(req, res, false);
+    return;
+  }
+
   if (requestUrl.pathname === "/health") {
     handleHealth(req, res);
     return;
@@ -221,8 +231,63 @@ function safeDecodePath(pathname) {
 }
 
 function handleHealth(req, res) {
+  handleReadiness(req, res, true);
+}
+
+function handleLiveness(req, res) {
   if (req.method !== "GET" && req.method !== "HEAD") {
     sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  const payload = {
+    ok: true,
+    status: "live",
+    service: "blockdrop-web-game",
+    version: readPackageMeta().version,
+    revision: readRevision(),
+    uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+  };
+  sendHealthPayload(req, res, payload, 200);
+}
+
+function handleReadiness(req, res, includeDetails) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+
+  const readiness = store.checkReady();
+  if (!readiness.ok) {
+    sendHealthPayload(
+      req,
+      res,
+      {
+        ok: false,
+        status: "not-ready",
+        service: "blockdrop-web-game",
+        version: readPackageMeta().version,
+        revision: readRevision(),
+      },
+      503,
+    );
+    return;
+  }
+
+  if (!includeDetails) {
+    sendHealthPayload(
+      req,
+      res,
+      {
+        ok: true,
+        status: "ready",
+        service: "blockdrop-web-game",
+        version: readPackageMeta().version,
+        revision: readRevision(),
+        database: "ready",
+      },
+      200,
+    );
     return;
   }
 
@@ -249,21 +314,28 @@ function handleHealth(req, res) {
     revision: readRevision(),
   };
 
+  sendHealthPayload(req, res, payload, 200);
+}
+
+function sendHealthPayload(req, res, payload, status) {
   if (req.method === "HEAD") {
-    writeHead(res, 200, {
+    writeHead(res, status, {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-store",
     });
     res.end();
     return;
   }
-
-  sendJson(res, payload);
+  sendJson(res, payload, status);
 }
 
 function handleMetrics(req, res) {
   if (req.method !== "GET" && req.method !== "HEAD") {
     sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  if (!hasMetricsAccess(req)) {
+    sendJson(res, { error: "Not found" }, 404);
     return;
   }
   const counts = store.getHealthCounts(serverDateKey());
@@ -287,6 +359,29 @@ function handleMetrics(req, res) {
       blockdrop_ranked_queue_waiting: rankedQueue.length,
     }),
   );
+}
+
+function hasMetricsAccess(req) {
+  const configuredToken = String(process.env.BLOCKDROP_METRICS_TOKEN || "");
+  if (configuredToken) {
+    const header = String(req.headers.authorization || "");
+    const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+    return timingSafeEqualText(token, configuredToken);
+  }
+  if (req.headers.forwarded || req.headers["x-forwarded-for"]) return false;
+  const address = String(req.socket?.remoteAddress || "").toLowerCase();
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address === "::ffff:127.0.0.1"
+  );
+}
+
+function timingSafeEqualText(leftValue, rightValue) {
+  const left = Buffer.from(String(leftValue || ""));
+  const right = Buffer.from(String(rightValue || ""));
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
 }
 
 function serverDateKey(date = new Date()) {

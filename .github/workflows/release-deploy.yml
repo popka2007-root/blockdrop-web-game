@@ -44,6 +44,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Verify database backup and restore
+        run: npm run db:verify-backup
+
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
 
@@ -76,52 +79,67 @@ jobs:
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
       TARGET_URL: ${{ secrets.TARGET_URL }}
-    if: >-
-      ${{
-        startsWith(github.ref, 'refs/tags/') &&
-        env.VPS_HOST != '' &&
-        env.VPS_USER != '' &&
-        env.VPS_PASSWORD != '' &&
-        env.TARGET_URL != ''
-      }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
 
     steps:
+      - name: Check deployment configuration
+        id: deploy-config
+        run: |
+          if [ -n "$VPS_HOST" ] && [ -n "$VPS_USER" ] && [ -n "$VPS_SSH_KEY" ] && [ -n "$VPS_KNOWN_HOSTS" ] && [ -n "$TARGET_URL" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deployment secrets are incomplete; release remains published without VPS deployment."
+          fi
+
       - name: Checkout
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         uses: actions/checkout@v5
 
       - name: Setup Node
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         run: npm ci
 
       - name: Install Playwright
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         run: npx playwright install --with-deps chromium
 
-      - name: Install sshpass
-        run: sudo apt-get update && sudo apt-get install -y sshpass
+      - name: Configure pinned SSH identity
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
       - name: Deploy tagged release
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
           DEPLOY_REF: ${{ github.ref_name }}
           EXPECTED_REVISION: ${{ github.sha }}
         run: |
-          sshpass -p "$VPS_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" <<EOF
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<EOF
           set -e
           cd /opt/tetris
+          DATA_DIR=/opt/blockdrop-data
           BACKUP_DIR="/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
           cp -a /opt/tetris "\$BACKUP_DIR"
-          if [ -f /opt/tetris/blockdrop.sqlite ]; then
-            cp -a /opt/tetris/blockdrop.sqlite "\$BACKUP_DIR/blockdrop.sqlite.predeploy"
-          fi
+          install -d -o tetris -g tetris -m 750 "\$DATA_DIR" "\$DATA_DIR/backups"
           rollback() {
             echo "Deploy failed, rolling back to \$BACKUP_DIR"
             systemctl stop tetris.service || true
@@ -132,19 +150,36 @@ jobs:
             systemctl restart tetris.service
           }
           trap rollback ERR
+          systemctl stop tetris.service
+          if [ ! -f "\$DATA_DIR/blockdrop.sqlite" ] && [ -f /opt/tetris/blockdrop.sqlite ]; then
+            cp -a /opt/tetris/blockdrop.sqlite* "\$DATA_DIR/"
+          fi
+          chown -R tetris:tetris "\$DATA_DIR"
+          find "\$DATA_DIR" -maxdepth 1 -type f -name 'blockdrop.sqlite*' -exec chmod 600 {} \;
           git fetch origin --tags
           git checkout "$DEPLOY_REF"
           npm ci
+          if [ -f "\$DATA_DIR/blockdrop.sqlite" ]; then
+            BLOCKDROP_DB_FILE="\$DATA_DIR/blockdrop.sqlite" BLOCKDROP_BACKUP_DIR="\$DATA_DIR/backups" npm run db:backup
+          fi
+          install -m 644 deploy/blockdrop-backup.service /etc/systemd/system/blockdrop-backup.service
+          install -m 644 deploy/blockdrop-backup.timer /etc/systemd/system/blockdrop-backup.timer
+          install -d -m 755 /etc/systemd/system/tetris.service.d
+          printf '[Service]\nEnvironment=BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite\n' > /etc/systemd/system/tetris.service.d/blockdrop.conf
+          systemctl daemon-reload
           git rev-parse HEAD > REVISION
           BLOCKDROP_DB_FILE=/tmp/blockdrop-verify.sqlite BLOCKDROP_DEPLOY_REASON=github-actions npm run verify
           chown -R tetris:tetris /opt/tetris
           systemctl restart tetris.service
-          curl --fail http://127.0.0.1/health
+          systemctl enable --now blockdrop-backup.timer
+          curl --fail http://127.0.0.1/health/live
+          curl --fail http://127.0.0.1/health/ready
           curl --fail http://127.0.0.1/metrics
           trap - ERR
           EOF
 
       - name: Check public health
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           EXPECTED_REVISION: ${{ github.sha }}
@@ -152,6 +187,7 @@ jobs:
         run: npm run health:check
 
       - name: Run public smoke
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           EXPECTED_REVISION: ${{ github.sha }}

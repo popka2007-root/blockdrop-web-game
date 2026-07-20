@@ -1171,6 +1171,15 @@ function createServerStore({
     };
   }
 
+  function checkReady() {
+    try {
+      const result = db.prepare("SELECT 1 AS ready").get();
+      return { ok: result?.ready === 1 };
+    } catch {
+      return { ok: false };
+    }
+  }
+
   deleteExpiredSessionsStmt.run(Date.now());
   migrateLegacyFiles();
 
@@ -1205,6 +1214,7 @@ function createServerStore({
     logRankedMatch,
     insertDeployAudit,
     getHealthCounts,
+    checkReady,
   };
 }
 
