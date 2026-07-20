@@ -108,8 +108,10 @@ test("autosave restores an active game from the menu", async ({ page }) => {
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("blockdrop-save-v2") || "null"),
   );
-  expect(saved?.active).toBeTruthy();
-  expect(saved?.hold).toBeTruthy();
+  expect(saved?.saveSchemaVersion).toBe(2);
+  expect(saved?.engineVersion).toBe(2);
+  expect(saved?.state?.active).toBeTruthy();
+  expect(saved?.state?.hold).toBeTruthy();
 
   await page.reload();
   await page.locator("#continueButton").click();
@@ -378,4 +380,116 @@ test("hardcore time attack and replay menu are exposed", async ({ page }) => {
   await expect(page.locator("#replayOverlay")).toBeVisible();
   await expect(page.locator("#replaySummary")).toBeVisible();
   await page.locator("#closeReplayButton").click();
+});
+
+test("AI opponent plans in a Web Worker", async ({ page }) => {
+  const workerUrls = [];
+  page.on("worker", (worker) => workerUrls.push(worker.url()));
+  await page.goto("/");
+  await page.locator("#aiButton").click();
+  await page.selectOption("#aiDifficultySelect", "insane");
+  await page.locator("#startAiButton").click();
+
+  await expect
+    .poll(() => workerUrls.some((url) => url.endsWith("/js/ai-worker.js")))
+    .toBe(true);
+  await expect(page.locator("#startOverlay")).toBeHidden();
+  await page.waitForTimeout(700);
+  await expect(page.locator("#scoreValue")).toBeVisible();
+});
+
+test("deterministic replay supports speed, pause, and checkpoint seek", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const engine = await import("/js/engine.js");
+    const state = engine.createState({ seed: "playwright-replay" });
+    const inputs = [];
+    for (let seq = 1; seq <= 6 && !state.gameOver; seq += 1) {
+      const input = {
+        tick: state.tick,
+        seq,
+        action: "hardDrop",
+        pressed: true,
+      };
+      inputs.push(input);
+      engine.applyInput(state, input, []);
+      for (let tick = 0; tick < 12 && !state.gameOver; tick += 1) {
+        engine.step(state);
+      }
+    }
+    const replay = engine.createReplay({
+      seed: state.seed,
+      mode: state.mode,
+      inputs,
+      finalState: state,
+      checkpointIntervalTicks: 20,
+      metadata: { score: state.score },
+    });
+    localStorage.setItem("blockdrop-replay-v1", JSON.stringify(replay));
+  });
+  await page.reload();
+  await page.locator("#menuMoreSummary").click();
+  await page.locator("#replayButton").click();
+  await expect(page.locator("#playReplayButton")).toBeEnabled();
+  await page.selectOption("#replaySpeedSelect", "4");
+  await page.locator("#playReplayButton").click();
+  await expect(page.locator("#replayPlaybackBar")).toBeVisible();
+  await expect(page.locator("#replayPlaybackSpeed")).toHaveValue("4");
+  await page.locator("#replayPlaybackPause").click();
+  await expect(page.locator("#replayPlaybackPause")).toContainText(
+    /Продолжить|Resume/,
+  );
+  const max = Number(
+    await page.locator("#replayPlaybackSeek").getAttribute("max"),
+  );
+  await page.locator("#replayPlaybackSeek").fill(String(Math.floor(max / 2)));
+  await expect(page.locator("#replayPlaybackStatus")).not.toHaveText(
+    "0:00 / 0:00",
+  );
+});
+
+test("golden replay checksum matches browser and Worker", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const engine = await import("/js/engine.js");
+    const replay = await fetch("/shared/golden-replay.json").then((response) =>
+      response.json(),
+    );
+    const browser = engine.simulateReplay(replay);
+    const worker = await new Promise((resolve, reject) => {
+      const instance = new Worker("/js/ai-worker.js");
+      const timeout = setTimeout(
+        () => reject(new Error("Worker timeout")),
+        5000,
+      );
+      instance.addEventListener("message", (event) => {
+        if (event.data?.type !== "replayResult") return;
+        clearTimeout(timeout);
+        instance.terminate();
+        resolve(event.data);
+      });
+      instance.postMessage({
+        type: "simulateReplay",
+        requestId: "golden",
+        replay,
+      });
+    });
+    return {
+      expected: replay.finalChecksum,
+      browser: browser.finalChecksum,
+      browserOk: browser.ok,
+      worker: worker.finalChecksum,
+      workerOk: worker.ok,
+    };
+  });
+
+  expect(result).toEqual({
+    expected: "2b722289",
+    browser: "2b722289",
+    browserOk: true,
+    worker: "2b722289",
+    workerOk: true,
+  });
 });

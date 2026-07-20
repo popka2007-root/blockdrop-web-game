@@ -1,4 +1,4 @@
-const CACHE_NAME = "blockdrop-cache-v14";
+const CACHE_NAME = "blockdrop-cache-v16";
 const ASSETS = [
   "/",
   "/index.html",
@@ -8,9 +8,14 @@ const ASSETS = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/shared/protocol.js",
+  "/shared/engine.js",
+  "/shared/ai.js",
+  "/shared/golden-replay.json",
+  "/js/ai-client.js",
+  "/js/ai-worker.js",
   "/js/audio.js",
   "/js/config.js",
-  "/js/game-core.js",
+  "/js/engine.js",
   "/js/game.js",
   "/js/input.js",
   "/js/modes.js",
@@ -18,6 +23,7 @@ const ASSETS = [
   "/js/online.js",
   "/js/pvp-enhancements.js",
   "/js/runtime-loop.js",
+  "/js/replay.js",
   "/js/save-load.js",
   "/js/scene-state.js",
   "/js/scoring.js",

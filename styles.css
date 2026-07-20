@@ -70,6 +70,24 @@
   user-select: none;
 }
 
+.sr-only {
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+:where(button, input, select, summary) {
+  min-height: 44px;
+  min-width: 44px;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -512,6 +530,89 @@ canvas.preview {
   display: grid;
   gap: var(--layout-gap);
   min-height: 0;
+}
+
+.replay-playback-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto auto minmax(76px, auto) minmax(140px, 1fr);
+  margin: 8px auto;
+  max-width: 760px;
+  padding: 8px;
+  width: min(100%, 760px);
+}
+
+.onboarding-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(140px, 1fr) minmax(80px, 180px) auto;
+  margin: 8px auto;
+  max-width: 760px;
+  padding: 8px 10px;
+  width: min(100%, 760px);
+}
+
+.onboarding-bar[hidden] {
+  display: none;
+}
+
+.onboarding-bar progress {
+  accent-color: var(--accent);
+  width: 100%;
+}
+
+.replay-playback-bar[hidden] {
+  display: none;
+}
+
+.replay-playback-bar label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.replay-seek-label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.replay-seek-label input {
+  width: 100%;
+}
+
+.replay-settings {
+  margin-top: 12px;
+}
+
+@media (max-width: 520px) {
+  .onboarding-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .onboarding-bar progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .replay-playback-bar {
+    grid-template-columns: auto minmax(72px, auto) 1fr;
+  }
+
+  .replay-playback-bar > label:not(.replay-seek-label) {
+    display: none;
+  }
+
+  .replay-seek-label {
+    grid-column: 1 / -1;
+  }
 }
 
 .controls-row {
@@ -1409,6 +1510,15 @@ body.reduced-motion *::after {
   transition-duration: 1ms !important;
 }
 
+body.low-performance :where(.panel, .modal, .topbar) {
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+body.low-performance .fx-layer {
+  display: none;
+}
+
 .hidden {
   display: none !important;
 }
@@ -1500,7 +1610,7 @@ body.reduced-motion *::after {
   .button,
   .icon-button,
   .select {
-    min-height: 42px;
+    min-height: 44px;
     font-size: 13px;
   }
 

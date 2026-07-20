@@ -6,14 +6,13 @@
   setVolume,
   toggleMute,
 } from "./audio.js";
+import { createAiController } from "./ai-client.js";
 import {
   COLS,
   FLOW_STATE,
-  PHYSICS,
   PROGRESSION,
   ROWS,
   SHAPES,
-  SRS_KICKS,
   TIMING,
   UI as UI_CONFIG,
 } from "./config.js";
@@ -34,7 +33,6 @@ import {
 import { createOnlineController } from "./online-controller.js";
 import { advanceFrameClock, decayFlashes } from "./runtime-loop.js";
 import {
-  addPositiveScore,
   rankInfo,
   rankTextForScore,
   resultBadgeForGame,
@@ -46,19 +44,32 @@ import {
   surfaceBumpiness as boardSurfaceBumpiness,
   topDanger as boardTopDanger,
 } from "./scene-state.js";
-import { applySaveSnapshot, buildSavePayload } from "./save-load.js";
+import {
+  TICK_RATE,
+  applyInput as applyEngineInput,
+  createReplay as createEngineReplay,
+  createState as createEngineState,
+  isValid as engineIsValid,
+  makeBoard as makeEngineBoard,
+  pieceCells as enginePieceCells,
+  queueGarbage as queueEngineGarbage,
+  restoreSnapshot as restoreEngineSnapshot,
+  snapshot as createEngineSnapshot,
+  step as stepEngine,
+} from "./engine.js";
+import { createReplayPlayer, validateReplay } from "./replay.js";
+import {
+  applySaveSnapshot,
+  buildSavePayload,
+  migrateGhostRun,
+  migrateSaveSnapshot,
+} from "./save-load.js";
 import { createGameStorage } from "./storage.js";
 import { createUi } from "./ui.js";
 import {
-  buildClearEvent,
-  createBag,
-  detectTSpinType,
-  isBoardEmpty,
-  makeBoard,
-} from "./game-core.js";
-import {
   isAiSession as sessionIsAi,
   isOnlineSession as sessionIsOnline,
+  isReplaySession as sessionIsReplay,
   makeSessionState,
 } from "./session-state.js";
 import { getGhostOverlayHeight, localDateKey } from "./utils.js";
@@ -66,16 +77,19 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 (() => {
   "use strict";
 
-  const LOCK_DELAY_MS = TIMING.LOCK_DELAY_MS;
-  const MAX_LOCK_RESETS = 12;
+  const FIXED_TICK_MS = 1000 / TICK_RATE;
   const STORAGE = {
     high: "blockdrop-high-score",
     stats: "blockdrop-stats-v2",
     settings: "blockdrop-settings-v2",
     save: "blockdrop-save-v2",
+    saveArchive: "blockdrop-save-archive-v1",
     scores: "blockdrop-scoreboard-v2",
     achievements: "blockdrop-achievements-v2",
     ghostRun: "blockdrop-ghost-run-v1",
+    ghostArchive: "blockdrop-ghost-archive-v1",
+    replay: "blockdrop-replay-v1",
+    replayArchive: "blockdrop-replay-archive-v1",
     lastRoom: "tetris-last-room",
     playerName: "blockdrop-player-name",
     rankedPlayerId: "blockdrop-ranked-player-id-v1",
@@ -84,6 +98,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     accountName: "blockdrop-account-name-v1",
     matchHistory: "blockdrop-online-match-history-v1",
     onlineStats: "blockdrop-online-stats-v1",
+    onboarding: "blockdrop-onboarding-v1",
   };
 
   const COLORS = {
@@ -144,67 +159,47 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
   const MODES = GAME_MODES;
 
-  const DIFFICULTY = {
-    easy: { name: "Лёгкая", startLevel: 1, speedBonus: -80, garbage: 0 },
-    normal: { name: "Нормальная", startLevel: 1, speedBonus: 0, garbage: 0 },
-    hard: { name: "Сложная", startLevel: 4, speedBonus: 40, garbage: 2 },
-    expert: { name: "Эксперт", startLevel: 7, speedBonus: 80, garbage: 4 },
-  };
-
   const AI_DIFFICULTY = {
-    easy: {
-      name: "Лёгкий",
-      scoreRate: 0.68,
-      heightRate: 0.72,
-      attackRate: 1.35,
-      doubleChance: 0.08,
-    },
-    normal: {
-      name: "Нормальный",
-      scoreRate: 1,
-      heightRate: 1,
-      attackRate: 1,
-      doubleChance: 0.22,
-    },
-    hard: {
-      name: "Сильный",
-      scoreRate: 1.35,
-      heightRate: 1.18,
-      attackRate: 0.78,
-      doubleChance: 0.38,
-    },
-    insane: {
-      name: "Безумный",
-      scoreRate: 1.75,
-      heightRate: 1.36,
-      attackRate: 0.58,
-      doubleChance: 0.58,
-    },
+    easy: { name: "Лёгкий", nameEn: "Easy" },
+    normal: { name: "Нормальный", nameEn: "Normal" },
+    hard: { name: "Сильный", nameEn: "Hard" },
+    insane: { name: "Безумный", nameEn: "Insane" },
   };
 
   const AI_STYLE = {
-    balanced: { name: "Баланс", score: 1, height: 1, attack: 1, burst: 1 },
-    aggressive: {
-      name: "Атака",
-      score: 1.08,
-      height: 1.08,
-      attack: 0.78,
-      burst: 1.25,
-    },
-    defensive: {
-      name: "Защита",
-      score: 0.94,
-      height: 0.82,
-      attack: 1.18,
-      burst: 0.75,
-    },
+    balanced: { name: "Баланс", nameEn: "Balanced" },
+    aggressive: { name: "Атака", nameEn: "Attack" },
+    defensive: { name: "Защита", nameEn: "Defense" },
   };
 
   const AI_PACE = {
-    calm: { name: "Спокойный", score: 0.86, attack: 1.22 },
-    fair: { name: "Ровный", score: 1, attack: 1 },
-    fast: { name: "Быстрый", score: 1.16, attack: 0.84 },
+    calm: { name: "Спокойный", nameEn: "Calm", thinkMultiplier: 1.35 },
+    fair: { name: "Ровный", nameEn: "Fair", thinkMultiplier: 1 },
+    fast: { name: "Быстрый", nameEn: "Fast", thinkMultiplier: 0.72 },
   };
+
+  const ONBOARDING_STEPS = [
+    {
+      actions: ["left", "right"],
+      ru: "Сделай свайп влево или вправо",
+      en: "Swipe left or right",
+    },
+    {
+      actions: ["rotateCW", "rotateCCW"],
+      ru: "Поверни фигуру касанием или кнопкой",
+      en: "Rotate the piece with a tap or key",
+    },
+    {
+      actions: ["hardDrop"],
+      ru: "Сделай быстрый сброс вниз",
+      en: "Hard drop the piece",
+    },
+    {
+      actions: ["hold"],
+      ru: "Отложи фигуру в запас",
+      en: "Hold the current piece",
+    },
+  ];
 
   const ACHIEVEMENTS = [
     [
@@ -303,18 +298,51 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   };
 
   const storage = createGameStorage(STORAGE);
+  const storedGhostRun = storage.loadGhostRun(null);
+  const ghostMigration = migrateGhostRun(storedGhostRun);
+  if (!ghostMigration.ok) {
+    storage.archiveGhostRun(storedGhostRun, ghostMigration.code);
+  } else if (ghostMigration.migrated) {
+    storage.saveGhostRun(ghostMigration.value);
+  }
+  const storedReplay = storage.loadReplay(null);
+  const replayValidation = storedReplay
+    ? validateReplay(storedReplay)
+    : { ok: true, replay: null };
+  if (!replayValidation.ok) {
+    storage.archiveReplay(storedReplay, replayValidation.code);
+  }
   const ui = createUi();
   const onlineClient = createOnlineClient();
   let deferredInstallPrompt = null;
 
   const state = {
-    board: makeBoard(),
+    board: makeEngineBoard(),
     active: null,
     queue: [],
     bag: [],
     hold: null,
     holdUsed: false,
-    rng: Math.random,
+    seed: "",
+    randomState: 0,
+    tick: 0,
+    tickAccumulatorMs: 0,
+    inputSeq: 0,
+    replayInputs: [],
+    replayEvents: [],
+    bestReplay: replayValidation.ok ? replayValidation.replay : null,
+    lastCompletedReplay: null,
+    replayPlayer: null,
+    replaySpeed: 1,
+    replayCompleteNotified: false,
+    onboarding: {
+      active: false,
+      step: 0,
+      startedAt: 0,
+      completed: Boolean(storage.loadOnboarding(null)?.completed),
+    },
+    softDropReleaseTick: 0,
+    resultFinalized: false,
     mode: "classic",
     difficulty: "normal",
     score: 0,
@@ -371,15 +399,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       queueWaiting: 0,
     },
     capabilities: {
-      secureTransport:
-        location.protocol === "https:" ||
-        /^(localhost|127\.0\.0\.1)$/.test(location.hostname),
-      authEnabled:
-        location.protocol === "https:" ||
-        /^(localhost|127\.0\.0\.1)$/.test(location.hostname),
-      rankedEnabled:
-        location.protocol === "https:" ||
-        /^(localhost|127\.0\.0\.1)$/.test(location.hostname),
+      secureTransport: false,
+      authEnabled: false,
+      rankedEnabled: false,
+      casualV2Enabled: false,
+      analyticsEnabled: false,
+      pwaInstallEnabled: false,
       casualOnlineEnabled: true,
       maxPlayers: 2,
     },
@@ -391,6 +416,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       mode: "classic",
       name: "",
       ranked: false,
+      authoritative: false,
+      protocolVersion: 1,
       rating: 1000,
       rankedResult: null,
       series: null,
@@ -404,10 +431,18 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       score: 0,
       height: 0,
       elapsedMs: 0,
-      attackMs: 0,
       name: "AI",
+      engineState: null,
+      pendingActions: [],
+      inputSeq: 0,
+      workerBusy: false,
+      requestId: "",
+      requestPiece: "",
+      nextThinkTick: 0,
+      lastPlan: null,
+      workerError: "",
     },
-    ghostRun: storage.loadGhostRun(null),
+    ghostRun: ghostMigration.ok ? ghostMigration.value : null,
     currentGhostRun: [],
     lastGhostSampleMs: 0,
     previousBestScore: 0,
@@ -421,6 +456,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       matchId: "",
     },
   };
+
+  const aiController = createAiController({
+    onPlan: handleAiPlan,
+    onError: handleAiError,
+  });
 
   const audio = initAudio(() => state.settings);
 
@@ -438,6 +478,10 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
   function isAiSession() {
     return sessionIsAi(state);
+  }
+
+  function isReplaySession() {
+    return sessionIsReplay(state);
   }
 
   function clamp(value, min, max) {
@@ -536,12 +580,25 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     )
       ? state.settings.performanceMode
       : "auto";
-    state.settings.particles = state.settings.performanceMode !== "battery";
+    const prefersReducedMotion = globalThis.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    )?.matches;
+    const constrainedDevice =
+      (Number(navigator.hardwareConcurrency) || 8) <= 4 ||
+      (Number(navigator.deviceMemory) || 8) <= 4 ||
+      Boolean(navigator.connection?.saveData);
+    state.settings.adaptiveLowPower =
+      state.settings.performanceMode === "battery" ||
+      (state.settings.performanceMode === "auto" && constrainedDevice);
+    state.settings.particles =
+      state.settings.performanceMode === "quality" ||
+      !state.settings.adaptiveLowPower;
     state.settings.colorBlind = false;
     state.settings.ghost = true;
     state.settings.bigButtons = false;
     state.settings.autoPause = true;
-    state.settings.reducedMotion = state.settings.performanceMode === "battery";
+    state.settings.reducedMotion =
+      state.settings.performanceMode === "battery" || prefersReducedMotion;
     state.settings.language = ["ru", "en"].includes(state.settings.language)
       ? state.settings.language
       : "ru";
@@ -578,67 +635,21 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     });
   }
 
-  function refillBag() {
-    state.bag.push(...createBag(random));
-  }
-
-  function random() {
-    return state.rng ? state.rng() : Math.random();
-  }
-
-  function seededRandom(seedText) {
-    let seed = 2166136261;
-    for (let i = 0; i < seedText.length; i += 1) {
-      seed ^= seedText.charCodeAt(i);
-      seed = Math.imul(seed, 16777619);
+  function createLocalSeed() {
+    const values = new Uint32Array(2);
+    if (globalThis.crypto?.getRandomValues) {
+      globalThis.crypto.getRandomValues(values);
+      return `local:${values[0].toString(16)}${values[1].toString(16)}`;
     }
-    return () => {
-      seed += 0x6d2b79f5;
-      let value = seed;
-      value = Math.imul(value ^ (value >>> 15), value | 1);
-      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function takeKind() {
-    if (state.bag.length === 0) refillBag();
-    return state.bag.shift();
-  }
-
-  function fillQueue() {
-    while (state.queue.length < 3) state.queue.push(makePieceDraft(takeKind()));
-  }
-
-  function makePieceDraft(kind) {
-    return { kind };
-  }
-
-  function normalizePieceDraft(value) {
-    if (typeof value === "string") return { kind: value };
-    return {
-      kind: value?.kind || "T",
-    };
-  }
-
-  function makePiece(draft) {
-    const normalized = normalizePieceDraft(draft);
-    return { ...normalized, rotation: 0, x: 3, y: 0 };
+    return `local:${Date.now()}:${Math.floor(Math.random() * 0xffffffff)}`;
   }
 
   function cells(piece) {
-    return SHAPES[piece.kind][piece.rotation].map(([x, y]) => ({
-      x: piece.x + x,
-      y: piece.y + y,
-    }));
+    return enginePieceCells(piece);
   }
 
   function valid(piece) {
-    for (const c of cells(piece)) {
-      if (c.x < 0 || c.x >= COLS || c.y < 0 || c.y >= ROWS) return false;
-      if (state.board[c.y][c.x]) return false;
-    }
-    return true;
+    return engineIsValid(state.board, piece);
   }
 
   function startGame(
@@ -654,33 +665,17 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     }
     difficulty = "normal";
     mode = normalizeModeKey(mode);
-    const modeConfig = getModeConfig(mode);
+    const seed = String(options.seed || createLocalSeed()).slice(0, 128);
+    const engineState = createEngineState({ seed, mode });
     state.settings.lastMode = mode;
     storage.saveSettings(state.settings);
-    state.board = makeBoard();
-    state.active = null;
-    state.queue = [];
-    state.bag = [];
-    state.hold = null;
-    state.holdUsed = false;
-    state.rng = options.seed ? seededRandom(options.seed) : Math.random;
-    state.mode = mode;
+    Object.assign(state, engineState);
     state.difficulty = difficulty;
-    state.score = 0;
-    state.lines = 0;
-    state.level = Math.max(
-      modeConfig.startLevel,
-      DIFFICULTY[difficulty].startLevel,
-    );
-    state.combo = 0;
     state.bestComboRun = 0;
     state.backToBackChain = 0;
     state.bestBackToBackRun = 0;
-    state.pieces = 0;
     state.hardDrops = 0;
-    state.incomingGarbage = 0;
-    state.receivedGarbage = 0;
-    state.sentGarbage = 0;
+    state.incomingGarbage = state.pendingGarbage;
     state.phase = FLOW_STATE.PLAYING;
     state.survivalStreak = 0;
     state.lastStreakMs = 0;
@@ -702,9 +697,17 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.paused = false;
     state.gameOver = false;
     state.won = false;
+    state.resultFinalized = false;
     state.lastTime = 0;
     state.elapsedMs = 0;
     state.dropMs = 0;
+    state.tickAccumulatorMs = 0;
+    state.inputSeq = 0;
+    state.replayInputs = [];
+    state.replayEvents = [];
+    state.lastCompletedReplay = null;
+    state.replayPlayer = null;
+    state.softDropReleaseTick = 0;
     state.lockDelayMs = 0;
     state.lockResets = 0;
     state.flashes = [];
@@ -713,10 +716,20 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.ai.score = 0;
     state.ai.height = 0;
     state.ai.elapsedMs = 0;
-    state.ai.attackMs = 0;
+    state.ai.engineState = state.ai.enabled
+      ? createEngineState({ seed, mode })
+      : null;
+    state.ai.pendingActions = [];
+    state.ai.inputSeq = 0;
+    state.ai.workerBusy = false;
+    state.ai.requestId = "";
+    state.ai.requestPiece = "";
+    state.ai.nextThinkTick = 0;
+    state.ai.lastPlan = null;
+    state.ai.workerError = "";
     state.ai.name =
       state.settings.language === "en"
-        ? `AI ${state.settings.aiStyle}/${state.settings.aiPace}`
+        ? `AI ${AI_DIFFICULTY[state.ai.difficulty].nameEn} · ${AI_STYLE[state.settings.aiStyle].nameEn}`
         : `Бот ${AI_DIFFICULTY[state.ai.difficulty].name} · ${AI_STYLE[state.settings.aiStyle].name}`;
     state.daily = options.daily
       ? { date: options.dailyDate || localDateKey(), seed: options.seed }
@@ -729,11 +742,6 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       matchId: session.matchId || options.seed || "",
     });
     hideOverlays();
-    fillQueue();
-    addGarbage(DIFFICULTY[difficulty].garbage);
-    if (modeConfig.garbageAttacks) addGarbage(4);
-    if (mode === "hardcore") addGarbage(2);
-    spawn();
     ensureAudio();
     buzz("move");
     syncUi();
@@ -766,233 +774,95 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     showToast(onlineText(`Испытание дня ${key}`, `Daily challenge ${key}`));
   }
 
-  function spawn() {
-    fillQueue();
-    state.active = makePiece(state.queue.shift());
-    fillQueue();
-    state.holdUsed = false;
-    state.lastRotation = null;
-    state.lockDelayMs = 0;
-    state.lockResets = 0;
-    if (!valid(state.active)) finish(false, "Башня дошла до верхней границы.");
-  }
-
-  function addGarbage(count) {
-    for (let i = 0; i < count; i += 1) {
-      const hole = Math.floor(random() * COLS);
-      state.board.shift();
-      state.board.push(
-        Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")),
-      );
-    }
-    if (state.active && !valid(state.active))
-      finish(false, "Соперники вытолкнули башню мусорными линиями.");
-  }
-
   function receiveGarbage(count, from = "соперника") {
     if (!state.running || state.gameOver || count <= 0) return;
-    state.incomingGarbage += count;
-    state.receivedGarbage += count;
-    state.stats.totalReceivedGarbage += count;
+    queueEngineGarbage(state, count);
+    if (!isReplaySession()) {
+      state.replayEvents.push({
+        tick: state.tick,
+        type: "garbage",
+        lines: Math.floor(count),
+      });
+    }
+    state.incomingGarbage = state.pendingGarbage;
     resetStreak();
-    addGarbage(count);
     shakeBoard();
     playEvent("attack");
     buzz("attack");
-    showToast(`Атака от ${from}: +${count}`);
+    showToast(`Атака от ${from}: +${count} в очереди`);
+    ui.announce(
+      onlineText(
+        `Получено мусорных линий: ${count}`,
+        `Incoming garbage: ${count}`,
+      ),
+      "assertive",
+    );
     if (isOnlineSession()) sendOnlineUpdate(true);
   }
 
-  function isGrounded(piece = state.active) {
-    return Boolean(piece) && !valid({ ...piece, y: piece.y + 1 });
-  }
-
-  function resetLockDelayIfGrounded() {
-    if (!isGrounded() || state.lockResets >= MAX_LOCK_RESETS) return;
-    state.lockDelayMs = 0;
-    state.lockResets += 1;
-  }
-
-  function updateLockDelay(delta) {
-    if (!state.active) return;
-    if (!isGrounded()) {
-      state.lockDelayMs = 0;
-      state.lockResets = 0;
-      return;
-    }
-    state.lockDelayMs += delta;
-    if (state.lockDelayMs >= LOCK_DELAY_MS) lock();
-  }
-
-  function move(dx, dy, scoreSoft = false) {
-    if (!canInput()) return false;
-    const candidate = {
-      ...state.active,
-      x: state.active.x + dx,
-      y: state.active.y + dy,
-    };
-    if (!valid(candidate)) return false;
-    state.active = candidate;
-    if (dx !== 0) state.lastRotation = null;
-    if (dx !== 0) resetLockDelayIfGrounded();
-    if (scoreSoft && dy > 0) addScore(1);
-    if (dx !== 0) {
-      state.moves += 1;
-      state.stats.totalMoves += 1;
-    }
-    if (scoreSoft && dy > 0) {
-      state.softDrops += 1;
-      state.stats.totalSoftDrops += 1;
-    }
-    if (dx !== 0) playEvent("move");
-    return true;
-  }
-
-  function rotate(direction = 1) {
-    if (!canInput()) return;
-    const from = state.active.rotation;
-    const normalizedDirection = direction < 0 ? -1 : 1;
-    const to = (from + normalizedDirection + 4) % 4;
-    const rotated = { ...state.active, rotation: to };
-    const kicks =
-      state.active.kind === "O"
-        ? [[0, 0]]
-        : (state.active.kind === "I" ? SRS_KICKS.I : SRS_KICKS.normal)[
-            `${from}>${to}`
-          ] || [[0, 0]];
-    for (const [kickIndex, [dx, dy]] of kicks.entries()) {
-      const candidate = { ...rotated, x: rotated.x + dx, y: rotated.y + dy };
-      if (valid(candidate)) {
-        state.active = candidate;
-        state.lastRotation = {
-          active: true,
-          from,
-          to,
-          direction: normalizedDirection,
-          kickIndex,
-          usedKick: kickIndex > 0,
-        };
-        resetLockDelayIfGrounded();
-        state.rotations += 1;
-        state.stats.totalRotations += 1;
-        playEvent(
-          "rotate",
-          normalizedDirection < 0
-            ? { freq: SOUND_EVENTS.rotate.freq - 50 }
-            : {},
+  function processEngineEvents(events = []) {
+    for (const event of events) {
+      if (event.type === "lock") handleEngineLock(event);
+      if (event.type === "garbageApplied") {
+        state.stats.totalReceivedGarbage += event.lines;
+        showToast(
+          onlineText(
+            `Применено мусорных линий: ${event.lines}`,
+            `Garbage applied: ${event.lines}`,
+          ),
         );
-        buzz("rotate");
-        return true;
+      }
+      if (event.type === "chaosGarbage") {
+        state.stats.totalReceivedGarbage += event.lines;
+        showToast(onlineText("Хаос добавил линию снизу", "Chaos added a line"));
       }
     }
-    return false;
-  }
-
-  function softDrop() {
-    if (!move(0, PHYSICS.SOFT_DROP_SPEED, true))
-      updateLockDelay(TIMING.SOFT_DROP_LOCK_MS);
-  }
-
-  function stepHorizontal(direction) {
-    const moved = move(direction, 0);
-    if (moved) buzz("move");
-    return moved;
-  }
-
-  function rotateClockwise() {
-    return rotate(1);
-  }
-
-  function rotateCounterClockwise() {
-    return rotate(-1);
-  }
-
-  function hardDrop() {
-    if (!canInput()) return;
-    let distance = 0;
-    while (move(0, 1, false)) distance += 1;
-    state.hardDrops += 1;
-    state.stats.totalHardDrops += 1;
-    addScore(distance * PHYSICS.HARD_DROP_SCORE_PER_CELL);
-    lock();
-    playEvent("hardDrop");
-    buzz("drop");
-    shakeBoard();
-  }
-
-  function holdPiece() {
-    if (!canInput() || state.holdUsed) return;
-    const current = {
-      kind: state.active.kind,
-    };
-    state.holds += 1;
-    state.stats.totalHolds += 1;
-    if (state.hold) {
-      state.active = makePiece(state.hold);
-      state.hold = current;
-    } else {
-      state.hold = current;
-      spawn();
+    state.incomingGarbage = state.pendingGarbage;
+    state.stats.bestScore = Math.max(state.stats.bestScore, state.score);
+    storage.saveBestScore(state.stats.bestScore);
+    if (state.gameOver && !state.resultFinalized) {
+      finish(
+        Boolean(state.won),
+        state.won
+          ? onlineText("Цель режима выполнена.", "Mode goal completed.")
+          : onlineText(
+              "Башня дошла до верхней границы.",
+              "The stack reached the top.",
+            ),
+      );
     }
-    state.holdUsed = true;
-    state.lastRotation = null;
-    playEvent("hold");
   }
 
-  function lock() {
-    if (!state.active) return;
-    const modeConfig = getModeConfig(state.mode);
-    const lockedPiece = { ...state.active };
-    const lockedKind = lockedPiece.kind;
-    const beforeMetrics = {
-      holes: countHoles(),
-      height: currentHeight(),
-      bumpiness: surfaceBumpiness(),
+  function handleEngineLock(event) {
+    const clearEvent = {
+      lines: event.lines,
+      combo: event.combo,
+      tSpinType: event.tSpinType,
+      isTSpin: event.tSpinType === "full",
+      isMini: event.tSpinType === "mini",
+      difficult: Boolean(event.difficult),
+      backToBack: Boolean(event.backToBack),
+      backToBackEligible: Boolean(event.difficult),
+      perfectClear: Boolean(event.perfectClear),
+      score: event.score,
+      attackLines: event.attack,
+      accounted: true,
     };
-    for (const c of cells(lockedPiece))
-      state.board[c.y][c.x] = {
-        kind: lockedPiece.kind,
-      };
-    state.stats.pieceCounts[lockedPiece.kind] += 1;
-    state.pieces += 1;
+    state.stats.pieceCounts[event.kind] += 1;
     state.stats.totalPieces += 1;
-    const tSpinType = detectTSpinType(
-      state.board,
-      lockedPiece,
-      state.lastRotation,
-    );
-    state.active = null;
-    const count = clearLines();
-    const perfectClear = count > 0 && isBoardEmpty(state.board);
-    const combo = count > 0 ? state.combo + 1 : 0;
-    const clearEvent = buildClearEvent({
-      lines: count,
-      level: state.level,
-      combo,
-      perfectClear,
-      backToBackActive: state.backToBackChain > 0,
-      tSpinType,
-      streakBonus: count > 0 ? streakScoreBonus() : 0,
-    });
-    const afterMetrics = {
+    state.sessionHistory.push({
+      kind: event.kind,
+      clear: event.lines,
+      special: event.tSpinType,
+      perfectClear: event.perfectClear,
+      backToBack: event.backToBack,
+      attack: event.attack,
+      score: event.score,
       holes: countHoles(),
       height: currentHeight(),
       bumpiness: surfaceBumpiness(),
-    };
-    state.sessionHistory.push({
-      kind: lockedKind,
-      clear: count,
-      special: clearEvent.tSpinType,
-      perfectClear: clearEvent.perfectClear,
-      backToBack: clearEvent.backToBack,
-      attack: clearEvent.attackLines,
-      score: clearEvent.score,
-      holesDelta: afterMetrics.holes - beforeMetrics.holes,
-      heightDelta: afterMetrics.height - beforeMetrics.height,
-      bumpinessDelta: afterMetrics.bumpiness - beforeMetrics.bumpiness,
     });
     if (state.sessionHistory.length > 60) state.sessionHistory.shift();
-    if (clearEvent.score > 0) addScore(clearEvent.score);
     if (clearEvent.isTSpin) {
       state.tSpinCount += 1;
       state.stats.totalTSpins += 1;
@@ -1004,7 +874,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       state.perfectClearCount += 1;
       state.stats.totalPerfectClears += 1;
     }
-    if (!clearEvent.isTSpin && !clearEvent.isMini && count === 4) {
+    if (!clearEvent.isTSpin && !clearEvent.isMini && event.lines === 4) {
       state.stats.totalTetrises += 1;
     }
     if (clearEvent.backToBackEligible) {
@@ -1020,120 +890,151 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         state.bestBackToBackRun,
       );
       if (clearEvent.backToBack) state.stats.totalBackToBackClears += 1;
-    } else if (count > 0) {
+    } else if (event.lines > 0) {
       state.backToBackChain = 0;
     }
+    state.bestComboRun = Math.max(state.bestComboRun, state.combo);
+    state.bestClearInGame = Math.max(state.bestClearInGame, event.lines);
+    state.flashes = (event.rows || []).map((row) => ({
+      row,
+      life: 1,
+      width: 0,
+    }));
     rememberBestMoment(clearEvent);
-    if (count > 0) {
-      const previousLevel = state.level;
-      state.combo = combo;
-      state.bestComboRun = Math.max(state.bestComboRun, state.combo);
-      state.bestClearInGame = Math.max(state.bestClearInGame, count);
-      state.lines += count;
-      state.level = modeConfig.relaxed
-        ? modeConfig.startLevel
-        : Math.min(
-            20,
-            Math.floor(state.lines / modeConfig.levelUp) +
-              modeConfig.startLevel +
-              DIFFICULTY[state.difficulty].startLevel -
-              1,
-          );
-      playEvent(clearEvent.isTSpin || count === 4 ? "tetris" : "line");
-      if (clearEvent.isTSpin || count === 4 || clearEvent.perfectClear)
-        burst(44);
-      if (state.combo >= 2)
-        playEvent("combo", {
-          freq: SOUND_EVENTS.combo.freq + state.combo * 18,
-        });
-      if (state.level > previousLevel) {
-        showToast(`Уровень ${state.level}`);
-        playEvent("levelUp");
-        burst(26);
-      }
-      buzz(clearEvent.isTSpin || count === 4 ? "tetris" : "clear");
+    if (event.lines > 0 || event.tSpinType) {
+      playEvent(clearEvent.isTSpin || event.lines === 4 ? "tetris" : "line");
+      buzz(clearEvent.isTSpin || event.lines === 4 ? "tetris" : "clear");
       showToast(formatClearEventToast(clearEvent));
+      ui.announce(formatClearEventToast(clearEvent));
       sendAttackForEvent(clearEvent);
-      burst(clearEvent.isTSpin || count === 4 ? 34 : 18);
+      burst(clearEvent.isTSpin || event.lines === 4 ? 34 : 18);
       shakeBoard();
-    } else {
-      state.combo = 0;
-      if (clearEvent.isTSpin || clearEvent.isMini) {
-        playEvent("line");
-        buzz("clear");
-        showToast(formatClearEventToast(clearEvent));
-      }
     }
-    state.lastRotation = null;
-    if (modeConfig.targetLines && state.lines >= modeConfig.targetLines) {
-      finish(true, `${modeConfig.goalText} выполнено.`);
-      return;
-    }
-
-    if (
-      modeConfig.garbageAttacks &&
-      state.pieces > 0 &&
-      state.pieces % 14 === 0
-    ) {
-      addGarbage(1);
-      showToast("Хаос добавил линию снизу");
-    }
-
-    spawn();
-    syncUi();
     checkAchievements();
     saveCurrentGame();
   }
 
-  function clearLines() {
-    const rows = [];
-    for (let y = 0; y < ROWS; y += 1) {
-      if (state.board[y].every(Boolean)) rows.push(y);
+  function dispatchEngineInput(action, pressed = true) {
+    if (!canInput() && !(action === "softDrop" && pressed === false)) {
+      return false;
     }
-    if (!rows.length) return 0;
-    state.flashes = rows.map((row) => ({ row, life: 1, width: 0 }));
-    state.board = state.board.filter((_, y) => !rows.includes(y));
-    while (state.board.length < ROWS)
-      state.board.unshift(Array(COLS).fill(null));
-    return rows.length;
+    const input = {
+      tick: state.tick,
+      seq: ++state.inputSeq,
+      action,
+      pressed: pressed !== false,
+    };
+    state.replayInputs.push(input);
+    if (state.replayInputs.length > 100_000) state.replayInputs.shift();
+    const events = [];
+    const accepted = applyEngineInput(state, input, events);
+    if (!accepted) return false;
+    recordOnboardingAction(action);
+    if (isOnlineSession() && onlineClient.authoritative) {
+      onlineController.sendAuthoritativeInput(input);
+    }
+    if (action === "left" || action === "right") {
+      state.moves += 1;
+      state.stats.totalMoves += 1;
+      playEvent("move");
+      buzz("move");
+    } else if (action === "rotateCW" || action === "rotateCCW") {
+      state.rotations += 1;
+      state.stats.totalRotations += 1;
+      playEvent("rotate");
+      buzz("rotate");
+    } else if (action === "hardDrop") {
+      state.hardDrops += 1;
+      state.stats.totalHardDrops += 1;
+      playEvent("hardDrop");
+      buzz("drop");
+      shakeBoard();
+    } else if (action === "hold") {
+      state.holds += 1;
+      state.stats.totalHolds += 1;
+      playEvent("hold");
+      buzz("hold");
+    } else if (action === "softDrop" && pressed) {
+      state.softDrops += 1;
+      state.stats.totalSoftDrops += 1;
+      state.softDropReleaseTick = state.tick + 1;
+    }
+    processEngineEvents(events);
+    return true;
+  }
+
+  function runEngineTick() {
+    if (
+      state.softDrop &&
+      state.softDropReleaseTick &&
+      state.tick >= state.softDropReleaseTick
+    ) {
+      dispatchEngineInput("softDrop", false);
+      state.softDropReleaseTick = 0;
+    }
+    const { events } = stepEngine(state);
+    processEngineEvents(events);
+    if (state.running && !state.gameOver) runAiEngineTick();
+  }
+
+  function move(dx, dy) {
+    if (dy > 0) return softDrop();
+    if (dx < 0) return dispatchEngineInput("left");
+    if (dx > 0) return dispatchEngineInput("right");
+    return false;
+  }
+
+  function rotate(direction = 1) {
+    return dispatchEngineInput(direction < 0 ? "rotateCCW" : "rotateCW");
+  }
+
+  function softDrop(pressed = true) {
+    return dispatchEngineInput("softDrop", pressed);
+  }
+
+  function stepHorizontal(direction) {
+    return move(direction, 0);
+  }
+
+  function rotateClockwise() {
+    return rotate(1);
+  }
+
+  function rotateCounterClockwise() {
+    return rotate(-1);
+  }
+
+  function hardDrop() {
+    return dispatchEngineInput("hardDrop");
+  }
+
+  function holdPiece() {
+    return dispatchEngineInput("hold");
   }
 
   function sendAttackForEvent(event) {
     const lines = Number(event?.attackLines) || 0;
     if (!lines || (!isOnlineSession() && !isAiSession())) return;
-    state.sentGarbage += lines;
+    if (!event.accounted) state.sentGarbage += lines;
     state.stats.totalSentGarbage += lines;
     if (isOnlineSession()) {
-      sendMatchEvent(onlineClient, state.online.room, {
-        eventType: "clear",
-        lines: event.lines,
-        attackLines: lines,
-        combo: event.combo,
-        score: state.score,
-        elapsedMs: Math.floor(state.elapsedMs),
-      });
-      sendAttack(onlineClient, state.online.room, lines);
+      if (!onlineClient.authoritative) {
+        sendMatchEvent(onlineClient, state.online.room, {
+          eventType: "clear",
+          lines: event.lines,
+          attackLines: lines,
+          combo: event.combo,
+          score: state.score,
+          elapsedMs: Math.floor(state.elapsedMs),
+        });
+        sendAttack(onlineClient, state.online.room, lines);
+      }
     }
     if (isAiSession()) {
-      state.ai.height = Math.max(0, state.ai.height - lines);
-      state.ai.attackMs = Math.max(0, state.ai.attackMs - lines * 1200);
+      queueEngineGarbage(state.ai.engineState, lines);
     }
     playEvent("attack", { duration: 0.09 });
     burst(12);
-  }
-
-  function addScore(value) {
-    state.score = addPositiveScore(state.score, value);
-    state.stats.bestScore = Math.max(state.stats.bestScore, state.score);
-    storage.saveBestScore(state.stats.bestScore);
-    if (value >= 50) ui.pulseScore?.();
-  }
-
-  function streakScoreBonus() {
-    return Math.min(
-      PROGRESSION.MAX_STREAK_SCORE_BONUS,
-      state.survivalStreak * 8,
-    );
   }
 
   function resetStreak() {
@@ -1150,7 +1051,6 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       return;
     state.lastStreakMs = state.elapsedMs;
     state.survivalStreak += 1;
-    addScore(PROGRESSION.SURVIVAL_STREAK_SCORE * state.survivalStreak);
     if (state.survivalStreak > 1) {
       playEvent("combo", {
         freq: SOUND_EVENTS.combo.freq + state.survivalStreak * 10,
@@ -1274,7 +1174,37 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     });
   }
 
+  function saveCompletedReplay(won) {
+    if (isOnlineSession() || isReplaySession()) return null;
+    const replay = createEngineReplay({
+      seed: state.seed,
+      mode: state.mode,
+      inputs: state.replayInputs,
+      externalEvents: state.replayEvents,
+      finalState: state,
+      metadata: {
+        score: state.score,
+        lines: state.lines,
+        won: Boolean(won),
+        sessionType: state.session.type,
+        dailyDate: state.daily?.date || "",
+        aiDifficulty: isAiSession() ? state.ai.difficulty : "",
+      },
+    });
+    const verification = validateReplay(replay);
+    if (!verification.ok) return null;
+    state.lastCompletedReplay = verification.replay;
+    if (state.daily || state.score >= state.previousBestScore) {
+      state.bestReplay = verification.replay;
+      storage.saveReplay(state.bestReplay);
+    }
+    return verification.replay;
+  }
+
   function finish(won, text, options = {}) {
+    if (state.resultFinalized) return;
+    saveCompletedReplay(won);
+    state.resultFinalized = true;
     const { reportOnline = true } = options;
     state.running = false;
     state.gameOver = true;
@@ -1342,7 +1272,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     storage.clearSave();
     checkAchievements();
     ui.showGameOver({
-      title: won ? "Победа!" : "Игра окончена",
+      title: won
+        ? onlineText("Победа!", "Victory!")
+        : onlineText("Игра окончена", "Game over"),
       text,
       score: state.score,
       level: state.level,
@@ -1354,6 +1286,10 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       insight: gameOverInsight(),
       serverStatus: "Серверный рекорд отправляется...",
     });
+    ui.announce(
+      `${won ? onlineText("Победа", "Victory") : onlineText("Игра окончена", "Game over")}. ${text}. ${onlineText("Счёт", "Score")}: ${state.score}.`,
+      "assertive",
+    );
     renderCoachTips();
     playEvent(won ? "win" : "gameOver");
     buzz(won ? "win" : "gameOver");
@@ -1368,7 +1304,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     if (
       !isOnlineSession() ||
       !state.online.connected ||
-      onlineClient.role === "spectator"
+      onlineClient.role === "spectator" ||
+      onlineClient.authoritative
     )
       return;
     sendOnlineMessage(onlineClient, {
@@ -1381,6 +1318,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   function pause() {
     if (!state.running || state.gameOver) return;
     state.paused = true;
+    state.replayPlayer?.pause();
     state.phase = FLOW_STATE.PAUSED;
     saveCurrentGame();
     ui.setPauseVisible(true);
@@ -1389,6 +1327,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   function resume() {
     if (!state.running || state.gameOver) return;
     state.paused = false;
+    state.replayPlayer?.play();
     state.phase = FLOW_STATE.PLAYING;
     state.lastTime = 0;
     ui.setPauseVisible(false);
@@ -1399,11 +1338,18 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     let saved = false;
     if (state.running && !state.gameOver) {
       state.paused = true;
-      saveCurrentGame();
-      saved = true;
+      if (!isReplaySession()) {
+        saveCurrentGame();
+        saved = !isOnlineSession() && !isAiSession();
+      }
     }
     hideOverlays();
     ui.showOverlay("startOverlay");
+    if (isReplaySession()) {
+      state.running = false;
+      state.replayPlayer = null;
+      ui.setReplayPlayback({ visible: false });
+    }
     state.phase = FLOW_STATE.MENU;
     showToast(saved ? "Партия сохранена" : "Главное меню");
   }
@@ -1414,29 +1360,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function canInput() {
-    return state.running && !state.paused && !state.gameOver && state.active;
-  }
-
-  function dropInterval() {
-    const bonus = DIFFICULTY[state.difficulty].speedBonus;
-    const modeConfig = getModeConfig(state.mode);
-    const relaxed = modeConfig.relaxed ? PHYSICS.RELAXED_DROP_BONUS_MS : 0;
-    const timeSteps = Math.floor(
-      state.elapsedMs / PROGRESSION.TIME_SPEED_STEP_MS,
-    );
-    const timePressure = Math.min(
-      PROGRESSION.TIME_SPEED_MAX_DROP_MS,
-      timeSteps * PROGRESSION.TIME_SPEED_STEP_DROP_MS,
-    );
-    const modeMultiplier = modeConfig.speedMultiplier || 1;
-    return Math.max(
-      PHYSICS.MIN_DROP_INTERVAL_MS,
-      (PHYSICS.BASE_DROP_INTERVAL_MS +
-        relaxed -
-        (state.level - 1) * PHYSICS.LEVEL_DROP_STEP_MS -
-        bonus -
-        timePressure) /
-        modeMultiplier,
+    return (
+      state.running &&
+      !state.paused &&
+      !state.gameOver &&
+      !isReplaySession() &&
+      state.active
     );
   }
 
@@ -1469,26 +1398,28 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     updateScheduled = false;
     const delta = advanceFrameClock(state, time, TIMING.MAX_FRAME_DELTA_MS);
 
-    if (state.running && !state.paused && !state.gameOver) {
-      state.elapsedMs += delta;
-      const modeConfig = getModeConfig(state.mode);
-      if (
-        modeConfig.timeLimit &&
-        state.elapsedMs >= modeConfig.timeLimit * 1000
+    if (state.running && !state.paused && isReplaySession()) {
+      updateReplayPlayback(delta);
+    } else if (state.running && !state.paused && !state.gameOver) {
+      state.tickAccumulatorMs += delta;
+      let ticksProcessed = 0;
+      while (
+        state.tickAccumulatorMs >= FIXED_TICK_MS &&
+        ticksProcessed < 8 &&
+        state.running &&
+        !state.gameOver
       ) {
-        finish(true, "Время вышло. Результат сохранён.");
-        draw();
-        syncUi();
-        scheduleUpdate(250);
-        return;
+        state.tickAccumulatorMs -= FIXED_TICK_MS;
+        runEngineTick();
+        ticksProcessed += 1;
       }
-      state.dropMs += delta;
-      if (state.dropMs >= dropInterval()) {
-        state.dropMs = 0;
-        move(0, 1, false);
+      if (ticksProcessed === 8) {
+        state.tickAccumulatorMs = Math.min(
+          state.tickAccumulatorMs,
+          FIXED_TICK_MS * 2,
+        );
       }
-      updateLockDelay(delta);
-      updateAiOpponent(delta);
+      state.elapsedMs = Math.floor(state.tick * FIXED_TICK_MS);
       rewardSurvivalStreak(delta);
       recordGhostSample();
     }
@@ -1499,44 +1430,115 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     scheduleUpdate(state.running && !state.paused && !state.gameOver ? 0 : 250);
   }
 
-  function updateAiOpponent(delta) {
-    if (!state.ai.enabled) return;
-    const ai = AI_DIFFICULTY[state.ai.difficulty] || AI_DIFFICULTY.normal;
-    const style = AI_STYLE[state.settings.aiStyle] || AI_STYLE.balanced;
-    const pace = AI_PACE[state.settings.aiPace] || AI_PACE.fair;
-    state.ai.elapsedMs += delta;
-    state.ai.attackMs += delta;
-    state.ai.score +=
-      delta *
-      (0.045 + state.level * 0.004) *
-      ai.scoreRate *
-      style.score *
-      pace.score;
-    const wave = Math.sin(state.ai.elapsedMs / 5200) * 2;
-    state.ai.height = Math.max(
-      2,
-      Math.min(
-        18,
-        Math.round(
-          4 +
-            state.level * 0.35 * ai.heightRate * style.height +
-            state.ai.elapsedMs / (42000 / ai.heightRate) +
-            wave,
-        ),
-      ),
-    );
-    const attackInterval = Math.max(
-      6500,
-      (21000 - state.level * 520) * ai.attackRate * style.attack * pace.attack,
-    );
-    if (state.ai.attackMs >= attackInterval) {
-      state.ai.attackMs = 0;
-      const lines =
-        state.level >= 7 && Math.random() < ai.doubleChance * style.burst
-          ? 2
-          : 1;
-      receiveGarbage(lines, state.ai.name);
+  function aiPieceKey(aiState = state.ai.engineState) {
+    if (!aiState?.active) return "";
+    return [
+      aiState.pieces,
+      aiState.active.kind,
+      aiState.active.rotation,
+      aiState.active.x,
+      aiState.active.y,
+      aiState.hold || "",
+      aiState.holdUsed ? 1 : 0,
+    ].join(":");
+  }
+
+  function requestAiPlan() {
+    const aiState = state.ai.engineState;
+    if (
+      !state.ai.enabled ||
+      !aiState?.active ||
+      aiState.gameOver ||
+      state.ai.workerBusy ||
+      state.ai.pendingActions.length ||
+      aiState.tick < state.ai.nextThinkTick
+    ) {
+      return;
     }
+    state.ai.workerBusy = true;
+    state.ai.requestPiece = aiPieceKey(aiState);
+    state.ai.requestId = aiController.plan(createEngineSnapshot(aiState), {
+      difficulty: state.ai.difficulty,
+      style: state.settings.aiStyle,
+    });
+  }
+
+  function handleAiPlan(plan) {
+    if (!state.ai.enabled || plan.requestId !== state.ai.requestId) return;
+    state.ai.workerBusy = false;
+    state.ai.lastPlan = plan;
+    const aiState = state.ai.engineState;
+    if (!aiState || aiPieceKey(aiState) !== state.ai.requestPiece) {
+      state.ai.nextThinkTick = aiState?.tick || 0;
+      return;
+    }
+    state.ai.pendingActions = Array.isArray(plan.actions)
+      ? plan.actions.slice(0, 32)
+      : ["hardDrop"];
+    const pace = AI_PACE[state.settings.aiPace] || AI_PACE.fair;
+    state.ai.nextThinkTick =
+      aiState.tick +
+      Math.max(
+        4,
+        Math.round((Number(plan.thinkTicks) || 58) * pace.thinkMultiplier),
+      );
+  }
+
+  function handleAiError(error) {
+    if (!state.ai.enabled) return;
+    state.ai.workerBusy = false;
+    state.ai.workerError = String(error?.message || "AI worker failed").slice(
+      0,
+      160,
+    );
+    state.ai.pendingActions = ["hardDrop"];
+    state.ai.nextThinkTick = (state.ai.engineState?.tick || 0) + 90;
+  }
+
+  function runAiEngineTick() {
+    const aiState = state.ai.engineState;
+    if (!state.ai.enabled || !aiState || aiState.gameOver) return;
+    const inputs = state.ai.pendingActions.splice(0).map((action) => ({
+      tick: aiState.tick,
+      seq: ++state.ai.inputSeq,
+      action,
+      pressed: true,
+    }));
+    const { events } = stepEngine(aiState, inputs);
+    state.ai.score = aiState.score;
+    state.ai.height = boardCurrentHeight(aiState.board);
+    state.ai.elapsedMs = Math.floor(aiState.tick * FIXED_TICK_MS);
+    for (const event of events) {
+      if (event.type === "lock" && event.attack > 0) {
+        queueEngineGarbage(state, event.attack);
+        state.replayEvents.push({
+          tick: state.tick,
+          type: "garbage",
+          lines: event.attack,
+        });
+        state.incomingGarbage = state.pendingGarbage;
+        showToast(
+          onlineText(
+            `${state.ai.name}: +${event.attack} в очереди`,
+            `${state.ai.name}: +${event.attack} pending`,
+          ),
+        );
+        playEvent("attack", { duration: 0.09 });
+      }
+    }
+    if (aiState.gameOver && state.running && !state.resultFinalized) {
+      finish(
+        !aiState.won,
+        aiState.won
+          ? onlineText(
+              "AI первым выполнил цель режима.",
+              "AI reached the mode goal first.",
+            )
+          : onlineText("AI дошёл до верхней границы.", "AI topped out."),
+      );
+      return;
+    }
+    requestAiPlan();
   }
 
   function recordGhostSample() {
@@ -1558,6 +1560,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     )
       return;
     state.ghostRun = {
+      ghostSchemaVersion: 2,
+      legacyTimeline: true,
       score: state.score,
       mode: state.mode,
       date: new Date().toISOString(),
@@ -1655,6 +1659,23 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     });
     renderOnlinePanel();
     sendOnlineUpdateThrottled();
+    const replay = state.replayPlayer?.replay;
+    ui.setReplayPlayback({
+      visible: isReplaySession() && Boolean(state.replayPlayer),
+      paused: state.paused,
+      speed: state.replaySpeed,
+      tick: state.tick,
+      finalTick: replay?.finalTick || 0,
+      elapsed: formatTime(state.elapsedMs),
+      duration: formatTime(((replay?.finalTick || 0) / TICK_RATE) * 1000),
+    });
+    ui.renderOnboarding({
+      visible: state.onboarding.active,
+      title: onlineText("Обучение", "Tutorial"),
+      instruction: onboardingInstruction(),
+      step: state.onboarding.step,
+      total: ONBOARDING_STEPS.length,
+    });
   }
 
   function localizedRank(rank) {
@@ -1754,6 +1775,56 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     return state.settings.language === "en" ? en : ru;
   }
 
+  function applyAuthoritativeSnapshot(payload) {
+    if (payload.spectator || !payload.gameSnapshot) return;
+    let authoritative;
+    try {
+      authoritative = restoreEngineSnapshot(payload.gameSnapshot);
+    } catch {
+      showToast(
+        onlineText(
+          "Сервер прислал несовместимое состояние",
+          "Server sent an incompatible snapshot",
+        ),
+      );
+      return;
+    }
+    Object.assign(state, authoritative);
+    const pending = [...onlineClient.pendingInputs.values()].sort(
+      (left, right) => left.seq - right.seq,
+    );
+    for (const input of pending) applyEngineInput(state, input, []);
+    state.inputSeq = Math.max(
+      state.inputSeq || 0,
+      payload.ackSeq || 0,
+      ...pending.map((input) => input.seq),
+    );
+    state.tickAccumulatorMs = 0;
+    state.elapsedMs = Math.floor(state.tick * FIXED_TICK_MS);
+    state.incomingGarbage = state.pendingGarbage;
+    state.engineSnapshot = createEngineSnapshot(state);
+    for (const opponent of payload.opponents || []) {
+      const previous = state.online.peers[opponent.id] || {};
+      const now = performance.now();
+      const previousHeight = interpolatedPeerHeight(previous, now);
+      state.online.peers[opponent.id] = {
+        ...previous,
+        id: opponent.id,
+        board: opponent.board,
+        active: opponent.active,
+        score: opponent.stats?.score || 0,
+        lines: opponent.stats?.lines || 0,
+        level: opponent.stats?.level || 1,
+        sentGarbage: opponent.stats?.sentGarbage || 0,
+        receivedGarbage: opponent.stats?.receivedGarbage || 0,
+        height: boardCurrentHeight(opponent.board || []),
+        previousHeight,
+        serverTick: payload.serverTick || 0,
+        receivedAt: now,
+      };
+    }
+  }
+
   function defaultPlayerName() {
     return onlineText("Игрок", "Player");
   }
@@ -1780,6 +1851,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     currentHeight,
     modeName: () => MODES[state.mode].name,
     buildBoardPreview,
+    applyAuthoritativeSnapshot,
   });
   const {
     openOnline,
@@ -1804,8 +1876,19 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       .filter(
         (p) => p.id !== state.online.id && Number.isFinite(Number(p.height)),
       )
-      .sort((a, b) => b.score - a.score)[0]?.height;
+      .sort((a, b) => b.score - a.score)
+      .map((peer) => interpolatedPeerHeight(peer))[0];
     return peerHeight || ghostRunHeight();
+  }
+
+  function interpolatedPeerHeight(peer, now = performance.now()) {
+    const target = Number(peer?.height) || 0;
+    const previous = Number.isFinite(Number(peer?.previousHeight))
+      ? Number(peer.previousHeight)
+      : target;
+    const elapsed = Math.max(0, now - (Number(peer?.receivedAt) || now));
+    const progress = Math.min(1, elapsed / 110);
+    return previous + (target - previous) * progress;
   }
 
   function topDanger() {
@@ -1820,7 +1903,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function saveCurrentGame() {
-    if (!state.running || state.gameOver || isOnlineSession()) return;
+    if (
+      !state.running ||
+      state.gameOver ||
+      isOnlineSession() ||
+      isAiSession() ||
+      isReplaySession()
+    )
+      return;
+    state.engineSnapshot = createEngineSnapshot(state);
     storage.saveGame(buildSavePayload(state));
   }
 
@@ -1830,17 +1921,34 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       showToast(onlineText("Сохранения пока нет", "No saved game yet"));
       return;
     }
+    const migration = migrateSaveSnapshot(save);
+    if (!migration.ok) {
+      storage.archiveSave(save, migration.code);
+      showToast(
+        onlineText(
+          "Сохранение несовместимо и перенесено в архив",
+          "Save is incompatible and was archived",
+        ),
+      );
+      return;
+    }
     if (state.online.connected) disconnectOnline(false);
-    applySaveSnapshot(state, save, FLOW_STATE.PLAYING);
+    applySaveSnapshot(state, migration.value, FLOW_STATE.PLAYING);
+    if (state.engineSnapshot) {
+      Object.assign(state, restoreEngineSnapshot(state.engineSnapshot));
+    }
     state.mode = normalizeModeKey(state.mode);
     state.ai.enabled = false;
     state.ghostReplay = false;
     state.difficulty = "normal";
-    state.rng = Math.random;
+    state.inputSeq = Math.max(state.inputSeq || 0, state.lastAckSeq || 0);
+    state.tickAccumulatorMs = 0;
+    state.resultFinalized = false;
     setSession({ type: "solo", source: "save" });
     hideOverlays();
     updateLayoutMetrics();
     syncUi();
+    if (migration.migrated) saveCurrentGame();
     showToast(onlineText("Сохранение загружено", "Save loaded"));
   }
 
@@ -2076,6 +2184,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
           bestCombo: state.bestComboRun,
           tSpins: state.tSpinCount,
           perfectClears: state.perfectClearCount,
+          replayChecksum: state.lastCompletedReplay?.finalChecksum || "",
+          replay: state.lastCompletedReplay,
         }),
       });
       const data = await response.json();
@@ -2500,6 +2610,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       count,
       reducedMotion: state.settings.reducedMotion,
       particles: state.settings.particles,
+      lowPower: state.settings.adaptiveLowPower,
       colors: Object.values(state.settings.colorBlind ? SAFE_COLORS : COLORS),
     });
   }
@@ -2579,7 +2690,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function openReplay() {
-    ui.renderReplay(state.ghostRun, formatTime);
+    ui.renderReplay(state.ghostRun, formatTime, state.bestReplay);
   }
 
   function closeReplay() {
@@ -2595,6 +2706,139 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     ui.hideOverlay("replayOverlay");
     startGame(state.ghostRun.mode, "normal", { ghostReplay: true });
     showToast("Призрак лучшей партии включён");
+  }
+
+  function beginOnboarding() {
+    state.onboarding.active = true;
+    state.onboarding.step = 0;
+    state.onboarding.startedAt = performance.now();
+    const instruction = onboardingInstruction();
+    ui.announce(instruction);
+    syncUi();
+  }
+
+  function onboardingInstruction() {
+    const step = ONBOARDING_STEPS[state.onboarding.step];
+    if (!step) return "";
+    return state.settings.language === "en" ? step.en : step.ru;
+  }
+
+  function recordOnboardingAction(action) {
+    if (!state.onboarding.active) return;
+    const step = ONBOARDING_STEPS[state.onboarding.step];
+    if (!step?.actions.includes(action)) return;
+    state.onboarding.step += 1;
+    if (state.onboarding.step >= ONBOARDING_STEPS.length) {
+      state.onboarding.active = false;
+      state.onboarding.completed = true;
+      storage.saveOnboarding({
+        completed: true,
+        completedAt: new Date().toISOString(),
+        durationMs: Math.round(performance.now() - state.onboarding.startedAt),
+      });
+      const message = onlineText(
+        "Обучение завершено — управление освоено!",
+        "Tutorial complete — controls mastered!",
+      );
+      showToast(message);
+      ui.announce(message, "assertive");
+      return;
+    }
+    ui.announce(onboardingInstruction());
+  }
+
+  function skipOnboarding() {
+    state.onboarding.active = false;
+    storage.saveOnboarding({
+      completed: false,
+      skippedAt: new Date().toISOString(),
+    });
+    syncUi();
+  }
+
+  function startReplayPlayback() {
+    if (!state.bestReplay) {
+      showToast(onlineText("Повтора пока нет", "No replay yet"));
+      return;
+    }
+    let player;
+    try {
+      player = createReplayPlayer(state.bestReplay);
+    } catch (error) {
+      storage.archiveReplay(state.bestReplay, error.code || "invalidReplay");
+      state.bestReplay = null;
+      showToast(
+        onlineText(
+          "Повтор несовместим и перенесён в архив",
+          "Replay is incompatible and was archived",
+        ),
+      );
+      return;
+    }
+    state.replayPlayer = player;
+    state.replaySpeed = Number(ui.replaySpeedSelect.value) || 1;
+    player.setSpeed(state.replaySpeed);
+    Object.assign(state, player.seek(0));
+    state.running = true;
+    state.paused = false;
+    state.gameOver = false;
+    state.resultFinalized = true;
+    state.elapsedMs = 0;
+    state.replayCompleteNotified = false;
+    state.ai.enabled = false;
+    setSession({ type: "replay", source: "replay" });
+    hideOverlays();
+    wakeUpdate();
+    syncUi();
+  }
+
+  function updateReplayPlayback(delta) {
+    if (!state.replayPlayer) return;
+    const result = state.replayPlayer.advance(delta);
+    Object.assign(state, result.state);
+    state.elapsedMs = Math.floor((state.tick / TICK_RATE) * 1000);
+    if (result.complete && !state.replayCompleteNotified) {
+      state.replayCompleteNotified = true;
+      state.paused = true;
+      state.replayPlayer.pause();
+      const verification = state.replayPlayer.verification();
+      showToast(
+        verification.ok
+          ? onlineText("Повтор проверен ✓", "Replay verified ✓")
+          : onlineText(
+              "Checksum повтора не совпал",
+              "Replay checksum mismatch",
+            ),
+      );
+    }
+  }
+
+  function toggleReplayPause() {
+    if (!state.replayPlayer) return;
+    state.paused = !state.paused;
+    if (state.paused) state.replayPlayer.pause();
+    else state.replayPlayer.play();
+    state.lastTime = 0;
+    wakeUpdate();
+    syncUi();
+  }
+
+  function setReplaySpeed(value) {
+    state.replaySpeed = state.replayPlayer
+      ? state.replayPlayer.setSpeed(value)
+      : [0.5, 1, 2, 4].includes(Number(value))
+        ? Number(value)
+        : 1;
+    ui.replaySpeedSelect.value = String(state.replaySpeed);
+    syncUi();
+  }
+
+  function seekReplay(value) {
+    if (!state.replayPlayer) return;
+    Object.assign(state, state.replayPlayer.seek(value));
+    state.elapsedMs = Math.floor((state.tick / TICK_RATE) * 1000);
+    state.replayCompleteNotified = false;
+    syncUi();
   }
 
   function changeSetting(key, value) {
@@ -2706,7 +2950,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
 
   function handleKeyUp(event) {
     if (shouldIgnoreKeyboardTarget(event.target)) return;
-    stopHorizontal(event.key.toLowerCase());
+    const key = event.key.toLowerCase();
+    if (key === "arrowdown" || key === "s") softDrop(false);
+    stopHorizontal(key);
   }
 
   function shouldIgnoreKeyboardTarget(target) {
@@ -3033,6 +3279,10 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         openReplay();
         syncUi();
       },
+      playReplay: startReplayPlayback,
+      toggleReplayPause,
+      setReplaySpeed,
+      seekReplay,
       closeReplay,
       startGhostRun,
       openHelp: () => {
@@ -3055,9 +3305,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       startTutorialGame: () => {
         ui.hideOverlay("tutorialOverlay");
         startGame("classic", "normal");
+        beginOnboarding();
         showToast("Тренировка началась");
         syncUi();
       },
+      skipOnboarding,
       closeCoach: () => {
         ui.hideOverlay("coachOverlay");
         syncUi();

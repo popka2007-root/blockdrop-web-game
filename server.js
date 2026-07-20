@@ -11,6 +11,7 @@ const {
   createServerStore,
 } = require("./server-store");
 const protocol = require("./shared/protocol.js");
+const engine = require("./shared/engine.js");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -23,16 +24,21 @@ const MAX_PAYLOAD_KEYS = 18;
 const HTTP_RATE_WINDOW_MS = 10 * 60 * 1000;
 const RECONNECT_GRACE_MS = 12000;
 const COUNTDOWN_STEP_MS = 700;
+const MATCH_TICK_MS = 1000 / engine.TICK_RATE;
+const SNAPSHOT_INTERVAL_TICKS = 6;
 const RANKED_K_FACTOR = 32;
 const {
   ATTACK_KEYS: ATTACK_KEY_LIST,
   BOARD_PREVIEW_COLS: MAX_BOARD_PREVIEW_COLS,
   BOARD_PREVIEW_ROWS: MAX_BOARD_PREVIEW_ROWS,
   JOIN_KEYS: JOIN_KEY_LIST,
+  INPUT_ACTIONS,
+  INPUT_KEYS: INPUT_KEY_LIST,
   MATCH_OVER_KEYS: MATCH_OVER_KEY_LIST,
   MAX_RECORD_SCORE,
   PING_KEYS: PING_KEY_LIST,
   PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
   REMATCH_KEYS: REMATCH_KEY_LIST,
   MATCH_EVENT_KEYS: MATCH_EVENT_KEY_LIST,
   ROOM_PLAYER_LIMIT,
@@ -52,6 +58,7 @@ const MATCH_EVENT_KEYS = new Set(MATCH_EVENT_KEY_LIST);
 const MATCH_OVER_KEYS = new Set(MATCH_OVER_KEY_LIST);
 const PING_KEYS = new Set(PING_KEY_LIST);
 const JOIN_KEYS = new Set(JOIN_KEY_LIST);
+const INPUT_KEYS = new Set(INPUT_KEY_LIST);
 const TOURNAMENT_KEYS = new Set(TOURNAMENT_KEY_LIST);
 const rooms = new Map();
 const rankedQueue = [];
@@ -445,11 +452,19 @@ function handleCapabilitiesApi(req, res) {
     return;
   }
   const secureTransport = isSensitiveTransportAllowed(req);
+  const bucket = clientAddress(req);
+  const authEnabled = isFeatureEnabled("accounts", secureTransport, bucket);
   const payload = {
     secureTransport,
-    authEnabled: secureTransport,
-    rankedEnabled: secureTransport,
+    authEnabled,
+    rankedEnabled:
+      authEnabled && isFeatureEnabled("ranked", secureTransport, bucket),
     casualOnlineEnabled: true,
+    casualV2Enabled: isFeatureEnabled("casualV2", secureTransport, bucket),
+    analyticsEnabled: isFeatureEnabled("analytics", secureTransport, bucket),
+    pwaInstallEnabled: isFeatureEnabled("pwaInstall", secureTransport, bucket),
+    protocolVersion: PROTOCOL_VERSION,
+    engineVersion: engine.ENGINE_VERSION,
     maxPlayers: ROOM_PLAYER_LIMIT,
     localQrEnabled: true,
     version: readPackageMeta().version,
@@ -463,6 +478,30 @@ function handleCapabilitiesApi(req, res) {
     return;
   }
   sendJson(res, payload);
+}
+
+function isFeatureEnabled(key, secureTransport, bucket = "") {
+  const environmentKey = `BLOCKDROP_FEATURE_${String(key)
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .toUpperCase()}`;
+  const environmentValue = process.env[environmentKey];
+  const flag = store.getFeatureFlag(key);
+  const hasEnvironmentOverride = environmentValue != null;
+  const enabled = hasEnvironmentOverride
+    ? environmentValue === "true" || environmentValue === "1"
+    : Boolean(flag?.enabled);
+  if (!enabled) return false;
+  if (flag?.secureTransportRequired && !secureTransport) return false;
+  if (hasEnvironmentOverride) return true;
+  const rollout = clamp(Number(flag?.rolloutPercentage) || 0, 0, 100);
+  if (rollout >= 100) return true;
+  if (rollout <= 0) return false;
+  const digest = crypto
+    .createHash("sha256")
+    .update(`${key}:${bucket}`)
+    .digest()
+    .readUInt32BE(0);
+  return digest % 100 < rollout;
 }
 
 async function handleQrApi(req, res, requestUrl) {
@@ -615,7 +654,7 @@ function handleDailyApi(req, res, requestUrl) {
   let body = "";
   req.on("data", (chunk) => {
     body += chunk;
-    if (body.length > 4096) req.destroy();
+    if (body.length > 2 * 1024 * 1024) req.destroy();
   });
   req.on("end", () => {
     let data = {};
@@ -636,12 +675,19 @@ function handleDailyApi(req, res, requestUrl) {
       signature: data.runSignature,
       dateKey,
     });
-    if (!runCheck.ok || !isPlausibleDailyScore(entry, data, runCheck.run)) {
+    const replayCheck = runCheck.ok
+      ? verifyDailyReplay(data, entry, runCheck.run)
+      : { ok: false, code: runCheck.code };
+    if (
+      !runCheck.ok ||
+      !isPlausibleDailyScore(entry, data, runCheck.run) ||
+      !replayCheck.ok
+    ) {
       metrics.increment("blockdrop_daily_rejected_total");
       sendJson(
         res,
         {
-          error: runCheck.code || "Daily score rejected",
+          error: runCheck.code || replayCheck.code || "Daily score rejected",
           date: dateKey,
           seed: store.getOrCreateDailySeed(dateKey),
           leaderboard: store.listDailyLeaderboard(dateKey),
@@ -652,6 +698,26 @@ function handleDailyApi(req, res, requestUrl) {
     }
     entry.playerId = runCheck.run.playerId;
     const leaderboard = store.saveDailyScore(entry);
+    store.saveReplay({
+      id: `daily:${dateKey}:${data.runToken}`,
+      playerId: entry.playerId,
+      mode: replayCheck.replay.mode,
+      engineVersion: replayCheck.replay.engineVersion,
+      replaySchemaVersion: replayCheck.replay.replayVersion,
+      seed: replayCheck.replay.seed,
+      inputStream: {
+        inputs: replayCheck.replay.inputs,
+        externalEvents: replayCheck.replay.externalEvents || [],
+        finalTick: replayCheck.replay.finalTick,
+        metadata: replayCheck.replay.metadata || {},
+      },
+      checkpoints: replayCheck.replay.checkpoints || [],
+      result: entry,
+      checksum: replayCheck.replay.finalChecksum,
+      verificationStatus: "verified",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
     store.markDailyRunSubmitted(data.runToken);
     metrics.increment("blockdrop_daily_submissions_total");
     sendJson(res, {
@@ -863,6 +929,51 @@ function isPlausibleDailyScore(entry, data, run) {
   return entry.score <= scoreCap;
 }
 
+function verifyDailyReplay(data, entry, run) {
+  const submitted = data?.replay;
+  if (!submitted || typeof submitted !== "object") {
+    return { ok: false, code: "replayRequired" };
+  }
+  if (
+    Number(submitted.engineVersion) !== engine.ENGINE_VERSION ||
+    Number(submitted.replayVersion) !== engine.REPLAY_VERSION ||
+    submitted.seed !== `daily:${run.seed}` ||
+    submitted.mode !== "classic" ||
+    !Array.isArray(submitted.inputs) ||
+    submitted.inputs.length > 100000 ||
+    (submitted.externalEvents || []).length
+  ) {
+    return { ok: false, code: "invalidDailyReplay" };
+  }
+  const verified = engine.simulateReplay(submitted, engine.TICK_RATE * 60 * 60);
+  if (!verified.ok) return { ok: false, code: verified.code };
+  const replayTimeMs = Math.floor(
+    (Number(verified.state.tick) / engine.TICK_RATE) * 1000,
+  );
+  if (
+    verified.state.score !== entry.score ||
+    verified.state.lines !== entry.lines ||
+    verified.state.level !== entry.level ||
+    Math.abs(replayTimeMs - entry.timeMs) > 20 ||
+    String(data.replayChecksum || "") !== verified.finalChecksum
+  ) {
+    return { ok: false, code: "dailyReplayResultMismatch" };
+  }
+  const replay = engine.createReplay({
+    seed: submitted.seed,
+    mode: submitted.mode,
+    inputs: submitted.inputs,
+    finalState: verified.state,
+    metadata: {
+      date: run.dateKey,
+      playerId: run.playerId,
+      score: entry.score,
+      lines: entry.lines,
+    },
+  });
+  return { ok: true, code: "ok", replay };
+}
+
 function parseTimeSeconds(value) {
   return store.parseTimeSeconds(value);
 }
@@ -978,7 +1089,13 @@ webSocketServer.on("connection", (socket, req) => {
   });
   socket.on("close", () => removeClient(client, "close"));
   socket.on("error", () => removeClient(client, "error"));
-  send(client, { type: "hello", id: client.id });
+  send(client, {
+    type: "hello",
+    id: client.id,
+    protocolVersion: PROTOCOL_VERSION,
+    supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
+    engineVersion: engine.ENGINE_VERSION,
+  });
 });
 
 function createClient(socket, options = {}) {
@@ -995,6 +1112,10 @@ function createClient(socket, options = {}) {
     authTransportAllowed: Boolean(options.authTransportAllowed),
     rankedProfile: null,
     name: "Player",
+    protocolVersion: 1,
+    authoritative: false,
+    reconnectToken: crypto.randomBytes(24).toString("base64url"),
+    pendingInputs: [],
     state: emptyState(),
     attackCredit: 0,
     lastRankedEventAt: 0,
@@ -1066,6 +1187,8 @@ function emptyState() {
 function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
   return {
     id,
+    protocolVersion: 0,
+    authoritative: false,
     ranked: false,
     mode: "classic",
     players: new Map(),
@@ -1095,6 +1218,18 @@ function createRoom(id, _maxPlayers = ROOM_PLAYER_LIMIT, durationSec = 180) {
     countdownTimer: null,
     rematchReady: new Set(),
     reconnects: new Map(),
+    authority: {
+      matchId: "",
+      serverTick: 0,
+      states: new Map(),
+      inputQueues: new Map(),
+      lastSeq: new Map(),
+      inputStreams: new Map(),
+      externalEvents: new Map(),
+      identities: new Map(),
+      tickTimer: null,
+      snapshotTick: 0,
+    },
   };
 }
 
@@ -1130,7 +1265,22 @@ function handleMessage(client, raw) {
 
   if (!client.room) return;
 
+  if (data.type === "input") {
+    if (client.role !== "player" || !client.authoritative) return;
+    if (!validateInputPayload(client, data)) {
+      metrics.increment("blockdrop_ws_policy_close_total");
+      safeClose(client, "Bad input");
+      return;
+    }
+    queueAuthoritativeInput(client, data);
+    return;
+  }
+
   if (data.type === "update") {
+    if (client.authoritative) {
+      safeClose(client, "Protocol v2 accepts input commands only");
+      return;
+    }
     if (client.role !== "player") return;
     if (!allowTypedMessage(client, "update")) return;
     if (!validateUpdatePayload(client, data)) {
@@ -1143,6 +1293,10 @@ function handleMessage(client, raw) {
   }
 
   if (data.type === "attack") {
+    if (client.authoritative) {
+      safeClose(client, "Protocol v2 calculates attacks on the server");
+      return;
+    }
     if (client.role !== "player") return;
     if (!allowTypedMessage(client, "attack")) return;
     if (!validateAttackPayload(client, data)) {
@@ -1160,6 +1314,7 @@ function handleMessage(client, raw) {
   }
 
   if (data.type === "matchEvent") {
+    if (client.authoritative) return;
     if (client.role !== "player") return;
     if (!validateMatchEventPayload(client, data)) {
       safeClose(client, "Bad match event");
@@ -1185,6 +1340,7 @@ function handleMessage(client, raw) {
   }
 
   if (data.type === "matchOver") {
+    if (client.authoritative) return;
     if (client.role !== "player") return;
     if (!hasOnlyKeys(data, MATCH_OVER_KEYS) || !matchesClientRoom(client, data))
       return;
@@ -1193,6 +1349,20 @@ function handleMessage(client, raw) {
   }
 
   safeClose(client, "Unknown message");
+}
+
+function validateInputPayload(client, data) {
+  const room = rooms.get(client.room);
+  return (
+    room?.authoritative === true &&
+    room.match.status === "playing" &&
+    hasOnlyKeys(data, INPUT_KEYS) &&
+    String(data.matchId || "") === room.authority.matchId &&
+    isIntegerInRange(data.seq, 1, 2_147_483_647) &&
+    isIntegerInRange(data.tick, 0, 60 * 60 * 60) &&
+    INPUT_ACTIONS.includes(data.action) &&
+    typeof data.pressed === "boolean"
+  );
 }
 
 function isSafePayload(data) {
@@ -1247,7 +1417,8 @@ function validateJoinPayload(data) {
     String(data.room || "").length <= 32 &&
     normalizePlayerId(data.playerId).length <= 64 &&
     normalizeIdentityToken(data.identityToken).length <= 256 &&
-    normalizeIdentityToken(data.accountToken).length <= 256
+    normalizeIdentityToken(data.accountToken).length <= 256 &&
+    normalizeIdentityToken(data.reconnectToken).length <= 256
   );
 }
 
@@ -1325,8 +1496,32 @@ function joinRoom(client, data) {
   removeQueuedClient(client);
   const roomId = normalizeRoomId(data.room) || "LOBBY";
   const room = rooms.get(roomId);
+  const requestedProtocol = clamp(
+    safeNumber(data.protocolVersion) || 1,
+    1,
+    PROTOCOL_VERSION,
+  );
   const rankedRequested =
     data.rankedQueue === true || data.ranked === true || Boolean(room?.ranked);
+  if (rankedRequested && requestedProtocol < 2) {
+    send(client, {
+      type: "error",
+      code: "protocolUpgradeRequired",
+      message: "Ranked play requires WebSocket protocol v2",
+    });
+    return;
+  }
+  if (
+    rankedRequested &&
+    !isFeatureEnabled("ranked", client.authTransportAllowed, client.id)
+  ) {
+    send(client, {
+      type: "error",
+      code: "rankedDisabled",
+      message: "Ranked play is disabled",
+    });
+    return;
+  }
   if (rankedRequested && !client.authTransportAllowed) {
     send(client, {
       type: "error",
@@ -1375,6 +1570,22 @@ function joinRoom(client, data) {
     rooms.set(roomId, createRoom(roomId, maxPlayers, durationSec));
   }
   const actualRoom = rooms.get(roomId);
+  const casualV2Enabled = isFeatureEnabled("casualV2", false, roomId);
+  const selectedProtocol =
+    rankedRequested || (requestedProtocol >= 2 && casualV2Enabled) ? 2 : 1;
+  if (actualRoom.protocolVersion === 2 && selectedProtocol < 2) {
+    send(client, {
+      type: "error",
+      code: "protocolUpgradeRequired",
+      message: "This room requires WebSocket protocol v2",
+    });
+    return;
+  }
+  if (!actualRoom.protocolVersion)
+    actualRoom.protocolVersion = selectedProtocol;
+  client.protocolVersion = actualRoom.protocolVersion;
+  client.authoritative = client.protocolVersion === 2;
+  actualRoom.authoritative = actualRoom.protocolVersion === 2;
   if (actualRoom.match.status === "lobby") {
     actualRoom.maxPlayers = ROOM_PLAYER_LIMIT;
     actualRoom.durationSec = durationSec;
@@ -1403,6 +1614,8 @@ function joinRoom(client, data) {
     actualRoom,
     client.name,
     client.playerId,
+    normalizeIdentityToken(data.reconnectToken),
+    client.protocolVersion,
   );
   if (reconnectId) {
     const slot = actualRoom.reconnects.get(reconnectId);
@@ -1415,6 +1628,8 @@ function joinRoom(client, data) {
     client.accountToken = slot?.accountToken || client.accountToken;
     client.account = slot?.account || client.account;
     client.rankedProfile = slot?.rankedProfile || client.rankedProfile;
+    client.reconnectToken = slot?.reconnectToken || client.reconnectToken;
+    client.pendingInputs = [];
     actualRoom.players.set(client.id, client);
   } else if (
     actualRoom.players.size < actualRoom.maxPlayers &&
@@ -1427,7 +1642,20 @@ function joinRoom(client, data) {
     actualRoom.spectators.set(client.id, client);
   }
 
-  send(client, { type: "hello", id: client.id });
+  send(client, {
+    type: "hello",
+    id: client.id,
+    protocolVersion: client.protocolVersion,
+    supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
+    engineVersion: engine.ENGINE_VERSION,
+  });
+  send(client, {
+    type: "protocol",
+    selectedVersion: client.protocolVersion,
+    authoritative: client.authoritative,
+    reconnectToken: client.reconnectToken,
+    reconnectGraceMs: RECONNECT_GRACE_MS,
+  });
   send(client, { type: "role", role: client.role });
   if (client.rankedProfile) {
     send(client, {
@@ -1445,6 +1673,13 @@ function joinRoom(client, data) {
   }
   broadcastRoom(roomId);
   updateLiveMetrics();
+  if (
+    reconnectId &&
+    actualRoom.authoritative &&
+    actualRoom.match.status === "playing"
+  ) {
+    sendAuthoritativeSnapshot(actualRoom, client);
+  }
   maybeAutoStart(actualRoom);
 }
 
@@ -1528,10 +1763,23 @@ function removeQueuedClient(client) {
   if (index >= 0) rankedQueue.splice(index, 1);
 }
 
-function findReconnectSlot(room, name, playerId = "") {
+function findReconnectSlot(
+  room,
+  name,
+  playerId = "",
+  reconnectToken = "",
+  protocolVersion = 1,
+) {
   const normalized = cleanName(name).toLowerCase();
   const safePlayerId = cleanPlayerId(playerId);
   for (const [id, slot] of room.reconnects.entries()) {
+    if (
+      reconnectToken &&
+      timingSafeEqualText(reconnectToken, slot.reconnectToken || "")
+    ) {
+      return id;
+    }
+    if (protocolVersion >= 2) continue;
     if (safePlayerId && slot.playerId === safePlayerId) return id;
     if (slot.name.toLowerCase() === normalized) return id;
   }
@@ -1634,15 +1882,317 @@ function startCountdown(room, finalType) {
       player.attackCredit = 0;
       player.lastRankedEventAt = 0;
     }
+    if (room.authoritative) startAuthoritativeMatch(room);
     broadcast(room, {
       type: finalType,
       seed: room.match.seed,
+      matchId: room.authority.matchId || room.match.seed,
       mode: room.mode,
       startedAt: room.match.startedAt,
+      protocolVersion: room.protocolVersion,
+      engineVersion: engine.ENGINE_VERSION,
+      authoritative: room.authoritative,
     });
+    if (room.authoritative) sendAuthoritativeSnapshots(room, true);
     broadcastRoom(room.id);
   };
   tick();
+}
+
+function startAuthoritativeMatch(room) {
+  stopAuthoritativeMatch(room);
+  const authority = room.authority;
+  authority.matchId = `match:${room.id}:${crypto.randomUUID()}`;
+  authority.serverTick = 0;
+  authority.snapshotTick = 0;
+  authority.states = new Map();
+  authority.inputQueues = new Map();
+  authority.lastSeq = new Map();
+  authority.inputStreams = new Map();
+  authority.externalEvents = new Map();
+  authority.identities = new Map();
+  for (const player of [...room.players.values()].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  )) {
+    const gameState = engine.createState({
+      seed: room.match.seed,
+      mode: room.mode,
+    });
+    authority.states.set(player.id, gameState);
+    authority.inputQueues.set(player.id, new Map());
+    authority.lastSeq.set(player.id, 0);
+    authority.inputStreams.set(player.id, []);
+    authority.externalEvents.set(player.id, []);
+    authority.identities.set(player.id, player.playerId || player.id);
+    updateClientFromEngine(player, gameState);
+  }
+  store.createMatchSession({
+    id: authority.matchId,
+    roomId: room.id,
+    protocolVersion: room.protocolVersion,
+    engineVersion: engine.ENGINE_VERSION,
+    mode: room.mode,
+    seed: room.match.seed,
+    status: "playing",
+    createdAt: room.match.startedAt,
+    startedAt: room.match.startedAt,
+    expiresAt: room.match.startedAt + 30 * 24 * 60 * 60 * 1000,
+  });
+  authority.tickTimer = setInterval(
+    () => tickAuthoritativeMatch(room.id),
+    MATCH_TICK_MS,
+  );
+  authority.tickTimer.unref?.();
+}
+
+function stopAuthoritativeMatch(room) {
+  if (room?.authority?.tickTimer) clearInterval(room.authority.tickTimer);
+  if (room?.authority) room.authority.tickTimer = null;
+}
+
+function queueAuthoritativeInput(client, data) {
+  const room = rooms.get(client.room);
+  const state = room?.authority.states.get(client.id);
+  const queue = room?.authority.inputQueues.get(client.id);
+  if (!room || !state || !queue) return;
+  const seq = safeNumber(data.seq);
+  if (seq <= state.lastAckSeq || queue.has(seq)) {
+    sendAuthoritativeSnapshot(room, client);
+    return;
+  }
+  if (seq > state.lastAckSeq + 120) {
+    safeClose(client, "Input sequence too far ahead");
+    return;
+  }
+  const input = {
+    tick: clamp(safeNumber(data.tick), 0, state.tick + 120),
+    seq,
+    action: data.action,
+    pressed: data.pressed !== false,
+  };
+  queue.set(seq, input);
+  room.authority.lastSeq.set(
+    client.id,
+    Math.max(seq, room.authority.lastSeq.get(client.id) || 0),
+  );
+  store.appendMatchInput({
+    matchId: room.authority.matchId,
+    playerId: client.playerId || client.id,
+    ...input,
+  });
+}
+
+function drainAuthoritativeInputs(room, playerId, state) {
+  const queue = room.authority.inputQueues.get(playerId);
+  if (!queue) return [];
+  const inputs = [];
+  let expectedSeq = state.lastAckSeq + 1;
+  while (inputs.length < 32) {
+    const input = queue.get(expectedSeq);
+    if (!input || input.tick > state.tick + 6) break;
+    queue.delete(expectedSeq);
+    inputs.push(input);
+    room.authority.inputStreams.get(playerId)?.push(input);
+    expectedSeq += 1;
+  }
+  return inputs;
+}
+
+function tickAuthoritativeMatch(roomId) {
+  const room = rooms.get(roomId);
+  if (!room || !room.authoritative || room.match.status !== "playing") {
+    if (room) stopAuthoritativeMatch(room);
+    return;
+  }
+  const orderedIds = [...room.authority.states.keys()].sort();
+  const results = [];
+  const allEvents = [];
+  const tickStartedAt = performance.now();
+  for (const playerId of orderedIds) {
+    const state = room.authority.states.get(playerId);
+    if (!state || state.gameOver) continue;
+    const inputs = drainAuthoritativeInputs(room, playerId, state);
+    const { events } = engine.step(state, inputs);
+    const player = room.players.get(playerId);
+    if (player) updateClientFromEngine(player, state);
+    for (const event of events) {
+      allEvents.push({ playerId, ...event });
+      if (event.type === "lock" && event.attack > 0) {
+        const targetId = orderedIds.find((id) => id !== playerId);
+        const targetState = targetId
+          ? room.authority.states.get(targetId)
+          : null;
+        if (targetState && !targetState.gameOver) {
+          engine.queueGarbage(targetState, event.attack);
+          room.authority.externalEvents.get(targetId)?.push({
+            tick: targetState.tick,
+            type: "garbage",
+            lines: event.attack,
+          });
+          allEvents.push({
+            type: "garbageQueued",
+            tick: state.tick,
+            playerId,
+            targetId,
+            lines: event.attack,
+          });
+        }
+      }
+      if (event.type === "gameResult") {
+        results.push({ playerId, won: Boolean(event.won), state });
+      }
+    }
+    if (
+      state.gameOver &&
+      !results.some((result) => result.playerId === playerId)
+    ) {
+      results.push({ playerId, won: Boolean(state.won), state });
+    }
+  }
+  room.authority.serverTick += 1;
+  metrics.observe?.(
+    "blockdrop_match_processing_ms",
+    Math.max(0, performance.now() - tickStartedAt),
+  );
+  for (const event of allEvents) {
+    broadcast(room, {
+      type: "match.event",
+      matchId: room.authority.matchId,
+      serverTick: room.authority.serverTick,
+      event,
+    });
+  }
+  if (results.length) {
+    finishAuthoritativeResult(room, results, orderedIds);
+    return;
+  }
+  if (
+    room.authority.serverTick - room.authority.snapshotTick >=
+    SNAPSHOT_INTERVAL_TICKS
+  ) {
+    room.authority.snapshotTick = room.authority.serverTick;
+    sendAuthoritativeSnapshots(room);
+  }
+}
+
+function finishAuthoritativeResult(room, results, orderedIds) {
+  const winningResult = results.find((result) => result.won);
+  let winnerId = winningResult?.playerId || "";
+  if (!winnerId) {
+    winnerId = orderedIds.find(
+      (id) => !room.authority.states.get(id)?.gameOver,
+    );
+  }
+  if (!winnerId) {
+    winnerId = [...orderedIds].sort((left, right) => {
+      const leftState = room.authority.states.get(left);
+      const rightState = room.authority.states.get(right);
+      return (
+        rightState.score - leftState.score ||
+        rightState.lines - leftState.lines ||
+        left.localeCompare(right)
+      );
+    })[0];
+  }
+  const loserId = orderedIds.find((id) => id !== winnerId) || "";
+  finishMatch(room, {
+    reason: winningResult ? "goal" : "gameOver",
+    winnerId,
+    loserId,
+  });
+}
+
+function updateClientFromEngine(client, state) {
+  const boardPreview = state.board
+    .slice(-MAX_BOARD_PREVIEW_ROWS)
+    .map((row) => row.map((cell) => (cell ? 1 : 0)));
+  client.state = {
+    score: state.score,
+    lines: state.lines,
+    level: state.level,
+    height: state.board.findIndex((row) => row.some(Boolean)),
+    sentGarbage: state.sentGarbage,
+    receivedGarbage: state.receivedGarbage,
+    mode: state.mode,
+    time: formatTickTime(state.tick),
+    status: state.gameOver ? (state.won ? "Won" : "Finished") : "Playing",
+    boardPreview,
+  };
+  if (client.state.height < 0) client.state.height = 0;
+  else client.state.height = engine.ROWS - client.state.height;
+}
+
+function formatTickTime(tick) {
+  const totalSeconds = Math.floor(safeNumber(tick) / engine.TICK_RATE);
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function authoritativeOpponentPayload(room, ownId) {
+  return [...room.authority.states.entries()]
+    .filter(([id]) => id !== ownId)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, state]) => ({
+      id,
+      board: state.board,
+      active: state.active,
+      stats: {
+        score: state.score,
+        lines: state.lines,
+        level: state.level,
+        combo: state.combo,
+        sentGarbage: state.sentGarbage,
+        receivedGarbage: state.receivedGarbage,
+      },
+      pendingGarbage: state.pendingGarbage,
+      gameOver: state.gameOver,
+    }));
+}
+
+function sendAuthoritativeSnapshot(room, client) {
+  const state = room.authority.states.get(client.id);
+  if (!state) return;
+  const gameSnapshot = engine.snapshot(state);
+  send(client, {
+    type: "match.snapshot",
+    matchId: room.authority.matchId,
+    serverTick: room.authority.serverTick,
+    ackSeq: state.lastAckSeq,
+    board: gameSnapshot.board,
+    active: gameSnapshot.active,
+    queue: gameSnapshot.queue.slice(0, 5),
+    hold: gameSnapshot.hold,
+    stats: {
+      score: gameSnapshot.score,
+      lines: gameSnapshot.lines,
+      level: gameSnapshot.level,
+      combo: gameSnapshot.combo,
+      sentGarbage: gameSnapshot.sentGarbage,
+      receivedGarbage: gameSnapshot.receivedGarbage,
+    },
+    pendingGarbage: gameSnapshot.pendingGarbage,
+    gameSnapshot,
+    opponents: authoritativeOpponentPayload(room, client.id),
+  });
+}
+
+function sendAuthoritativeSnapshots(room, includeSpectators = false) {
+  for (const client of room.players.values()) {
+    sendAuthoritativeSnapshot(room, client);
+  }
+  if (includeSpectators || room.spectators.size) {
+    const players = authoritativeOpponentPayload(room, "");
+    broadcast(
+      room,
+      {
+        type: "match.snapshot",
+        matchId: room.authority.matchId,
+        serverTick: room.authority.serverTick,
+        spectator: true,
+        players,
+      },
+      (client) => client.role === "spectator",
+    );
+  }
 }
 
 function markRematchReady(client) {
@@ -1680,6 +2230,7 @@ function finishMatchFromClient(client, result) {
 }
 
 function finishMatch(room, { reason, winnerId, loserId }) {
+  stopAuthoritativeMatch(room);
   room.match.status = "finished";
   room.match.reason = reason;
   room.match.winnerId = winnerId;
@@ -1688,6 +2239,43 @@ function finishMatch(room, { reason, winnerId, loserId }) {
   const ranked = room.ranked
     ? finalizeRankedMatch(room, { winnerId, loserId, reason })
     : null;
+  if (room.authoritative && room.authority.matchId) {
+    const result = {
+      reason,
+      winnerId,
+      loserId,
+      finishedAt: Date.now(),
+    };
+    const checksum = engine.checksum(
+      [...room.authority.states.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([id, state]) => [id, engine.snapshot(state)]),
+    );
+    persistAuthoritativeReplays(room, result);
+    store.createMatchSession({
+      id: room.authority.matchId,
+      roomId: room.id,
+      protocolVersion: room.protocolVersion,
+      engineVersion: engine.ENGINE_VERSION,
+      mode: room.mode,
+      seed: room.match.seed,
+      status: "finished",
+      result,
+      checksum,
+      verificationStatus: "verified",
+      createdAt: room.match.startedAt,
+      startedAt: room.match.startedAt,
+      finishedAt: result.finishedAt,
+      expiresAt: result.finishedAt + 30 * 24 * 60 * 60 * 1000,
+    });
+    broadcast(room, {
+      type: "match.result",
+      matchId: room.authority.matchId,
+      serverTick: room.authority.serverTick,
+      checksum,
+      ...result,
+    });
+  }
   broadcast(room, {
     type: "matchFinished",
     reason,
@@ -1697,6 +2285,50 @@ function finishMatch(room, { reason, winnerId, loserId }) {
     series: seriesPayload(room),
   });
   broadcastRoom(room.id);
+}
+
+function persistAuthoritativeReplays(room, result) {
+  const createdAt = Number(room.match.startedAt) || Date.now();
+  const expiresAt = Number(result.finishedAt) + 30 * 24 * 60 * 60 * 1000;
+  for (const [connectionId, finalState] of room.authority.states.entries()) {
+    const replay = engine.createReplay({
+      seed: room.match.seed,
+      mode: room.mode,
+      inputs: room.authority.inputStreams.get(connectionId) || [],
+      externalEvents: room.authority.externalEvents.get(connectionId) || [],
+      finalState,
+      metadata: {
+        matchId: room.authority.matchId,
+        connectionId,
+        winnerId: result.winnerId,
+        loserId: result.loserId,
+        reason: result.reason,
+        ranked: room.ranked,
+      },
+    });
+    const verification = engine.simulateReplay(replay);
+    store.saveReplay({
+      id: `${room.authority.matchId}:${connectionId}`,
+      matchId: room.authority.matchId,
+      playerId: room.authority.identities.get(connectionId) || connectionId,
+      mode: room.mode,
+      engineVersion: engine.ENGINE_VERSION,
+      replaySchemaVersion: engine.REPLAY_VERSION,
+      seed: room.match.seed,
+      inputStream: {
+        inputs: replay.inputs,
+        externalEvents: replay.externalEvents,
+        finalTick: replay.finalTick,
+        metadata: replay.metadata,
+      },
+      checkpoints: replay.checkpoints,
+      result,
+      checksum: replay.finalChecksum,
+      verificationStatus: verification.ok ? "verified" : verification.code,
+      createdAt,
+      expiresAt,
+    });
+  }
 }
 
 function finalizeRankedMatch(room, { winnerId, loserId, reason }) {
@@ -2057,6 +2689,10 @@ function matchPayload(room) {
     ...room.match,
     mode: room.mode,
     ranked: room.ranked,
+    protocolVersion: room.protocolVersion,
+    authoritative: room.authoritative,
+    matchId: room.authority.matchId || room.match.seed,
+    serverTick: room.authority.serverTick,
     series: seriesPayload(room),
     rankedResult: room.lastRankedResult,
     rematchReady: [...room.rematchReady],
@@ -2145,6 +2781,7 @@ function removeClient(client, reason = "close") {
           currentRoom.players.size === 0 &&
           currentRoom.spectators.size === 0
         ) {
+          stopAuthoritativeMatch(currentRoom);
           rooms.delete(roomId);
         } else {
           currentRoom.match.status = "finished";
@@ -2159,6 +2796,7 @@ function removeClient(client, reason = "close") {
         accountToken: client.accountToken,
         account: client.account,
         rankedProfile: client.rankedProfile,
+        reconnectToken: client.reconnectToken,
         state: client.state,
         expiresAt,
         timer,
@@ -2176,6 +2814,7 @@ function removeClient(client, reason = "close") {
     room.spectators.size === 0 &&
     room.reconnects.size === 0
   ) {
+    stopAuthoritativeMatch(room);
     rooms.delete(roomId);
   } else {
     broadcastRoom(roomId);

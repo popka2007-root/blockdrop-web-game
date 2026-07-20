@@ -33,6 +33,8 @@ const UI_IDS = [
   "holdPanel",
   "statsPanel",
   "board",
+  "boardDescription",
+  "assertiveLiveRegion",
   "boardShell",
   "next1",
   "next2",
@@ -153,6 +155,18 @@ const UI_IDS = [
   "replayOverlay",
   "replaySummary",
   "replayTimeline",
+  "playReplayButton",
+  "replaySpeedSelect",
+  "replayPlaybackBar",
+  "replayPlaybackPause",
+  "replayPlaybackSpeed",
+  "replayPlaybackSeek",
+  "replayPlaybackStatus",
+  "onboardingBar",
+  "onboardingTitle",
+  "onboardingInstruction",
+  "onboardingProgress",
+  "skipOnboardingButton",
   "startGhostButton",
   "closeReplayButton",
   "closeHelpButton",
@@ -550,7 +564,10 @@ export function createUi(options = {}) {
   let tutorialIndex = 0;
   let onlineCapabilities = null;
   let focusBeforeDialog = null;
+  let boardDescriptionSignature = "";
   const canvasSizes = new WeakMap();
+  const particlePool = [];
+  let activeParticles = 0;
   const overlays = [...root.querySelectorAll(".overlay")];
 
   for (const [index, overlay] of overlays.entries()) {
@@ -616,6 +633,10 @@ export function createUi(options = {}) {
       settings.theme === "ember" ? "" : settings.theme;
     documentRef.body.classList.toggle("big-buttons", settings.bigButtons);
     documentRef.body.classList.toggle("reduced-motion", settings.reducedMotion);
+    documentRef.body.classList.toggle(
+      "low-performance",
+      Boolean(settings.adaptiveLowPower),
+    );
     documentRef.body.classList.toggle(
       "controls-hybrid",
       settings.controlMode === "hybrid",
@@ -739,6 +760,12 @@ export function createUi(options = {}) {
       text.lines,
     );
     refs.pauseButton.setAttribute("aria-label", text.pause);
+    refs.sidePanel.setAttribute(
+      "aria-label",
+      language === "en"
+        ? "Game statistics and upcoming pieces"
+        : "Игровая статистика и следующие фигуры",
+    );
     setText(
       documentRef.querySelector(".status-card:nth-child(1) > span"),
       text.goal,
@@ -951,6 +978,22 @@ export function createUi(options = {}) {
     setText(
       refs.startGhostButton,
       language === "en" ? "Play ghost run" : "Играть против призрака",
+    );
+    setText(
+      refs.playReplayButton,
+      language === "en" ? "Watch replay" : "Смотреть повтор",
+    );
+    setLabel(
+      'label[for="replaySpeedSelect"]',
+      language === "en" ? "Replay speed" : "Скорость повтора",
+    );
+    setLabel(
+      'label[for="replayPlaybackSpeed"]',
+      language === "en" ? "Speed" : "Скорость",
+    );
+    setText(
+      refs.skipOnboardingButton,
+      language === "en" ? "Skip" : "Пропустить",
     );
     setText(refs.closeReplayButton, text.close);
     populateModeSelect(language);
@@ -1467,6 +1510,45 @@ export function createUi(options = {}) {
     drawPreview(previews[1], refs.next2, queue[1], renderConfig);
     drawPreview(previews[2], refs.next3, queue[2], renderConfig);
     drawPreview(holdCtx, refs.hold, hold, renderConfig);
+    const occupied = board.map((row) => row.filter(Boolean).length);
+    const signature = `${occupied.join(",")}:${active?.kind || ""}:${active?.cells
+      ?.map((cellData) => `${cellData.x},${cellData.y}`)
+      .join(";")}:${queue.slice(0, 3).join(",")}:${hold || ""}`;
+    if (signature !== boardDescriptionSignature) {
+      boardDescriptionSignature = signature;
+      const language = renderConfig.settings.language;
+      const filledRows = occupied
+        .map((count, index) => ({ count, row: index + 1 }))
+        .filter((entry) => entry.count)
+        .map((entry) => `${entry.row}: ${entry.count}`)
+        .join(", ");
+      refs.board.setAttribute(
+        "aria-label",
+        language === "en" ? "BlockDrop game board" : "Игровое поле BlockDrop",
+      );
+      refs.boardDescription.textContent =
+        language === "en"
+          ? `Active ${active?.kind || "none"}. Next ${queue.slice(0, 3).join(", ") || "none"}. Hold ${hold || "empty"}. Occupied cells by row: ${filledRows || "empty board"}.`
+          : `Активная фигура ${active?.kind || "нет"}. Далее ${queue.slice(0, 3).join(", ") || "нет"}. Запас ${hold || "пуст"}. Занятые клетки по строкам: ${filledRows || "поле пустое"}.`;
+    }
+  }
+
+  function announce(text, priority = "polite") {
+    const target =
+      priority === "assertive" ? refs.assertiveLiveRegion : refs.toast;
+    target.textContent = "";
+    windowRef.setTimeout(() => {
+      target.textContent = String(text || "");
+    }, 20);
+  }
+
+  function renderOnboarding({ visible, title, instruction, step, total }) {
+    refs.onboardingBar.hidden = !visible;
+    if (!visible) return;
+    refs.onboardingTitle.textContent = title;
+    refs.onboardingInstruction.textContent = instruction;
+    refs.onboardingProgress.max = total;
+    refs.onboardingProgress.value = step;
   }
 
   function syncHud(payload) {
@@ -1685,36 +1767,49 @@ export function createUi(options = {}) {
       .join("");
   }
 
-  function renderReplay(ghostRun, formatTime) {
-    if (
-      !ghostRun ||
-      !Array.isArray(ghostRun.samples) ||
-      ghostRun.samples.length === 0
-    ) {
+  function renderReplay(ghostRun, formatTime, replay = null) {
+    const hasGhost =
+      ghostRun &&
+      Array.isArray(ghostRun.samples) &&
+      ghostRun.samples.length > 0;
+    refs.playReplayButton.disabled = !replay;
+    refs.startGhostButton.disabled = !hasGhost;
+    if (!hasGhost && !replay) {
       refs.replaySummary.textContent =
         refs.languageSelect.value === "en"
           ? "Replay appears after a new local best."
           : "Запись появится после нового локального рекорда.";
       refs.replayTimeline.innerHTML = "";
-      refs.startGhostButton.disabled = true;
       setOverlayVisibility(refs.replayOverlay, true);
       return;
     }
 
-    refs.startGhostButton.disabled = false;
     const summaryParts = [];
-    if (ghostRun.summary?.bestMoment)
+    if (replay) {
+      summaryParts.push(
+        String(replay.metadata?.score || 0),
+        replay.mode,
+        `${Math.round((Number(replay.finalTick) || 0) / 60)}s`,
+        `✓ ${String(replay.finalChecksum || "").slice(0, 8)}`,
+      );
+    }
+    if (hasGhost && ghostRun.summary?.bestMoment)
       summaryParts.push(ghostRun.summary.bestMoment);
-    if (ghostRun.summary?.bestBackToBack)
+    if (hasGhost && ghostRun.summary?.bestBackToBack)
       summaryParts.push(`B2B x${ghostRun.summary.bestBackToBack}`);
-    if (ghostRun.summary?.perfectClears)
+    if (hasGhost && ghostRun.summary?.perfectClears)
       summaryParts.push(`PC ${ghostRun.summary.perfectClears}`);
-    refs.replaySummary.textContent = [
-      ghostRun.score,
-      ghostRun.mode,
-      new Date(ghostRun.date).toLocaleDateString("ru-RU"),
-      ...summaryParts,
-    ].join(" · ");
+    refs.replaySummary.textContent = summaryParts.join(" · ");
+    if (!hasGhost) {
+      refs.replayTimeline.innerHTML = (replay.checkpoints || [])
+        .map(
+          (checkpoint) =>
+            `<div class="replay-step"><span>${escapeHtml(formatTime((checkpoint.tick / 60) * 1000))}</span><i style="height:50%"></i><b style="height:50%"></b></div>`,
+        )
+        .join("");
+      setOverlayVisibility(refs.replayOverlay, true);
+      return;
+    }
     const maxHeight = Math.max(
       1,
       ...ghostRun.samples.map((sample) => Number(sample.height) || 0),
@@ -1738,6 +1833,30 @@ export function createUi(options = {}) {
       })
       .join("");
     setOverlayVisibility(refs.replayOverlay, true);
+  }
+
+  function setReplayPlayback({
+    visible,
+    paused = false,
+    speed = 1,
+    tick = 0,
+    finalTick = 0,
+    elapsed = "0:00",
+    duration = "0:00",
+  }) {
+    refs.replayPlaybackBar.hidden = !visible;
+    if (!visible) return;
+    refs.replayPlaybackPause.textContent = paused
+      ? refs.languageSelect.value === "en"
+        ? "Resume"
+        : "Продолжить"
+      : refs.languageSelect.value === "en"
+        ? "Pause"
+        : "Пауза";
+    refs.replayPlaybackSpeed.value = String(speed);
+    refs.replayPlaybackSeek.max = String(Math.max(0, finalTick));
+    refs.replayPlaybackSeek.value = String(Math.max(0, tick));
+    refs.replayPlaybackStatus.textContent = `${elapsed} / ${duration}`;
   }
 
   function renderMenuRecords({
@@ -1921,11 +2040,19 @@ export function createUi(options = {}) {
     refs.scoreValue.classList.add("score-pop");
   }
 
-  function burst({ count, reducedMotion, particles, colors }) {
+  function burst({
+    count,
+    reducedMotion,
+    particles,
+    colors,
+    lowPower = false,
+  }) {
     if (!particles || reducedMotion) return;
     const rect = refs.boardShell.getBoundingClientRect();
-    for (let i = 0; i < count; i += 1) {
-      const particle = documentRef.createElement("i");
+    const limit = lowPower ? 8 : 28;
+    const allowed = Math.max(0, Math.min(count, limit - activeParticles));
+    for (let i = 0; i < allowed; i += 1) {
+      const particle = particlePool.pop() || documentRef.createElement("i");
       particle.className = "particle";
       particle.style.left = `${rect.left + rect.width / 2}px`;
       particle.style.top = `${rect.top + rect.height * 0.42}px`;
@@ -1939,7 +2066,13 @@ export function createUi(options = {}) {
         `${Math.sin(i * 1.7) * (60 + Math.random() * 110)}px`,
       );
       refs.fxLayer.appendChild(particle);
-      setTimeout(() => particle.remove(), 760);
+      activeParticles += 1;
+      setTimeout(() => {
+        particle.remove();
+        particle.removeAttribute("style");
+        activeParticles = Math.max(0, activeParticles - 1);
+        if (particlePool.length < limit) particlePool.push(particle);
+      }, 760);
     }
   }
 
@@ -2020,6 +2153,8 @@ export function createUi(options = {}) {
     bindPress(refs.installButton, callbacks.installApp);
     bindPress(refs.openStatsButton, callbacks.openStats);
     bindPress(refs.replayButton, callbacks.openReplay);
+    bindPress(refs.playReplayButton, callbacks.playReplay);
+    bindPress(refs.replayPlaybackPause, callbacks.toggleReplayPause);
     bindPress(refs.helpButton, callbacks.openHelp);
     bindPress(refs.closeHelpButton, callbacks.closeHelp);
     bindPress(refs.tutorialButton, callbacks.openTutorial);
@@ -2031,6 +2166,16 @@ export function createUi(options = {}) {
     bindPress(refs.tutorialPlayButton, callbacks.startTutorialGame);
     bindPress(refs.closeTutorialButton, callbacks.closeTutorial);
     bindPress(refs.closeCoachButton, callbacks.closeCoach);
+    bindPress(refs.skipOnboardingButton, callbacks.skipOnboarding);
+    refs.replaySpeedSelect.addEventListener("change", () =>
+      callbacks.setReplaySpeed(refs.replaySpeedSelect.value),
+    );
+    refs.replayPlaybackSpeed.addEventListener("change", () =>
+      callbacks.setReplaySpeed(refs.replayPlaybackSpeed.value),
+    );
+    refs.replayPlaybackSeek.addEventListener("input", () =>
+      callbacks.seekReplay(refs.replayPlaybackSeek.value),
+    );
     bindPress(refs.connectOnlineButton, callbacks.toggleOnlineConnection);
     bindPress(refs.findRankedButton, callbacks.findRankedMatch);
     bindPress(refs.accountLoginButton, callbacks.loginAccount);
@@ -2194,6 +2339,9 @@ export function createUi(options = {}) {
     renderTournamentResults,
     renderStats,
     renderReplay,
+    setReplayPlayback,
+    announce,
+    renderOnboarding,
     renderMenuRecords,
     renderCoachTips,
     setServerRecordStatus,

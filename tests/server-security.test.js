@@ -5,10 +5,47 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
+
+const require = createRequire(import.meta.url);
+const engine = require("../shared/engine.js");
+const ai = require("../shared/ai.js");
 
 let serverProcess = null;
 const databaseFiles = new Set();
+
+function buildDailyReplay(seed) {
+  const state = engine.createState({ seed: `daily:${seed}`, mode: "classic" });
+  const inputs = [];
+  let seq = 0;
+  while (!state.gameOver && state.tick < 100) {
+    const plan = ai.planMove(engine.snapshot(state), {
+      difficulty: "hard",
+      style: "defensive",
+    });
+    for (const action of plan.actions) {
+      const input = {
+        tick: state.tick,
+        seq: ++seq,
+        action,
+        pressed: true,
+      };
+      inputs.push(input);
+      engine.applyInput(state, input, []);
+    }
+    for (let tick = 0; tick < 12 && !state.gameOver; tick += 1) {
+      engine.step(state);
+    }
+  }
+  const replay = engine.createReplay({
+    seed: state.seed,
+    mode: state.mode,
+    inputs,
+    finalState: state,
+  });
+  return { state, replay };
+}
 
 afterEach(() => {
   if (serverProcess) {
@@ -376,6 +413,7 @@ describe("server hardening", () => {
       headers: { Authorization: `Bearer ${passwordPayload.token}` },
     });
     const run = await runResponse.json();
+    const dailyRun = buildDailyReplay(run.seed);
     const daily = await fetch(`http://127.0.0.1:${port}/api/daily`, {
       method: "POST",
       headers: {
@@ -387,20 +425,22 @@ describe("server hardening", () => {
         runSignature: run.runSignature,
         playerId: "local",
         name: "Local",
-        score: 1500,
-        lines: 12,
-        level: 3,
-        timeMs: 3000,
-        pieces: 80,
-        bestCombo: 2,
+        score: dailyRun.state.score,
+        lines: dailyRun.state.lines,
+        level: dailyRun.state.level,
+        timeMs: Math.floor((dailyRun.state.tick / engine.TICK_RATE) * 1000),
+        pieces: dailyRun.state.pieces,
+        bestCombo: dailyRun.state.combo,
         tSpins: 0,
         perfectClears: 0,
+        replayChecksum: dailyRun.replay.finalChecksum,
+        replay: dailyRun.replay,
       }),
     });
     const dailyPayload = await daily.json();
     expect(dailyPayload.leaderboard[0]).toMatchObject({
       name: "Daily",
-      score: 1500,
+      score: dailyRun.state.score,
     });
     expect(dailyPayload.leaderboard[0].playerId).toMatch(/^acct\./);
 

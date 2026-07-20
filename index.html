@@ -49,10 +49,24 @@
       <section class="game-layout" id="gameLayout">
         <div class="board-shell" id="boardShell">
           <div class="danger-band"></div>
-          <canvas id="board" width="320" height="640"></canvas>
+          <canvas
+            id="board"
+            width="320"
+            height="640"
+            role="img"
+            tabindex="0"
+            aria-describedby="boardDescription"
+          ></canvas>
+          <p class="sr-only" id="boardDescription"></p>
         </div>
 
-        <aside class="side" id="sidePanel">
+        <aside
+          class="side"
+          id="sidePanel"
+          role="region"
+          tabindex="0"
+          aria-label="Игровая статистика и следующие фигуры"
+        >
           <div class="panel" id="nextPanel">
             <div class="panel-title">Дальше</div>
             <canvas class="preview" id="next1" width="76" height="76"></canvas>
@@ -88,6 +102,43 @@
 
           <div class="online-panel" id="onlinePanel"></div>
         </aside>
+      </section>
+
+      <section
+        class="onboarding-bar"
+        id="onboardingBar"
+        aria-live="polite"
+        hidden
+      >
+        <b id="onboardingTitle">Обучение</b>
+        <span id="onboardingInstruction"></span>
+        <progress id="onboardingProgress" max="4" value="0"></progress>
+        <button class="button" id="skipOnboardingButton" type="button">
+          Пропустить
+        </button>
+      </section>
+
+      <section class="replay-playback-bar" id="replayPlaybackBar" hidden>
+        <button class="button" id="replayPlaybackPause" type="button">
+          Пауза
+        </button>
+        <label for="replayPlaybackSpeed">Скорость</label>
+        <select class="select" id="replayPlaybackSpeed">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+        <label class="replay-seek-label" for="replayPlaybackSeek">
+          <span id="replayPlaybackStatus">0:00 / 0:00</span>
+          <input
+            id="replayPlaybackSeek"
+            type="range"
+            min="0"
+            max="0"
+            value="0"
+          />
+        </label>
       </section>
 
       <section class="controls" id="controls">
@@ -597,7 +648,21 @@
           Запись появится после нового рекорда.
         </p>
         <div class="replay-track" id="replayTimeline"></div>
+        <div class="settings-grid replay-settings">
+          <div class="setting">
+            <label for="replaySpeedSelect">Скорость повтора</label>
+            <select class="select" id="replaySpeedSelect">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </div>
+        </div>
         <div class="modal-actions">
+          <button class="button primary" id="playReplayButton">
+            Смотреть повтор
+          </button>
           <button class="button primary" id="startGhostButton">
             Играть против призрака
           </button>
@@ -651,7 +716,8 @@
     </section>
 
     <div class="fx-layer" id="fxLayer"></div>
-    <div class="toast" id="toast"></div>
+    <div class="sr-only" id="assertiveLiveRegion" aria-live="assertive"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script type="module" src="/js/game.js"></script>
     <script type="module" src="/js/pvp-enhancements.js"></script>

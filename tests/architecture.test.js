@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { EventBus } from "../js/event-bus.js";
-import { GameState } from "../js/game-state.js";
+import { describe, expect, it } from "vitest";
 import {
   getModeConfig,
   getModeOptions,
@@ -27,43 +25,6 @@ describe("mode configuration", () => {
     expect(getModeConfig("hardcore").speedMultiplier).toBeGreaterThan(1);
     expect(getModeConfig("timeAttack").timeLimit).toBe(120);
     expect(getModeOptions("en").map((mode) => mode.name)).toContain("40 Lines");
-  });
-});
-
-describe("event bus", () => {
-  it("emits regular and once-only handlers", () => {
-    const bus = new EventBus();
-    const regular = vi.fn();
-    const once = vi.fn();
-
-    bus.on("game:started", regular);
-    bus.once("game:started", once);
-    bus.emit("game:started", { mode: "classic" });
-    bus.emit("game:started", { mode: "sprint" });
-
-    expect(regular).toHaveBeenCalledTimes(2);
-    expect(once).toHaveBeenCalledTimes(1);
-  });
-
-  it("removes handlers", () => {
-    const bus = new EventBus();
-    const handler = vi.fn();
-    bus.on("settings:changed", handler);
-    bus.off("settings:changed", handler);
-    bus.emit("settings:changed", {});
-    expect(handler).not.toHaveBeenCalled();
-  });
-});
-
-describe("game state manager", () => {
-  it("starts from mode defaults and serializes the state", () => {
-    const state = new GameState(getModeConfig("sprint"));
-    state.updateScore(100);
-    state.updateLines(4);
-
-    expect(state.level).toBe(1);
-    expect(state.lines).toBe(4);
-    expect(state.toJSON().mode).toBe("sprint");
   });
 });
 

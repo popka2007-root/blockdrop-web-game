@@ -18,6 +18,213 @@ const RANKED_MIN_RATING = 100;
 const RANKED_MAX_RATING = 3000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const LATEST_SCHEMA_VERSION = 2;
+
+const MIGRATIONS = Object.freeze([
+  {
+    version: 1,
+    name: "expire-account-sessions",
+    up(db) {
+      const columns = db.prepare("PRAGMA table_info(account_sessions)").all();
+      if (!columns.some((column) => column.name === "expires_at")) {
+        db.exec(
+          "ALTER TABLE account_sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+      // Legacy sessions were plaintext and had no trustworthy expiry.
+      db.prepare("DELETE FROM account_sessions WHERE expires_at = 0").run();
+    },
+  },
+  {
+    version: 2,
+    name: "authoritative-matches-replays-flags-analytics",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS match_sessions (
+          id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          protocol_version INTEGER NOT NULL,
+          engine_version INTEGER NOT NULL,
+          mode TEXT NOT NULL,
+          seed TEXT NOT NULL,
+          status TEXT NOT NULL,
+          result_json TEXT NOT NULL DEFAULT '{}',
+          checksum TEXT NOT NULL DEFAULT '',
+          verification_status TEXT NOT NULL DEFAULT 'pending',
+          created_at INTEGER NOT NULL,
+          started_at INTEGER NOT NULL DEFAULT 0,
+          finished_at INTEGER NOT NULL DEFAULT 0,
+          expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_match_sessions_expiry
+          ON match_sessions(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_match_sessions_room
+          ON match_sessions(room_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS match_inputs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          match_id TEXT NOT NULL,
+          player_id TEXT NOT NULL,
+          seq INTEGER NOT NULL,
+          tick INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          pressed INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY(match_id) REFERENCES match_sessions(id) ON DELETE CASCADE,
+          UNIQUE(match_id, player_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_match_inputs_replay
+          ON match_inputs(match_id, player_id, tick, seq);
+
+        CREATE TABLE IF NOT EXISTS replays (
+          id TEXT PRIMARY KEY,
+          match_id TEXT NOT NULL DEFAULT '',
+          player_id TEXT NOT NULL DEFAULT '',
+          mode TEXT NOT NULL,
+          engine_version INTEGER NOT NULL,
+          replay_schema_version INTEGER NOT NULL,
+          seed TEXT NOT NULL,
+          input_stream_json TEXT NOT NULL,
+          checkpoints_json TEXT NOT NULL DEFAULT '[]',
+          result_json TEXT NOT NULL DEFAULT '{}',
+          checksum TEXT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'pending',
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_replays_expiry ON replays(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_replays_match ON replays(match_id);
+
+        CREATE TABLE IF NOT EXISTS feature_flags (
+          key TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0,
+          rollout_percentage INTEGER NOT NULL DEFAULT 0,
+          secure_transport_required INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS analytics_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_name TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          mode TEXT NOT NULL DEFAULT '',
+          duration_ms INTEGER NOT NULL DEFAULT 0,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          consented INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_expiry
+          ON analytics_events(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_name
+          ON analytics_events(event_name, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS backup_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          backup_path TEXT NOT NULL,
+          tier TEXT NOT NULL,
+          checksum TEXT NOT NULL DEFAULT '',
+          size_bytes INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          verified_at INTEGER NOT NULL DEFAULT 0,
+          restored_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_backup_audit_created
+          ON backup_audit(created_at DESC);
+      `);
+
+      const now = Date.now();
+      const insert = db.prepare(`
+        INSERT OR IGNORE INTO feature_flags(
+          key, enabled, rollout_percentage, secure_transport_required, updated_at
+        ) VALUES(?, ?, ?, ?, ?)
+      `);
+      for (const flag of [
+        ["casualV2", 1, 100, 0],
+        ["accounts", 1, 100, 1],
+        ["ranked", 1, 100, 1],
+        ["analytics", 0, 0, 0],
+        ["pwaInstall", 1, 100, 1],
+      ]) {
+        insert.run(...flag, now);
+      }
+    },
+  },
+]);
+
+function currentSchemaVersion(db) {
+  const table = db
+    .prepare(
+      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
+    )
+    .get();
+  if (!table) return 0;
+  return Number(
+    db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()
+      ?.version || 0,
+  );
+}
+
+function backupBeforeMigration(db, dbFile, targetVersion) {
+  const userTables = Number(
+    db
+      .prepare(
+        "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+      )
+      .get()?.total || 0,
+  );
+  if (!userTables || dbFile === ":memory:") return "";
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  const directory = `${dbFile}.migration-backups`;
+  fs.mkdirSync(directory, { recursive: true, mode: 0o750 });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const destination = path.join(
+    directory,
+    `blockdrop-pre-schema-v${targetVersion}-${timestamp}.sqlite`,
+  );
+  fs.copyFileSync(dbFile, destination);
+  fs.chmodSync(destination, 0o600);
+  const backups = fs
+    .readdirSync(directory)
+    .filter((name) => /^blockdrop-pre-schema-v\d+-.*\.sqlite$/.test(name))
+    .sort()
+    .reverse();
+  for (const name of backups.slice(5)) {
+    fs.unlinkSync(path.join(directory, name));
+  }
+  return destination;
+}
+
+function applyMigrations(db, dbFile, shouldBackup) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL
+    )
+  `);
+  const applied = new Set(
+    db
+      .prepare("SELECT version FROM schema_migrations")
+      .all()
+      .map((row) => row.version),
+  );
+  const pending = MIGRATIONS.filter(
+    (migration) => !applied.has(migration.version),
+  );
+  if (!pending.length) return [];
+  if (shouldBackup) backupBeforeMigration(db, dbFile, pending.at(-1).version);
+  const insert = db.prepare(
+    "INSERT INTO schema_migrations(version, name, applied_at) VALUES(?, ?, ?)",
+  );
+  const migrate = db.transaction((migration) => {
+    migration.up(db);
+    insert.run(migration.version, migration.name, new Date().toISOString());
+  });
+  for (const migration of pending) migrate(migration);
+  return pending.map(({ version, name }) => ({ version, name }));
+}
 
 function hashSessionToken(token) {
   return crypto.createHash("sha256").update(String(token)).digest("hex");
@@ -137,10 +344,21 @@ function createServerStore({
   recordsFile = path.join(root, "records.json"),
   rankedFile = path.join(root, "ranked.json"),
 } = {}) {
+  const existingDatabase =
+    dbFile !== ":memory:" &&
+    fs.existsSync(dbFile) &&
+    fs.statSync(dbFile).size > 0;
   const db = new Database(dbFile);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
+  const schemaVersionBefore = currentSchemaVersion(db);
+  if (schemaVersionBefore > LATEST_SCHEMA_VERSION) {
+    db.close();
+    throw new Error(
+      `Database schema v${schemaVersionBefore} is newer than supported v${LATEST_SCHEMA_VERSION}`,
+    );
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
@@ -263,17 +481,7 @@ function createServerStore({
       started_at TEXT NOT NULL
     );
   `);
-
-  const sessionColumns = db
-    .prepare("PRAGMA table_info(account_sessions)")
-    .all();
-  if (!sessionColumns.some((column) => column.name === "expires_at")) {
-    db.exec(
-      "ALTER TABLE account_sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
-    );
-  }
-  // Sessions created by older versions were stored in plaintext and had no expiry.
-  db.prepare("DELETE FROM account_sessions WHERE expires_at = 0").run();
+  const appliedMigrations = applyMigrations(db, dbFile, existingDatabase);
 
   const getMetaStmt = db.prepare("SELECT value FROM meta WHERE key = ?");
   const setMetaStmt = db.prepare(
@@ -1180,11 +1388,198 @@ function createServerStore({
     }
   }
 
+  function getFeatureFlag(key) {
+    const row = db
+      .prepare(
+        "SELECT key, enabled, rollout_percentage AS rolloutPercentage, secure_transport_required AS secureTransportRequired, updated_at AS updatedAt FROM feature_flags WHERE key = ?",
+      )
+      .get(String(key || ""));
+    return row
+      ? {
+          ...row,
+          enabled: Boolean(row.enabled),
+          secureTransportRequired: Boolean(row.secureTransportRequired),
+        }
+      : null;
+  }
+
+  function listFeatureFlags() {
+    return db
+      .prepare(
+        "SELECT key, enabled, rollout_percentage AS rolloutPercentage, secure_transport_required AS secureTransportRequired, updated_at AS updatedAt FROM feature_flags ORDER BY key",
+      )
+      .all()
+      .map((row) => ({
+        ...row,
+        enabled: Boolean(row.enabled),
+        secureTransportRequired: Boolean(row.secureTransportRequired),
+      }));
+  }
+
+  function upsertFeatureFlag({
+    key,
+    enabled,
+    rolloutPercentage = 0,
+    secureTransportRequired = false,
+  }) {
+    const safeKey = String(key || "").slice(0, 64);
+    db.prepare(
+      `
+      INSERT INTO feature_flags(
+        key, enabled, rollout_percentage, secure_transport_required, updated_at
+      ) VALUES(?, ?, ?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        enabled = excluded.enabled,
+        rollout_percentage = excluded.rollout_percentage,
+        secure_transport_required = excluded.secure_transport_required,
+        updated_at = excluded.updated_at
+    `,
+    ).run(
+      safeKey,
+      enabled ? 1 : 0,
+      clamp(safeNumber(rolloutPercentage), 0, 100),
+      secureTransportRequired ? 1 : 0,
+      Date.now(),
+    );
+    return getFeatureFlag(safeKey);
+  }
+
+  function createMatchSession(record) {
+    db.prepare(
+      `
+      INSERT INTO match_sessions(
+        id, room_id, protocol_version, engine_version, mode, seed, status,
+        result_json, checksum, verification_status, created_at, started_at,
+        finished_at, expires_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        result_json = excluded.result_json,
+        checksum = excluded.checksum,
+        verification_status = excluded.verification_status,
+        started_at = excluded.started_at,
+        finished_at = excluded.finished_at,
+        expires_at = excluded.expires_at
+    `,
+    ).run(
+      String(record.id || "").slice(0, 128),
+      String(record.roomId || "").slice(0, 32),
+      clamp(safeNumber(record.protocolVersion), 1, 99),
+      clamp(safeNumber(record.engineVersion), 1, 9999),
+      String(record.mode || "classic").slice(0, 24),
+      String(record.seed || "").slice(0, 256),
+      String(record.status || "created").slice(0, 24),
+      JSON.stringify(record.result || {}),
+      String(record.checksum || "").slice(0, 128),
+      String(record.verificationStatus || "pending").slice(0, 24),
+      safeNumber(record.createdAt || Date.now()),
+      safeNumber(record.startedAt),
+      safeNumber(record.finishedAt),
+      safeNumber(record.expiresAt || Date.now() + 30 * 24 * 60 * 60 * 1000),
+    );
+  }
+
+  function appendMatchInput(record) {
+    return db
+      .prepare(
+        `
+        INSERT OR IGNORE INTO match_inputs(
+          match_id, player_id, seq, tick, action, pressed, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+      `,
+      )
+      .run(
+        String(record.matchId || "").slice(0, 128),
+        String(record.playerId || "").slice(0, 128),
+        safeNumber(record.seq),
+        safeNumber(record.tick),
+        String(record.action || "").slice(0, 24),
+        record.pressed === false ? 0 : 1,
+        safeNumber(record.createdAt || Date.now()),
+      );
+  }
+
+  function saveReplay(record) {
+    const id = String(record.id || crypto.randomUUID()).slice(0, 160);
+    db.prepare(
+      `
+      INSERT INTO replays(
+        id, match_id, player_id, mode, engine_version,
+        replay_schema_version, seed, input_stream_json, checkpoints_json,
+        result_json, checksum, verification_status, created_at, expires_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        input_stream_json = excluded.input_stream_json,
+        checkpoints_json = excluded.checkpoints_json,
+        result_json = excluded.result_json,
+        checksum = excluded.checksum,
+        verification_status = excluded.verification_status,
+        expires_at = excluded.expires_at
+    `,
+    ).run(
+      id,
+      String(record.matchId || "").slice(0, 128),
+      String(record.playerId || "").slice(0, 128),
+      String(record.mode || "classic").slice(0, 24),
+      clamp(safeNumber(record.engineVersion), 1, 9999),
+      clamp(safeNumber(record.replaySchemaVersion), 1, 9999),
+      String(record.seed || "").slice(0, 256),
+      JSON.stringify(record.inputStream || {}),
+      JSON.stringify(record.checkpoints || []),
+      JSON.stringify(record.result || {}),
+      String(record.checksum || "").slice(0, 128),
+      String(record.verificationStatus || "pending").slice(0, 24),
+      safeNumber(record.createdAt || Date.now()),
+      safeNumber(record.expiresAt || Date.now() + 30 * 24 * 60 * 60 * 1000),
+    );
+    return id;
+  }
+
+  function getReplay(id) {
+    const row = db
+      .prepare(
+        `
+        SELECT id, match_id AS matchId, player_id AS playerId, mode,
+          engine_version AS engineVersion,
+          replay_schema_version AS replaySchemaVersion, seed,
+          input_stream_json AS inputStreamJson,
+          checkpoints_json AS checkpointsJson, result_json AS resultJson,
+          checksum, verification_status AS verificationStatus,
+          created_at AS createdAt, expires_at AS expiresAt
+        FROM replays WHERE id = ?
+      `,
+      )
+      .get(String(id || "").slice(0, 160));
+    if (!row) return null;
+    return {
+      ...row,
+      inputStream: JSON.parse(row.inputStreamJson || "{}"),
+      checkpoints: JSON.parse(row.checkpointsJson || "[]"),
+      result: JSON.parse(row.resultJson || "{}"),
+    };
+  }
+
+  function pruneExpiredProductData(now = Date.now()) {
+    const prune = db.transaction(() => ({
+      matches: db
+        .prepare("DELETE FROM match_sessions WHERE expires_at <= ?")
+        .run(now).changes,
+      replays: db.prepare("DELETE FROM replays WHERE expires_at <= ?").run(now)
+        .changes,
+      analytics: db
+        .prepare("DELETE FROM analytics_events WHERE expires_at <= ?")
+        .run(now).changes,
+    }));
+    return prune();
+  }
+
   deleteExpiredSessionsStmt.run(Date.now());
   migrateLegacyFiles();
 
   return {
     db,
+    schemaVersion: LATEST_SCHEMA_VERSION,
+    appliedMigrations,
     cleanName,
     cleanPlayerId,
     defaultRankedPlayer,
@@ -1215,6 +1610,14 @@ function createServerStore({
     insertDeployAudit,
     getHealthCounts,
     checkReady,
+    getFeatureFlag,
+    listFeatureFlags,
+    upsertFeatureFlag,
+    createMatchSession,
+    appendMatchInput,
+    saveReplay,
+    getReplay,
+    pruneExpiredProductData,
   };
 }
 

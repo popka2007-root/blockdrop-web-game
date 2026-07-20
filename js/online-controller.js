@@ -11,6 +11,7 @@ import {
   onOnlineMessage,
   saveRankedIdentityToken,
   sendOnlineMessage,
+  sendAuthoritativeInput as sendV2Input,
   sendRematchReady,
   sendScoreUpdate,
 } from "./online.js";
@@ -37,6 +38,7 @@ export function createOnlineController({
   currentHeight,
   modeName,
   buildBoardPreview,
+  applyAuthoritativeSnapshot,
 }) {
   function emitOnlineEvent(type, detail = {}) {
     globalThis.dispatchEvent(
@@ -337,7 +339,12 @@ export function createOnlineController({
   }
 
   function sendOnlineUpdate(force = false) {
-    if (!state.online.connected || !isOnlineSession()) return;
+    if (
+      !state.online.connected ||
+      !isOnlineSession() ||
+      onlineClient.authoritative
+    )
+      return;
     state.online.lastSent = performance.now();
     sendScoreUpdate(onlineClient, {
       room: state.online.room,
@@ -483,8 +490,14 @@ export function createOnlineController({
 
     if (data.type === "close") {
       state.online.connected = false;
-      if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
-      ui.setOnlineStatus(onlineText("Отключено", "Disconnected"));
+      if (isOnlineSession() && !onlineClient.shouldReconnect) {
+        setSession({ type: "solo", source: "disconnect" });
+      }
+      ui.setOnlineStatus(
+        onlineClient.shouldReconnect
+          ? onlineText("Переподключение...", "Reconnecting...")
+          : onlineText("Отключено", "Disconnected"),
+      );
       renderOnlinePanel();
       updateOnlineControls();
       updateLayoutMetrics();
@@ -492,6 +505,37 @@ export function createOnlineController({
         room: state.online.room,
         role: onlineClient.role,
       });
+      return;
+    }
+
+    if (data.type === "protocol") {
+      state.online.authoritative = Boolean(data.authoritative);
+      state.online.protocolVersion = Number(data.selectedVersion) || 1;
+      emitOnlineEvent("protocol", {
+        protocolVersion: state.online.protocolVersion,
+        authoritative: state.online.authoritative,
+      });
+      return;
+    }
+
+    if (data.type === "match.snapshot") {
+      applyAuthoritativeSnapshot?.(data);
+      emitOnlineEvent("snapshot", {
+        matchId: data.matchId || "",
+        serverTick: Number(data.serverTick) || 0,
+        ackSeq: Number(data.ackSeq) || 0,
+      });
+      renderOnlinePanel();
+      return;
+    }
+
+    if (data.type === "match.event") {
+      emitOnlineEvent("matchEvent", data);
+      return;
+    }
+
+    if (data.type === "match.result") {
+      emitOnlineEvent("matchResult", data);
       return;
     }
 
@@ -625,5 +669,8 @@ export function createOnlineController({
     renderOnlinePanel,
     sendOnlineUpdate,
     sendOnlineUpdateThrottled,
+    sendAuthoritativeInput(input) {
+      return sendV2Input(onlineClient, input);
+    },
   };
 }

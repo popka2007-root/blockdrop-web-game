@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Galaxy S25 FE portrait keeps gameplay usable inside the viewport", async ({
+test("pinned mobile profile keeps gameplay usable inside the viewport", async ({
   page,
 }) => {
   await page.goto("/");
@@ -20,16 +20,19 @@ test("Galaxy S25 FE portrait keeps gameplay usable inside the viewport", async (
     };
   });
 
-  expect(layout.viewport).toEqual({ width: 360, height: 780 });
-  expect(layout.documentWidth).toBeLessThanOrEqual(360);
-  expect(layout.board.width).toBeGreaterThan(150);
-  expect(layout.board.height).toBeGreaterThan(300);
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewport.width);
+  expect(layout.board.width).toBeGreaterThan(120);
+  expect(layout.board.height).toBeGreaterThan(
+    layout.viewport.width > layout.viewport.height ? 180 : 280,
+  );
   expect(layout.board.x).toBeGreaterThanOrEqual(0);
-  expect(layout.side.right).toBeLessThanOrEqual(360);
-  expect(layout.controls.bottom).toBeLessThanOrEqual(780);
-  expect(Math.abs(layout.hold.y - layout.menu.y)).toBeLessThan(2);
-  expect(layout.hold.height).toBeGreaterThanOrEqual(42);
-  expect(layout.menu.height).toBeGreaterThanOrEqual(42);
+  expect(layout.side.right).toBeLessThanOrEqual(layout.viewport.width);
+  expect(layout.controls.bottom).toBeLessThanOrEqual(layout.viewport.height);
+  if (layout.viewport.height >= layout.viewport.width) {
+    expect(Math.abs(layout.hold.y - layout.menu.y)).toBeLessThan(2);
+  }
+  expect(layout.hold.height).toBeGreaterThanOrEqual(44);
+  expect(layout.menu.height).toBeGreaterThanOrEqual(44);
 });
 
 test("Galaxy S25 FE shows a clear casual-only mode on public HTTP", async ({

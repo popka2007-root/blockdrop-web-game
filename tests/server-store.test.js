@@ -1,9 +1,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createServerStore } from "../server-store.js";
+
+const require = createRequire(import.meta.url);
+const Database = require("better-sqlite3");
 
 const tempPaths = new Set();
 const openStores = new Set();
@@ -22,6 +26,7 @@ afterEach(() => {
       fs.rmSync(file, { force: true });
       fs.rmSync(`${file}-shm`, { force: true });
       fs.rmSync(`${file}-wal`, { force: true });
+      fs.rmSync(`${file}.migration-backups`, { recursive: true, force: true });
     } catch {
       // ignore temp cleanup failures
     }
@@ -45,6 +50,93 @@ function createTempStore() {
 }
 
 describe("server store", () => {
+  it("applies forward-only schema migrations and creates product tables", () => {
+    const store = createTempStore();
+    expect(store.schemaVersion).toBe(2);
+    expect(store.appliedMigrations).toEqual([
+      { version: 1, name: "expire-account-sessions" },
+      {
+        version: 2,
+        name: "authoritative-matches-replays-flags-analytics",
+      },
+    ]);
+    expect(
+      store.db
+        .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
+        .all(),
+    ).toEqual(store.appliedMigrations);
+    const tables = new Set(
+      store.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((row) => row.name),
+    );
+    for (const table of [
+      "match_sessions",
+      "match_inputs",
+      "replays",
+      "feature_flags",
+      "analytics_events",
+      "backup_audit",
+    ]) {
+      expect(tables.has(table), table).toBe(true);
+    }
+  });
+
+  it("backs up and migrates a legacy account session schema", () => {
+    const dbFile = makeTempDbFile();
+    const legacy = new Database(dbFile);
+    legacy.exec(`
+      CREATE TABLE accounts (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL
+      );
+      CREATE TABLE account_sessions (
+        token TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      );
+    `);
+    legacy.close();
+
+    const store = createServerStore({ dbFile });
+    openStores.add(store);
+
+    const columns = store.db
+      .prepare("PRAGMA table_info(account_sessions)")
+      .all()
+      .map((column) => column.name);
+    expect(columns).toContain("expires_at");
+    expect(
+      fs
+        .readdirSync(`${dbFile}.migration-backups`)
+        .filter((name) => name.endsWith(".sqlite")),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a database schema newer than the application", () => {
+    const dbFile = makeTempDbFile();
+    const future = new Database(dbFile);
+    future.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations VALUES(999, 'future', 'now');
+    `);
+    future.close();
+
+    expect(() => createServerStore({ dbFile })).toThrow(
+      /newer than supported/i,
+    );
+  });
+
   it("creates accounts, sessions, and account-backed ranked identities", () => {
     const store = createTempStore();
     const created = store.createAccount({
