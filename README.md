@@ -1,105 +1,88 @@
 # BlockDrop Web Game
 
-Браузерная игра в духе Tetris с одиночными режимами, тренировкой против ИИ, локальными сохранениями, серверными рекордами, онлайн PvP-комнатами, мобильным управлением, реплеями и PWA-поддержкой.
+BlockDrop 3.0.0-beta.1 — браузерная Web/PWA-игра с единым детерминированным движком, настоящим AI, проверяемыми replay и server-authoritative casual PvP.
 
 Демо: [http://45.148.117.119/](http://45.148.117.119/)
 
-> Пока проект работает по публичному HTTP без домена, доступны одиночная игра,
-> Daily Challenge и обычные онлайн-комнаты. Аккаунты и ranked автоматически
-> отключены, чтобы пароль и токен не передавались открытым текстом. На localhost
-> они доступны для разработки; в публичной версии включатся автоматически после
-> настройки HTTPS.
+> Публичный сервер пока работает по HTTP без домена. Capabilities сервера поэтому
+> держат `accounts=false`, `ranked=false` и `pwaInstall=false`. Casual-комнаты,
+> одиночная игра, Daily и локальный прогресс работают; закрытые функции готовы к
+> включению после настройки HTTPS.
 
-Версия 2.4.0 дополнительно проверена профилем Galaxy S25 FE: 360×780 CSS-пикселей,
-DPR 3, сенсорный ввод и физический экран 1080×2340.
+Интерфейс проверяется на профилях Galaxy S25 FE 360×780 DPR 3, 360×700,
+390×844, landscape 780×360 и desktop 1280×720.
 
-## Скриншоты
+## Основные возможности
 
-![Мобильное меню](screenshots/menu-mobile.png)
-![Игровой процесс на телефоне](screenshots/game-mobile.png)
-![GIF с игровым процессом](screenshots/gameplay.gif)
-
-## Возможности
-
-- Поле 10x20, генератор фигур 7-bag, SRS wall kicks, ghost piece, hold, очередь следующих фигур, DAS/ARR и lock delay.
-- Полный игровой цикл: меню, игра, пауза, поражение, продолжение, рестарт и возврат в главное меню.
-- Режимы: Classic, 40 Lines, Hardcore, Time Attack, Zen и Chaos.
-- Очки, уровень, линии, таймер, лучший результат, локальная статистика, достижения и серверная таблица лидеров.
-- Плавное ускорение игры с верхним пределом скорости.
-- Бонусы за стабильную игру и длинные серии выживания.
-- Звуки через Web Audio API, отключение звука, тряска экрана, частицы, вспышки очков и эффект завершения игры.
-- ИИ-соперник с настройкой сложности, стиля и темпа.
-- Реплей и ghost run: лучшая локальная попытка сохраняется, показывается как таймлайн и может использоваться как призрак в следующих матчах.
-- Онлайн-комнаты с общими ссылками вида `/room/CODE`, QR-приглашением, PvP-атаками мусорными линиями через WebSocket, силуэтом прогресса соперника и турнирной комнатой.
-- Интерфейс на русском и английском языках.
-- Мобильное управление жестами и кнопками с настройками под левую и правую руку, чувствительности и производительности.
-- PWA-ресурсы для удобной установки и более стабильной работы в браузере.
+- Версионированный engine без DOM и сети: 7-bag, SRS, gravity, lock delay, combo, B2B, T-Spin, Perfect Clear, garbage cancel и фиксированный tick.
+- Одни правила и seed для solo, AI, replay, браузера, Web Worker и Node.js.
+- WebSocket protocol v2: клиент отправляет только input-команды, сервер рассчитывает матч и возвращает snapshots, events и result.
+- Prediction/reconciliation, `ackSeq`, интерполяция соперника и reconnect с grace period 12 секунд.
+- AI в Web Worker с beam search и четырьмя измеримо разными уровнями сложности.
+- Replay с input stream, checkpoints, checksum, скоростью 0.5×–4×, seek и проверкой совместимости.
+- RU/EN, клавиатура, touch, screen-reader описание поля, live announcements, focus trap/restore и reduced motion.
+- Локальный профиль мастерства, задания, косметические награды и подписанный export/import прогресса.
+- Privacy-first аналитика только после согласия; board, inputs, пароль, token и полный IP не записываются.
+- Безопасное обновление service worker после матча, offline fallback и очистка старых cache.
+- SQLite WAL, forward-only migrations, проверяемые backup/restore, structured logs, Prometheus alerts и Grafana dashboard.
 
 ## Управление
 
-- Клавиатура: стрелки или WASD для движения, `Up/W/X` для вращения, `Q` для вращения в обратную сторону, `Space/Z` для жёсткого сброса, `C/H/E/Shift` для hold, `P/Esc` для паузы.
-- Мышь или тачпад: клик для вращения, двойной клик для обратного вращения, перетаскивание влево и вправо для движения, вниз для сброса, правый клик для hold.
-- Сенсорный экран: тап для вращения, двойной тап для обратного вращения, свайпы влево и вправо для движения, свайп вниз для мягкого сброса, быстрый свайп вниз для жёсткого сброса, долгое нажатие для hold.
-- Мобильные кнопки можно включить в настройках.
+- Клавиатура: стрелки/WASD, `Up/W/X` — поворот, `Q` — поворот против часовой, `Space/Z` — hard drop, `C/H/E/Shift` — hold, `P/Esc` — пауза.
+- Сенсорный экран: tap — поворот, double tap — обратный поворот, swipe — движение/сброс, long press — hold.
+- В настройках доступны жесты, экранные кнопки, гибридный режим, ведущая рука, чувствительность и adaptive performance.
 
 ## Локальный запуск
+
+Требуется Node.js 20 или новее.
 
 ```bash
 npm install
 npm start
 ```
 
-Откройте:
+Откройте `http://localhost:8787`. Для отдельной production-БД задайте
+`BLOCKDROP_DB_PATH`; рекомендуемый путь на VPS — `/opt/blockdrop-data/blockdrop.sqlite`.
 
-```text
-http://localhost:8787
-```
-
-`index.html` подходит для статической одиночной игры. Онлайн-комнаты и серверные рекорды требуют запуска `server.js`.
-
-## Скрипты
+## Проверки и эксплуатация
 
 ```bash
-npm start
 npm run lint
-npm test
+npm run test:coverage
 npm run test:e2e
-npm run capture:media
+npm run db:verify-backup
+npm audit --audit-level=high
 npm run verify
+npm run soak:100
 ```
 
-## Структура проекта
+`npm run soak:100` запускает двухчасовой WebSocket soak на 100 клиентов. Параметры
+можно переопределить: `node scripts/soak-test.js --target http://127.0.0.1:8787 --ccu 10 --duration 30`.
+
+## Архитектура
 
 ```text
-index.html
-styles.css
-js/config.js
-js/game-core.js
-js/game.js
-js/ui.js
-js/input.js
-js/audio.js
-js/online.js
-js/storage.js
-js/modes.js
-server.js
-tests/
-e2e/
-screenshots/
-scripts/
+js/engine.js              детерминированное игровое ядро
+js/game.js                orchestration сессий и сцен
+js/ai-worker.js           AI beam search вне main thread
+js/replay.js              replay/checkpoint/checksum
+js/online*.js             protocol v1/v2 и client reconciliation
+js/i18n.js                RU/EN-каталоги
+js/progression.js         профиль, задания, cosmetics, import/export
+server.js                 HTTP/WebSocket authoritative runtime
+server-store.js           SQLite migrations и persistence
+scripts/                  backup, restore, smoke, rollout, soak
+deploy/                   systemd, Prometheus и Grafana
+tests/                    unit/property/integration
+e2e/                      Chromium, Firefox, WebKit, mobile, axe, PWA, visual
 ```
 
-## Тестирование
+Операционные процедуры описаны в [docs/operations.md](docs/operations.md), визуальные токены — в [docs/design-system.md](docs/design-system.md). Политики проекта: [PRIVACY.md](PRIVACY.md), [TERMS.md](TERMS.md), [SECURITY.md](SECURITY.md) и [LICENSE](LICENSE).
 
-- Vitest покрывает игровую логику, подсчёт очков, режимы, helpers для хранилища, онлайн-модули, аудиоконфиг и усиление безопасности сервера.
-- Playwright проверяет запуск игры, паузу, экран поражения, мобильную вёрстку, ссылки на комнаты, онлайн-режимы, режимы игры и меню реплеев.
-- `npm run capture:media` заново создаёт мобильные скриншоты и GIF игрового процесса.
+## Release gates
 
-## Онлайн-комнаты
-
-Примеры ссылок на комнаты:
-
-- Локально: [http://localhost:8787/room/DUEL](http://localhost:8787/room/DUEL)
-- Публично: [http://45.148.117.119/room/DUEL](http://45.148.117.119/room/DUEL)
-
-Используйте пункт **Play with friend / Играть с другом** в главном меню, чтобы создать ссылку на комнату и QR-приглашение.
+Релиз блокируется при ошибке lint, coverage, unit/integration/E2E/axe/visual,
+migration/backup-restore, production smoke, несовпадении версии/revision или
+high/critical dependency vulnerability. Ranked никогда не включается без
+`secureTransport && RANKED_ENABLED`; UI получает доступность функций только из
+server capabilities.

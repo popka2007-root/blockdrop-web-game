@@ -595,6 +595,50 @@ describe("online PvP room flow", () => {
     expect(snapshot.gameSnapshot.pieces).toBe(1);
   });
 
+  it("ignores well-formed stale input during a match transition", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+    const first = await connectClient(port, {
+      room: "transitionv2",
+      name: "Alpha",
+      protocolVersion: 2,
+    });
+    await first.waitForType("protocol", (message) => message.authoritative);
+    await connectClient(port, {
+      room: "transitionv2",
+      name: "Bravo",
+      protocolVersion: 2,
+    });
+
+    first.send({
+      type: "input",
+      matchId: "match:transitionv2:stale",
+      seq: 1,
+      tick: 0,
+      action: "hardDrop",
+      pressed: true,
+    });
+    const match = await first.waitForType("matchStart", () => true, 6000);
+    expect(first.messages.some((message) => message.type === "error")).toBe(
+      false,
+    );
+
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 1,
+      tick: 0,
+      action: "hardDrop",
+      pressed: true,
+    });
+    await expect(
+      first.waitForType(
+        "match.snapshot",
+        (message) => message.matchId === match.matchId && message.ackSeq === 1,
+      ),
+    ).resolves.toBeTruthy();
+  });
+
   it("rejects ranked v1 and accepts only input commands in ranked v2", async () => {
     const port = await getFreePort();
     await startServer(port);

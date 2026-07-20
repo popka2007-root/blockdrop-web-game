@@ -113,3 +113,69 @@ curl --fail http://127.0.0.1/health/ready
 
 Deployment считается успешным только при совпадении `revision` и версии,
 успешных live/ready, backup/restore test и production smoke.
+
+## Feature rollout и быстрый rollback
+
+Capabilities API — единственный источник доступности функций для клиента. Флаги
+хранятся в SQLite и меняются штатной командой:
+
+```bash
+BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite \
+  npm run feature:rollout -- --flag casualV2 --stage 10
+BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite \
+  npm run feature:rollout -- --flag casualV2 --stage 50
+BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite \
+  npm run feature:rollout -- --flag casualV2 --stage 100
+```
+
+При росте ошибок немедленно верните casual на v1:
+
+```bash
+BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite \
+  npm run feature:rollout -- --flag casualV2 --rollback
+```
+
+Допустимые флаги: `casualV2`, `accounts`, `ranked`, `analytics`, `pwaInstall`.
+Флаги `accounts`, `ranked` и `pwaInstall` всё равно закрыты на публичном HTTP,
+даже если включены в БД. После появления HTTPS их можно включать ступенчато без
+новой сборки.
+
+## Нагрузочный gate 100 CCU
+
+Перед 100% rollout authoritative casual запустите двухчасовую проверку с хоста,
+который имеет доступ к защищённому `/metrics`:
+
+```bash
+BLOCKDROP_SOAK_TARGET=http://127.0.0.1:8787 \
+BLOCKDROP_METRICS_TOKEN='replace-with-secret-if-required' \
+  npm run soak:100
+```
+
+Локальная короткая проверка механики runner:
+
+```bash
+node scripts/soak-test.js --target http://127.0.0.1:8787 --ccu 10 --duration 10
+```
+
+Gate завершается ошибкой при CPU ≥70%, RSS ≥1 GiB, SQLite lock errors >0,
+HTTP p95 ≥200 мс, match processing p95 ≥50 мс, разрыве клиента или отсутствии
+authoritative snapshots. JSON-результат сохраняйте рядом с release audit.
+
+## Метрики, dashboard и alerts
+
+Готовые исходники находятся в `deploy/grafana-dashboard.json` и
+`deploy/prometheus-alerts.yml`. Dashboard показывает CCU/комнаты, HTTP и match
+p95, event-loop lag, CPU/RSS, 5xx, WebSocket disconnect, match abort, DB errors и
+возраст backup.
+
+Минимальные условия уведомлений:
+
+- любое увеличение DB lock errors или DB errors;
+- backup старше 36 часов либо отсутствует;
+- event-loop lag >200 мс в течение 5 минут;
+- RSS >900 MiB или CPU >70% в течение 10 минут;
+- HTTP p95 >200 мс, match p95 >50 мс;
+- 5xx >1% запросов, всплеск disconnect или match abort.
+
+Логи сервера являются JSONL и содержат `requestId`, `connectionId`, `roomId` и
+`matchId`. Пароли, токены, полный IP, board и input stream в логи не попадают.

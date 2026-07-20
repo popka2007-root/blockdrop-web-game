@@ -338,6 +338,19 @@ function timingSafeEqualText(a, b) {
   return crypto.timingSafeEqual(left, right);
 }
 
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function createServerStore({
   root = __dirname,
   dbFile = path.join(root, "blockdrop.sqlite"),
@@ -816,6 +829,60 @@ function createServerStore({
       .update(payload)
       .digest();
     return `v1.${safeId}.${toBase64Url(signature)}`;
+  }
+
+  function signPortablePayload(payload) {
+    return crypto
+      .createHmac("sha256", identitySigningKey)
+      .update(`blockdrop-profile-v1.${stableStringify(payload)}`)
+      .digest("base64url");
+  }
+
+  function verifyPortablePayload(payload, signature) {
+    if (!payload || !signature) return false;
+    return timingSafeEqualText(signPortablePayload(payload), signature);
+  }
+
+  function saveAnalyticsEvent(event = {}) {
+    const allowedEvents = new Set([
+      "screen_view",
+      "game_start",
+      "game_finish",
+      "tutorial_completion",
+      "reconnect",
+      "client_error",
+      "pwa_update",
+    ]);
+    const eventName = String(event.eventName || "").slice(0, 48);
+    if (!allowedEvents.has(eventName) || event.consented !== true) return false;
+    const payload =
+      event.payload && typeof event.payload === "object" ? event.payload : {};
+    const safePayload = {
+      result: String(payload.result || "").slice(0, 24),
+      locale: ["ru", "en"].includes(payload.locale) ? payload.locale : "",
+      reconnectMs: clamp(safeNumber(payload.reconnectMs), 0, 60_000),
+      errorCode: String(payload.errorCode || "").slice(0, 64),
+    };
+    const now = Date.now();
+    db.prepare(
+      `
+      INSERT INTO analytics_events(
+        event_name, session_id, mode, duration_ms, payload_json,
+        consented, created_at, expires_at
+      ) VALUES(?, ?, ?, ?, ?, 1, ?, ?)
+    `,
+    ).run(
+      eventName,
+      cleanPlayerId(event.sessionId) || "anonymous",
+      String(event.mode || "")
+        .replace(/[^a-zA-Z0-9_-]/g, "")
+        .slice(0, 24),
+      clamp(safeNumber(event.durationMs), 0, 24 * 60 * 60 * 1000),
+      JSON.stringify(safePayload),
+      now,
+      now + 14 * 24 * 60 * 60 * 1000,
+    );
+    return true;
   }
 
   function verifyIdentityToken(playerId, token, identitySecret) {
@@ -1368,6 +1435,11 @@ function createServerStore({
   }
 
   function getHealthCounts(dateKey) {
+    const latestBackup = db
+      .prepare(
+        "SELECT MAX(created_at) AS createdAt FROM backup_audit WHERE status = 'ok'",
+      )
+      .get();
     return {
       records: Number(countStmt.get()?.total || 0),
       rankedPlayers: Number(countRankedStmt.get()?.total || 0),
@@ -1376,6 +1448,7 @@ function createServerStore({
       dailyRuns: Number(countDailyRunsStmt.get(dateKey)?.total || 0),
       rankedMatches: Number(countRankedMatchesStmt.get()?.total || 0),
       rankedEvents: Number(countRankedEventsStmt.get()?.total || 0),
+      latestBackupAt: Number(latestBackup?.createdAt || 0),
     };
   }
 
@@ -1613,6 +1686,9 @@ function createServerStore({
     getFeatureFlag,
     listFeatureFlags,
     upsertFeatureFlag,
+    signPortablePayload,
+    verifyPortablePayload,
+    saveAnalyticsEvent,
     createMatchSession,
     appendMatchInput,
     saveReplay,

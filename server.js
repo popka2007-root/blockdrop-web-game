@@ -71,6 +71,34 @@ const store = createServerStore({
 });
 const logger = createLogger({ service: "blockdrop-web-game" });
 const metrics = createMetrics();
+metrics.increment("blockdrop_http_5xx_total", 0);
+metrics.increment("blockdrop_ws_disconnect_total", 0);
+metrics.increment("blockdrop_match_abort_total", 0);
+metrics.increment("blockdrop_db_errors_total", 0);
+metrics.increment("blockdrop_db_lock_errors_total", 0);
+let eventLoopExpectedAt = performance.now() + 1000;
+let previousCpuUsage = process.cpuUsage();
+let previousCpuMeasuredAt = performance.now();
+const operationalMetricsTimer = setInterval(() => {
+  const now = performance.now();
+  metrics.set(
+    "blockdrop_event_loop_lag_ms",
+    Math.max(0, now - eventLoopExpectedAt),
+  );
+  eventLoopExpectedAt = now + 1000;
+  const memory = process.memoryUsage();
+  metrics.set("blockdrop_memory_rss_bytes", memory.rss);
+  metrics.set("blockdrop_memory_heap_used_bytes", memory.heapUsed);
+  const cpuUsage = process.cpuUsage(previousCpuUsage);
+  const elapsedMicroseconds = Math.max(1, (now - previousCpuMeasuredAt) * 1000);
+  metrics.set(
+    "blockdrop_process_cpu_percent",
+    ((cpuUsage.user + cpuUsage.system) / elapsedMicroseconds) * 100,
+  );
+  previousCpuUsage = process.cpuUsage();
+  previousCpuMeasuredAt = now;
+}, 1000);
+operationalMetricsTimer.unref();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -86,7 +114,7 @@ const securityHeaders = {
   "Content-Security-Policy": [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
     "img-src 'self' data:",
     "connect-src 'self' ws: wss:",
     "manifest-src 'self'",
@@ -105,10 +133,30 @@ const PUBLIC_ROOT_FILES = new Set([
   "/styles.css",
   "/manifest.webmanifest",
   "/sw.js",
+  "/PRIVACY.md",
+  "/TERMS.md",
+  "/SECURITY.md",
+  "/LICENSE",
 ]);
 const PUBLIC_PREFIXES = ["/js/", "/styles/", "/icons/", "/shared/"];
 
 const server = http.createServer((req, res) => {
+  const requestStartedAt = performance.now();
+  const requestId = crypto.randomUUID();
+  res.blockdropRequestId = requestId;
+  res.once("finish", () => {
+    metrics.observe(
+      "blockdrop_http_request_ms",
+      Math.max(0, performance.now() - requestStartedAt),
+    );
+    if (res.statusCode >= 500) {
+      logger.error("http_5xx", {
+        requestId,
+        path: String(req.url || "").split("?")[0].slice(0, 160),
+        status: res.statusCode,
+      });
+    }
+  });
   let requestUrl;
   try {
     requestUrl = new URL(req.url || "/", "http://blockdrop.local");
@@ -146,6 +194,16 @@ const server = http.createServer((req, res) => {
 
   if (requestUrl.pathname === "/api/ranked") {
     handleRankedApi(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/profile-transfer") {
+    handleProfileTransferApi(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/analytics") {
+    handleAnalyticsApi(req, res);
     return;
   }
 
@@ -266,6 +324,7 @@ function handleReadiness(req, res, includeDetails) {
 
   const readiness = store.checkReady();
   if (!readiness.ok) {
+    metrics.increment("blockdrop_db_errors_total");
     sendHealthPayload(
       req,
       res,
@@ -319,6 +378,9 @@ function handleReadiness(req, res, includeDetails) {
     rankedMatches: counts.rankedMatches,
     rankedEvents: counts.rankedEvents,
     revision: readRevision(),
+    backupAgeSec: counts.latestBackupAt
+      ? Math.max(0, Math.floor((Date.now() - counts.latestBackupAt) / 1000))
+      : null,
   };
 
   sendHealthPayload(req, res, payload, 200);
@@ -364,6 +426,9 @@ function handleMetrics(req, res) {
       blockdrop_ranked_matches_stored_total: counts.rankedMatches,
       blockdrop_ranked_events_total: counts.rankedEvents,
       blockdrop_ranked_queue_waiting: rankedQueue.length,
+      blockdrop_backup_age_seconds: counts.latestBackupAt
+        ? Math.max(0, Math.floor((Date.now() - counts.latestBackupAt) / 1000))
+        : -1,
     }),
   );
 }
@@ -836,6 +901,86 @@ function handleRankedApi(req, res) {
   sendJson(res, payload);
 }
 
+function readJsonRequest(req, res, limitBytes, callback) {
+  let body = "";
+  let rejected = false;
+  req.on("data", (chunk) => {
+    if (rejected) return;
+    body += chunk;
+    if (Buffer.byteLength(body, "utf8") > limitBytes) {
+      rejected = true;
+      sendJson(res, { error: "Payload too large" }, 413);
+    }
+  });
+  req.on("end", () => {
+    if (rejected) return;
+    try {
+      callback(JSON.parse(body || "{}"));
+    } catch {
+      sendJson(res, { error: "Bad JSON" }, 400);
+    }
+  });
+}
+
+function handleProfileTransferApi(req, res) {
+  if (req.method !== "POST") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  if (!allowHttpRequest(req, "profile-transfer", 20, HTTP_RATE_WINDOW_MS)) {
+    sendRateLimited(res);
+    return;
+  }
+  readJsonRequest(req, res, 256 * 1024, (data) => {
+    const action = data.action === "verify" ? "verify" : "sign";
+    const payload = data.payload;
+    if (
+      !payload ||
+      payload.kind !== "blockdrop-profile" ||
+      Number(payload.exportSchemaVersion) !== 1 ||
+      !payload.profile ||
+      Number(payload.profile.profileSchemaVersion) !== 1
+    ) {
+      sendJson(res, { error: "invalidProfile" }, 422);
+      return;
+    }
+    if (action === "verify") {
+      const verified = store.verifyPortablePayload(payload, data.signature);
+      sendJson(res, { verified }, verified ? 200 : 422);
+      return;
+    }
+    sendJson(res, {
+      envelopeSchemaVersion: 1,
+      algorithm: "HMAC-SHA256-v1",
+      payload,
+      signature: store.signPortablePayload(payload),
+    });
+  });
+}
+
+function handleAnalyticsApi(req, res) {
+  if (req.method !== "POST") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  const bucket = clientAddress(req);
+  if (
+    !isFeatureEnabled("analytics", isSensitiveTransportAllowed(req), bucket)
+  ) {
+    sendJson(res, { accepted: false }, 404);
+    return;
+  }
+  if (!allowHttpRequest(req, "analytics", 120, HTTP_RATE_WINDOW_MS)) {
+    sendRateLimited(res);
+    return;
+  }
+  readJsonRequest(req, res, 4096, (data) => {
+    const accepted = store.saveAnalyticsEvent(data);
+    if (accepted) metrics.increment("blockdrop_analytics_events_total");
+    sendJson(res, { accepted }, accepted ? 202 : 422);
+  });
+}
+
 function authTokenFromRequest(req) {
   const header = String(req.headers.authorization || "");
   const match = header.match(/^Bearer\s+(.+)$/i);
@@ -987,7 +1132,12 @@ function sendJson(res, payload, status = 200) {
 }
 
 function writeHead(res, status, headers = {}) {
-  res.writeHead(status, { ...securityHeaders, ...headers });
+  if (status >= 500) metrics.increment("blockdrop_http_5xx_total");
+  res.writeHead(status, {
+    ...securityHeaders,
+    "X-Request-Id": res.blockdropRequestId || crypto.randomUUID(),
+    ...headers,
+  });
 }
 
 function requestHostName(req) {
@@ -1053,6 +1203,7 @@ function sendRateLimited(res) {
 }
 
 server.on("upgrade", (req, socket, head) => {
+  req.blockdropRequestId = crypto.randomUUID();
   if (req.headers.upgrade?.toLowerCase() !== "websocket") {
     socket.destroy();
     return;
@@ -1073,6 +1224,10 @@ webSocketServer.on("connection", (socket, req) => {
     authTransportAllowed: isSensitiveTransportAllowed(req),
   });
   metrics.increment("blockdrop_ws_connections_total");
+  logger.info("ws_connected", {
+    connectionId: client.id,
+    requestId: req.blockdropRequestId,
+  });
   updateLiveMetrics();
   socket.on("message", (message, isBinary) => {
     if (
@@ -1087,8 +1242,25 @@ webSocketServer.on("connection", (socket, req) => {
     metrics.increment("blockdrop_ws_messages_total");
     handleMessage(client, message.toString("utf8"));
   });
-  socket.on("close", () => removeClient(client, "close"));
-  socket.on("error", () => removeClient(client, "error"));
+  socket.on("close", () => {
+    if (!client.disconnectObserved) {
+      metrics.increment("blockdrop_ws_disconnect_total");
+      client.disconnectObserved = true;
+    }
+    logger.info("ws_disconnected", {
+      connectionId: client.id,
+      roomId: client.room,
+      matchId: rooms.get(client.room)?.authority?.matchId || "",
+    });
+    removeClient(client, "close");
+  });
+  socket.on("error", () => {
+    if (!client.disconnectObserved) {
+      metrics.increment("blockdrop_ws_disconnect_total");
+      client.disconnectObserved = true;
+    }
+    removeClient(client, "error");
+  });
   send(client, {
     type: "hello",
     id: client.id,
@@ -1120,6 +1292,7 @@ function createClient(socket, options = {}) {
     attackCredit: 0,
     lastRankedEventAt: 0,
     disconnectedAt: 0,
+    disconnectObserved: false,
     disconnectTimer: null,
     buckets: {
       windowStartedAt: Date.now(),
@@ -1267,9 +1440,17 @@ function handleMessage(client, raw) {
 
   if (data.type === "input") {
     if (client.role !== "player" || !client.authoritative) return;
-    if (!validateInputPayload(client, data)) {
+    if (!validateInputShape(data)) {
       metrics.increment("blockdrop_ws_policy_close_total");
       safeClose(client, "Bad input");
+      return;
+    }
+    if (!inputTargetsActiveMatch(client, data)) {
+      metrics.increment("blockdrop_ws_stale_input_total");
+      const room = rooms.get(client.room);
+      if (room?.match.status === "playing") {
+        sendAuthoritativeSnapshot(room, client);
+      }
       return;
     }
     queueAuthoritativeInput(client, data);
@@ -1351,17 +1532,25 @@ function handleMessage(client, raw) {
   safeClose(client, "Unknown message");
 }
 
-function validateInputPayload(client, data) {
-  const room = rooms.get(client.room);
+function validateInputShape(data) {
   return (
-    room?.authoritative === true &&
-    room.match.status === "playing" &&
     hasOnlyKeys(data, INPUT_KEYS) &&
-    String(data.matchId || "") === room.authority.matchId &&
+    typeof data.matchId === "string" &&
+    data.matchId.length > 0 &&
+    data.matchId.length <= 160 &&
     isIntegerInRange(data.seq, 1, 2_147_483_647) &&
     isIntegerInRange(data.tick, 0, 60 * 60 * 60) &&
     INPUT_ACTIONS.includes(data.action) &&
     typeof data.pressed === "boolean"
+  );
+}
+
+function inputTargetsActiveMatch(client, data) {
+  const room = rooms.get(client.room);
+  return (
+    room?.authoritative === true &&
+    room.match.status === "playing" &&
+    String(data.matchId) === room.authority.matchId
   );
 }
 
@@ -2570,6 +2759,12 @@ function consumeAttackCredit(client, lines) {
 }
 
 function safeClose(client, reason = "Policy violation") {
+  logger.warn("ws_policy_close", {
+    connectionId: client.id,
+    roomId: client.room,
+    matchId: client.matchId,
+    reason: String(reason).slice(0, 120),
+  });
   send(client, { type: "error", message: reason });
   removeClient(client, "policy");
   try {
@@ -2781,6 +2976,9 @@ function removeClient(client, reason = "close") {
           currentRoom.players.size === 0 &&
           currentRoom.spectators.size === 0
         ) {
+          if (currentRoom.match.status === "playing") {
+            metrics.increment("blockdrop_match_abort_total");
+          }
           stopAuthoritativeMatch(currentRoom);
           rooms.delete(roomId);
         } else {
@@ -2814,6 +3012,9 @@ function removeClient(client, reason = "close") {
     room.spectators.size === 0 &&
     room.reconnects.size === 0
   ) {
+    if (room.match.status === "playing") {
+      metrics.increment("blockdrop_match_abort_total");
+    }
     stopAuthoritativeMatch(room);
     rooms.delete(roomId);
   } else {
@@ -2839,10 +3040,36 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-setInterval(() => {
+const roomMetricsTimer = setInterval(() => {
   updateLiveMetrics();
   for (const roomId of rooms.keys()) broadcastRoom(roomId);
 }, 1000);
+roomMetricsTimer.unref();
+
+function pruneProductData() {
+  try {
+    const removed = store.pruneExpiredProductData();
+    if (Object.values(removed).some(Boolean)) {
+      logger.info("expired_product_data_pruned", removed);
+    }
+  } catch (error) {
+    const message = String(error?.message || error);
+    metrics.increment("blockdrop_db_errors_total");
+    if (/busy|locked/i.test(message)) {
+      metrics.increment("blockdrop_db_lock_errors_total");
+    }
+    logger.error("product_data_prune_failed", {
+      error: message.slice(0, 240),
+    });
+  }
+}
+
+pruneProductData();
+const productDataPruneTimer = setInterval(
+  pruneProductData,
+  60 * 60 * 1000,
+);
+productDataPruneTimer.unref();
 
 store.insertDeployAudit({
   revision: readRevision(),

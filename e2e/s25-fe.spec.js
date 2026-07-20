@@ -88,3 +88,61 @@ test("dialogs expose dialog semantics and keep focus inside", async ({
     )
     .toBe(true);
 });
+
+test("Galaxy S25 FE sustains the frame and local input latency budget", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "galaxy-s25-fe");
+  await page.goto("/");
+  await page.locator("#startButton").click();
+
+  const frameStats = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const samples = [];
+        let previous = performance.now();
+        const started = previous;
+        const collect = (now) => {
+          samples.push(now - previous);
+          previous = now;
+          if (now - started < 1_200) {
+            requestAnimationFrame(collect);
+            return;
+          }
+          const sorted = samples.slice(1).sort((a, b) => a - b);
+          resolve({
+            fps: (sorted.length * 1_000) / (now - started),
+            p50FrameMs: sorted[Math.floor(sorted.length * 0.5)] || 0,
+            p95FrameMs: sorted[Math.floor(sorted.length * 0.95)] || 0,
+          });
+        };
+        requestAnimationFrame(collect);
+      }),
+  );
+
+  await page.evaluate(() => {
+    window.__blockdropInputLatency = null;
+    addEventListener(
+      "keydown",
+      () => {
+        const started = performance.now();
+        requestAnimationFrame(() => {
+          window.__blockdropInputLatency = performance.now() - started;
+        });
+      },
+      { capture: true, once: true },
+    );
+  });
+  await page.keyboard.press("ArrowLeft");
+  await expect
+    .poll(() => page.evaluate(() => window.__blockdropInputLatency))
+    .not.toBeNull();
+  const inputLatencyMs = await page.evaluate(
+    () => window.__blockdropInputLatency,
+  );
+
+  expect(frameStats.fps).toBeGreaterThanOrEqual(40);
+  expect(frameStats.p50FrameMs).toBeLessThan(20);
+  expect(frameStats.p95FrameMs).toBeLessThan(35);
+  expect(inputLatencyMs).toBeLessThan(80);
+});

@@ -11,6 +11,7 @@ import {
   localDateKey,
   validate,
 } from "../js/utils.js";
+import fs from "node:fs";
 
 describe("mode configuration", () => {
   it("normalizes known modes and legacy aliases", () => {
@@ -80,5 +81,36 @@ describe("utils", () => {
         elapsedMs: 7000,
       }),
     ).toBe(7);
+  });
+});
+
+describe("PWA update architecture", () => {
+  it("waits for an explicit safe-reload message before activating updates", () => {
+    const worker = fs.readFileSync(
+      new URL("../sw.js", import.meta.url),
+      "utf8",
+    );
+    const installHandler = worker.slice(
+      worker.indexOf('self.addEventListener("install"'),
+      worker.indexOf('self.addEventListener("message"'),
+    );
+    expect(installHandler).not.toContain("skipWaiting");
+    expect(worker).toContain('event.data?.type === "SKIP_WAITING"');
+    expect(worker).toContain("caches.delete");
+    expect(worker).toContain("/js/progression.js");
+    expect(worker).toContain("/js/analytics.js");
+  });
+});
+
+describe("strict CSP source gate", () => {
+  it("contains no inline style attributes or runtime style assignments", () => {
+    const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const browserSources = ["ui.js", "game.js", "online.js"].map((name) =>
+      fs.readFileSync(new URL(`../js/${name}`, import.meta.url), "utf8"),
+    );
+    expect(html).not.toMatch(/\sstyle\s*=/i);
+    for (const source of browserSources) {
+      expect(source).not.toMatch(/\.style\.|setAttribute\(["']style["']/);
+    }
   });
 });

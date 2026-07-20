@@ -191,6 +191,11 @@ export function createOnlineController({
     );
   }
 
+  function joinOnlineRoom() {
+    ui.setOnlineRanked(false);
+    connectOnline();
+  }
+
   function disconnectOnline(show = true) {
     closeOnlineSocket(onlineClient);
     state.online.connected = false;
@@ -658,6 +663,7 @@ export function createOnlineController({
     shareRoomLink,
     copyRoomLink,
     createFriendRoom,
+    joinOnlineRoom,
     connectOnline,
     findRankedMatch,
     disconnectOnline,

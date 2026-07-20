@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const Database = require("better-sqlite3");
 
 const RETENTION = Object.freeze({ daily: 14, weekly: 8, monthly: 6 });
@@ -60,6 +61,43 @@ async function createVerifiedBackup(sourceFile, destinationFile) {
   return destinationFile;
 }
 
+function sha256File(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
+
+function recordBackupAudit(sourceFile, created) {
+  const database = new Database(sourceFile);
+  try {
+    const table = database
+      .prepare(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'backup_audit'",
+      )
+      .get();
+    if (!table) return;
+    const insert = database.prepare(`
+      INSERT INTO backup_audit(
+        backup_path, tier, checksum, size_bytes, status, created_at, verified_at
+      ) VALUES(?, ?, ?, ?, 'ok', ?, ?)
+    `);
+    const now = Date.now();
+    const transaction = database.transaction(() => {
+      for (const file of created) {
+        insert.run(
+          file,
+          path.basename(path.dirname(file)),
+          sha256File(file),
+          fs.statSync(file).size,
+          now,
+          now,
+        );
+      }
+    });
+    transaction();
+  } finally {
+    database.close();
+  }
+}
+
 function pruneTier(root, tier, keep) {
   const directory = path.join(root, tier);
   if (!fs.existsSync(directory)) return [];
@@ -114,6 +152,7 @@ async function runBackup(options = {}) {
   for (const [tier, keep] of Object.entries(RETENTION)) {
     removed.push(...pruneTier(backupRoot, tier, keep));
   }
+  recordBackupAudit(sourceFile, created);
   const audit = {
     timestamp: new Date().toISOString(),
     source: sourceFile,
@@ -150,6 +189,7 @@ module.exports = {
   RETENTION,
   createVerifiedBackup,
   pruneTier,
+  recordBackupAudit,
   runBackup,
   verifyDatabase,
 };

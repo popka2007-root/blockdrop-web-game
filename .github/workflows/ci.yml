@@ -35,13 +35,16 @@ jobs:
         run: npm run lint
 
       - name: Unit tests
-        run: npm test
+        run: npm run test:coverage
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
 
       - name: Verify database backup and restore
         run: npm run db:verify-backup
 
       - name: Install Playwright
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: E2E tests
         run: npm run test:e2e

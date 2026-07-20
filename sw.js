@@ -1,4 +1,4 @@
-const CACHE_NAME = "blockdrop-cache-v16";
+const CACHE_NAME = "blockdrop-cache-v20";
 const ASSETS = [
   "/",
   "/index.html",
@@ -13,14 +13,17 @@ const ASSETS = [
   "/shared/golden-replay.json",
   "/js/ai-client.js",
   "/js/ai-worker.js",
+  "/js/analytics.js",
   "/js/audio.js",
   "/js/config.js",
   "/js/engine.js",
   "/js/game.js",
   "/js/input.js",
+  "/js/i18n.js",
   "/js/modes.js",
   "/js/online-controller.js",
   "/js/online.js",
+  "/js/progression.js",
   "/js/pvp-enhancements.js",
   "/js/runtime-loop.js",
   "/js/replay.js",
@@ -37,7 +40,10 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)),
   );
-  self.skipWaiting();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

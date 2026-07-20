@@ -7,6 +7,7 @@
   toggleMute,
 } from "./audio.js";
 import { createAiController } from "./ai-client.js";
+import { createPrivacyAnalytics } from "./analytics.js";
 import {
   COLS,
   FLOW_STATE,
@@ -59,6 +60,13 @@ import {
 } from "./engine.js";
 import { createReplayPlayer, validateReplay } from "./replay.js";
 import {
+  applyGameProgress,
+  normalizeProfile,
+  portableProfile,
+  selectCosmetic,
+  xpForNextLevel,
+} from "./progression.js";
+import {
   applySaveSnapshot,
   buildSavePayload,
   migrateGhostRun,
@@ -99,6 +107,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     matchHistory: "blockdrop-online-match-history-v1",
     onlineStats: "blockdrop-online-stats-v1",
     onboarding: "blockdrop-onboarding-v1",
+    profile: "blockdrop-profile-v1",
+    analyticsConsent: "blockdrop-analytics-consent-v1",
   };
 
   const COLORS = {
@@ -312,9 +322,14 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   if (!replayValidation.ok) {
     storage.archiveReplay(storedReplay, replayValidation.code);
   }
+  const storedProfile = normalizeProfile(storage.loadProfile({}));
   const ui = createUi();
   const onlineClient = createOnlineClient();
   let deferredInstallPrompt = null;
+  let pendingServiceWorker = null;
+  let reloadAfterMatch = false;
+  let pwaReloadRequested = false;
+  let onboardingTimer = 0;
 
   const state = {
     board: makeEngineBoard(),
@@ -341,6 +356,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       startedAt: 0,
       completed: Boolean(storage.loadOnboarding(null)?.completed),
     },
+    profile: storedProfile,
     softDropReleaseTick: 0,
     resultFinalized: false,
     mode: "classic",
@@ -462,6 +478,30 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     onError: handleAiError,
   });
 
+  const analytics = createPrivacyAnalytics({
+    enabled: state.capabilities.analyticsEnabled,
+    consented: state.settings.analyticsConsent,
+    context: () => ({
+      mode: state.mode,
+      locale: state.settings.language,
+    }),
+  });
+  let consentScreenViewSent = false;
+
+  function trackConsentScreenView() {
+    analytics.setEnabled(Boolean(state.capabilities.analyticsEnabled));
+    analytics.setConsent(Boolean(state.settings.analyticsConsent));
+    if (
+      consentScreenViewSent ||
+      !state.settings.analyticsConsent ||
+      !state.capabilities.analyticsEnabled
+    ) {
+      return;
+    }
+    consentScreenViewSent = true;
+    analytics.track("screen_view", { result: "consent_enabled" });
+  }
+
   const audio = initAudio(() => state.settings);
 
   function ensureAudio() {
@@ -508,6 +548,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       aiPace: "fair",
       lastMode: "classic",
       muted: false,
+      analyticsConsent: storage.loadAnalyticsConsent(false),
+      selectedCosmetic: storedProfile.selectedCosmetic,
       ...makeAudioSettings(),
       ...storage.loadSettings({}),
     };
@@ -746,6 +788,14 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     buzz("move");
     syncUi();
     saveCurrentGame();
+    analytics.track("game_start", { mode });
+    if (
+      session.type === "solo" &&
+      !state.onboarding.completed &&
+      !options.ghostReplay
+    ) {
+      beginOnboarding();
+    }
     wakeUpdate();
   }
 
@@ -1269,6 +1319,17 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     state.scores = state.scores.sort((a, b) => b.score - a.score).slice(0, 10);
     storage.saveStats(state.stats);
     storage.saveScores(state.scores);
+    if (!isReplaySession()) {
+      const progression = applyGameProgress(state.profile, {
+        score: state.score,
+        lines: state.lines,
+        hardDrops: state.hardDrops,
+        won,
+      });
+      state.profile = progression.profile;
+      state.settings.selectedCosmetic = state.profile.selectedCosmetic;
+      storage.saveProfile(state.profile);
+    }
     storage.clearSave();
     checkAchievements();
     ui.showGameOver({
@@ -1298,6 +1359,12 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     sendOnlineUpdate(true);
     if (reportOnline) sendOnlineMatchResult(won);
     submitServerRecord();
+    analytics.track("game_finish", {
+      mode: state.mode,
+      durationMs: state.elapsedMs,
+      result: won ? "win" : "loss",
+    });
+    if (reloadAfterMatch) requestPwaUpdate();
   }
 
   function sendOnlineMatchResult(won) {
@@ -1858,6 +1925,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     shareRoomLink,
     copyRoomLink,
     createFriendRoom,
+    joinOnlineRoom,
     disconnectOnline,
     toggleOnlineConnection,
     findRankedMatch,
@@ -2043,6 +2111,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         description,
         unlocked: Boolean(state.unlocked[id]),
       })),
+      profile: state.profile,
+      nextLevelXp: xpForNextLevel(state.profile.level),
     });
   }
 
@@ -2095,6 +2165,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       storage.saveAccountName?.("");
     }
     ui.setOnlineCapabilities?.(state.capabilities);
+    analytics.setEnabled(state.capabilities.analyticsEnabled);
+    trackConsentScreenView();
+    updateInstallButton();
     return state.capabilities;
   }
 
@@ -2418,9 +2491,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         const textarea = document.createElement("textarea");
         textarea.value = text;
         textarea.setAttribute("readonly", "");
-        textarea.style.position = "fixed";
-        textarea.style.left = "-9999px";
-        textarea.style.top = "0";
+        textarea.className = "clipboard-fallback";
         document.body.appendChild(textarea);
         textarea.focus();
         textarea.select();
@@ -2624,11 +2695,13 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function updateInstallButton() {
-    ui.updateInstallButton(Boolean(deferredInstallPrompt));
+    ui.updateInstallButton(
+      Boolean(deferredInstallPrompt && state.capabilities.pwaInstallEnabled),
+    );
   }
 
   async function installApp() {
-    if (!deferredInstallPrompt) {
+    if (!deferredInstallPrompt || !state.capabilities.pwaInstallEnabled) {
       showToast("Установка доступна на HTTPS-версии");
       return;
     }
@@ -2640,6 +2713,19 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     }
     deferredInstallPrompt = null;
     updateInstallButton();
+  }
+
+  function requestPwaUpdate() {
+    if (!pendingServiceWorker) return;
+    if (state.running && !state.gameOver) {
+      reloadAfterMatch = true;
+      ui.setPwaUpdateAvailable(true, true);
+      return;
+    }
+    reloadAfterMatch = false;
+    pwaReloadRequested = true;
+    analytics.track("pwa_update", { result: "accepted" });
+    pendingServiceWorker.postMessage({ type: "SKIP_WAITING" });
   }
 
   let statsReturnOverlay = null;
@@ -2709,12 +2795,23 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function beginOnboarding() {
+    clearTimeout(onboardingTimer);
     state.onboarding.active = true;
     state.onboarding.step = 0;
     state.onboarding.startedAt = performance.now();
     const instruction = onboardingInstruction();
     ui.announce(instruction);
     syncUi();
+    onboardingTimer = globalThis.setTimeout(() => {
+      if (!state.onboarding.active) return;
+      state.onboarding.active = false;
+      storage.saveOnboarding({
+        completed: false,
+        timedOutAt: new Date().toISOString(),
+        durationMs: 30_000,
+      });
+      syncUi();
+    }, 30_000);
   }
 
   function onboardingInstruction() {
@@ -2729,12 +2826,16 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     if (!step?.actions.includes(action)) return;
     state.onboarding.step += 1;
     if (state.onboarding.step >= ONBOARDING_STEPS.length) {
+      clearTimeout(onboardingTimer);
       state.onboarding.active = false;
       state.onboarding.completed = true;
       storage.saveOnboarding({
         completed: true,
         completedAt: new Date().toISOString(),
         durationMs: Math.round(performance.now() - state.onboarding.startedAt),
+      });
+      analytics.track("tutorial_completion", {
+        durationMs: performance.now() - state.onboarding.startedAt,
       });
       const message = onlineText(
         "Обучение завершено — управление освоено!",
@@ -2748,6 +2849,7 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   function skipOnboarding() {
+    clearTimeout(onboardingTimer);
     state.onboarding.active = false;
     storage.saveOnboarding({
       completed: false,
@@ -3238,6 +3340,106 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     event.preventDefault();
   }
 
+  async function exportProfile() {
+    try {
+      const payload = portableProfile(state.profile);
+      const response = await fetch("/api/profile-transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sign", payload }),
+      });
+      if (!response.ok) throw new Error("profileSignFailed");
+      const envelope = await response.json();
+      if (
+        !envelope.signature ||
+        envelope.payload?.kind !== "blockdrop-profile"
+      ) {
+        throw new Error("profileSignFailed");
+      }
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `blockdrop-profile-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      showToast(
+        onlineText(
+          "Подписанный профиль экспортирован",
+          "Signed profile exported",
+        ),
+      );
+    } catch {
+      showToast(
+        onlineText(
+          "Не удалось подписать экспорт профиля",
+          "Could not sign profile export",
+        ),
+      );
+    }
+  }
+
+  async function importProfile(file) {
+    try {
+      if (!file || file.size > 256 * 1024) throw new Error("profileTooLarge");
+      const envelope = JSON.parse(await file.text());
+      if (
+        Number(envelope.envelopeSchemaVersion) !== 1 ||
+        envelope.algorithm !== "HMAC-SHA256-v1" ||
+        envelope.payload?.kind !== "blockdrop-profile" ||
+        Number(envelope.payload?.exportSchemaVersion) !== 1 ||
+        !envelope.signature
+      ) {
+        throw new Error("invalidProfileEnvelope");
+      }
+      const response = await fetch("/api/profile-transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verify",
+          payload: envelope.payload,
+          signature: envelope.signature,
+        }),
+      });
+      const result = response.ok ? await response.json() : { verified: false };
+      if (!result.verified) throw new Error("badProfileSignature");
+      state.profile = normalizeProfile(envelope.payload.profile);
+      state.settings.selectedCosmetic = state.profile.selectedCosmetic;
+      storage.saveProfile(state.profile);
+      applySettings();
+      renderStats();
+      showToast(onlineText("Прогресс импортирован", "Progress imported"));
+    } catch {
+      showToast(
+        onlineText(
+          "Файл профиля повреждён или подпись неверна",
+          "Profile file is damaged or has an invalid signature",
+        ),
+      );
+    }
+  }
+
+  function chooseCosmetic(cosmeticId) {
+    state.profile = selectCosmetic(state.profile, cosmeticId);
+    state.settings.selectedCosmetic = state.profile.selectedCosmetic;
+    storage.saveProfile(state.profile);
+    applySettings();
+    renderStats();
+  }
+
+  async function changeAnalyticsConsent(consented) {
+    state.settings.analyticsConsent = Boolean(consented);
+    storage.saveAnalyticsConsent(state.settings.analyticsConsent);
+    analytics.setConsent(state.settings.analyticsConsent);
+    applySettings();
+    if (state.settings.analyticsConsent) await loadCapabilities();
+    trackConsentScreenView();
+  }
+
   function bindUi() {
     ui.bindControls({
       startGame: () => startGame(),
@@ -3318,6 +3520,14 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         openOnline();
         syncUi();
       },
+      createOnlineRoom: () => {
+        createFriendRoom();
+        syncUi();
+      },
+      joinOnlineRoom: () => {
+        joinOnlineRoom();
+        syncUi();
+      },
       toggleOnlineConnection: () => {
         if (state.online.connected) startOnlineGame();
         else {
@@ -3372,6 +3582,11 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         syncUi();
       },
       shareStats: () => shareText(statsText()),
+      exportProfile,
+      importProfile,
+      selectCosmetic: chooseCosmetic,
+      changeAnalyticsConsent,
+      applyPwaUpdate: requestPwaUpdate,
       openCoach: () => {
         ui.showOverlay("coachOverlay");
         syncUi();
@@ -3460,10 +3675,32 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     if (canUsePwa) {
       navigator.serviceWorker
         .register("/sw.js")
-        .then(() => {
+        .then((registration) => {
           showToast("Офлайн-кэш готовится");
+          const offerUpdate = (worker) => {
+            pendingServiceWorker = worker;
+            ui.setPwaUpdateAvailable(true, state.running && !state.gameOver);
+          };
+          if (registration.waiting) offerUpdate(registration.waiting);
+          registration.addEventListener("updatefound", () => {
+            const worker = registration.installing;
+            worker?.addEventListener("statechange", () => {
+              if (
+                worker.state === "installed" &&
+                navigator.serviceWorker.controller
+              ) {
+                offerUpdate(worker);
+              }
+            });
+          });
         })
         .catch(() => undefined);
+      let controllerChanging = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (controllerChanging || !pwaReloadRequested) return;
+        controllerChanging = true;
+        location.reload();
+      });
     }
     window.addEventListener("beforeinstallprompt", (event) => {
       event.preventDefault();

@@ -1,4 +1,10 @@
 import { getModeOptions, normalizeModeKey } from "./modes.js";
+import {
+  HELP_CONTENT,
+  LOCALIZED_OPTIONS,
+  UI_TEXT,
+  formatMessage,
+} from "./i18n.js";
 
 export function byId(id, root = document) {
   return root.getElementById(id);
@@ -20,6 +26,11 @@ export function escapeHtml(value) {
         "'": "&#39;",
       })[char],
   );
+}
+
+function heightClass(value) {
+  const bucket = Math.max(5, Math.min(100, Math.round(Number(value) / 5) * 5));
+  return `h-${bucket}`;
 }
 
 const UI_IDS = [
@@ -102,6 +113,11 @@ const UI_IDS = [
   "volumeRange",
   "volumeValue",
   "muteButton",
+  "analyticsConsentRow",
+  "analyticsConsentToggle",
+  "analyticsPrivacyHint",
+  "privacyLink",
+  "termsLink",
   "closeSettingsButton",
   "closeStatsButton",
   "shareStatsButton",
@@ -114,12 +130,22 @@ const UI_IDS = [
   "rankedLeaderboardTitle",
   "rankedLeaderboard",
   "achievementsList",
+  "profileTitle",
+  "profileSummary",
+  "questList",
+  "cosmeticLabel",
+  "cosmeticSelect",
+  "profileImportInput",
+  "exportProfileButton",
+  "importProfileButton",
   "helpButton",
   "helpOverlay",
   "coachOverlay",
   "coachTips",
   "closeCoachButton",
   "onlineOverlay",
+  "createOnlineRoomButton",
+  "joinOnlineRoomButton",
   "onlineServerInput",
   "onlineAdvancedSummary",
   "onlineRoomInput",
@@ -192,6 +218,9 @@ const UI_IDS = [
   "tutorialPlayButton",
   "closeTutorialButton",
   "toast",
+  "pwaUpdateNotice",
+  "pwaUpdateText",
+  "applyPwaUpdateButton",
   "fxLayer",
 ];
 
@@ -201,351 +230,6 @@ export function createDomCache(root = document) {
 
 export const DOM =
   typeof document === "undefined" ? {} : createDomCache(document);
-
-const UI_TEXT = {
-  ru: {
-    score: "Счёт",
-    level: "Уровень",
-    lines: "Линии",
-    pause: "Пауза",
-    goal: "Цель",
-    rank: "Ранг",
-    next: "Дальше",
-    hold: "Запас",
-    record: "Рекорд",
-    pieces: "Фигур",
-    time: "Время",
-    height: "Высота",
-    title: "BlockDrop",
-    intro:
-      "Готовая веб-версия: запускаешь и играешь. Есть сохранение, темы, рекорды, офлайн-режим и онлайн-комнаты.",
-    start: "Начать игру",
-    continue: "Продолжить",
-    friend: "Играть с другом",
-    ai: "AI соперник",
-    more: "Ещё",
-    aiStart: "Начать с AI",
-    settings: "Настройки",
-    install: "Установить офлайн",
-    online: "Онлайн-комната",
-    stats: "Статистика",
-    help: "Как играть",
-    done: "Готово",
-    close: "Закрыть",
-    language: "Язык",
-    theme: "Тема",
-    controls: "Управление",
-    sensitivity: "Чувствительность",
-    hand: "Рука",
-    performance: "Производительность",
-    vibration: "Вибрация",
-    sound: "Звук",
-    tutorial: "Обучение",
-    tutorialNext: "Дальше",
-    tutorialPlay: "Попробовать",
-    understood: "Понятно",
-    pauseTitle: "Пауза",
-    pauseText:
-      "Партия сохранена автоматически. Можно закрыть вкладку и вернуться позже.",
-    restart: "Рестарт",
-    mainMenu: "Главное меню",
-    bestGames: "Лучшие игры",
-    serverRecords: "Серверные рекорды",
-    dailyLeaderboard: "Испытание дня",
-    achievements: "Достижения",
-    shareStats: "Поделиться статистикой",
-    coach: "Бот-тренер",
-    coachText: "Короткий разбор партии и 2-3 совета для следующей попытки.",
-    roomCode: "Код комнаты",
-    room: "Комната",
-    name: "Имя",
-    ranked: "Ranked PvP",
-    notConnected: "Не подключено",
-    tournamentServer: "Турнир",
-    server: "Сервер",
-    players: "Игроков",
-    timer: "Таймер",
-    startTournament: "Старт турнира",
-    connect: "Подключиться",
-    startOnlineGame: "Начать игру",
-    disconnect: "Отключиться",
-    copied: "Скопировано",
-    roomLink: "Ссылка другу",
-    tournamentDone: "Турнир завершён",
-    tournamentText: "Финальная таблица комнаты.",
-    rematch: "Реванш",
-    gameOver: "Игра окончена",
-    gameOverText: "Башня дошла до верхней границы.",
-    playAgain: "Играть снова",
-    coachTips: "Советы тренера",
-    shareResult: "Поделиться результатом",
-  },
-  en: {
-    score: "Score",
-    level: "Level",
-    lines: "Lines",
-    pause: "Pause",
-    goal: "Goal",
-    rank: "Rank",
-    next: "Next",
-    hold: "Hold",
-    record: "Best",
-    pieces: "Pieces",
-    time: "Time",
-    height: "Height",
-    title: "BlockDrop",
-    intro:
-      "A fast web version with saves, themes, records, offline mode, online rooms, and AI practice.",
-    start: "Start game",
-    continue: "Continue",
-    friend: "Play with friend",
-    ai: "AI opponent",
-    more: "More",
-    aiStart: "Start with AI",
-    settings: "Settings",
-    install: "Install offline",
-    online: "Online room",
-    stats: "Stats",
-    help: "How to play",
-    done: "Done",
-    close: "Close",
-    language: "Language",
-    theme: "Theme",
-    controls: "Controls",
-    sensitivity: "Sensitivity",
-    hand: "Hand",
-    performance: "Performance",
-    vibration: "Vibration",
-    sound: "Sound",
-    tutorial: "Tutorial",
-    tutorialNext: "Next",
-    tutorialPlay: "Try it",
-    understood: "Got it",
-    pauseTitle: "Paused",
-    pauseText:
-      "The game is saved automatically. You can close the tab and return later.",
-    restart: "Restart",
-    mainMenu: "Main menu",
-    bestGames: "Best games",
-    serverRecords: "Server records",
-    dailyLeaderboard: "Daily challenge",
-    achievements: "Achievements",
-    shareStats: "Share stats",
-    coach: "Coach bot",
-    coachText: "A short review and 2-3 tips for your next attempt.",
-    roomCode: "Room code",
-    room: "Room",
-    name: "Name",
-    ranked: "Ranked PvP",
-    notConnected: "Not connected",
-    tournamentServer: "Tournament",
-    server: "Server",
-    players: "Players",
-    timer: "Timer",
-    startTournament: "Start tournament",
-    connect: "Connect",
-    startOnlineGame: "Start game",
-    disconnect: "Disconnect",
-    copied: "Copied",
-    roomLink: "Invite link",
-    tournamentDone: "Tournament finished",
-    tournamentText: "Final room leaderboard.",
-    rematch: "Rematch",
-    gameOver: "Game over",
-    gameOverText: "The stack reached the top.",
-    playAgain: "Play again",
-    coachTips: "Coach tips",
-    shareResult: "Share result",
-  },
-};
-
-const LOCALIZED_OPTIONS = {
-  ru: {
-    themeSelect: [
-      ["ember", "Графит и мята"],
-      ["day", "Светлая"],
-      ["candy", "Аркада"],
-      ["mono", "Минимализм"],
-    ],
-    languageSelect: [
-      ["ru", "Русский"],
-      ["en", "English"],
-    ],
-    controlModeSelect: [
-      ["gestures", "Свайпы"],
-      ["hybrid", "Свайпы + кнопки"],
-      ["buttons", "Только кнопки"],
-    ],
-    sensitivitySelect: [
-      ["low", "Низкая"],
-      ["medium", "Средняя"],
-      ["high", "Высокая"],
-    ],
-    handednessSelect: [
-      ["right", "Правая"],
-      ["left", "Левая"],
-    ],
-    performanceSelect: [
-      ["auto", "Авто"],
-      ["battery", "Экономия"],
-      ["quality", "Качество"],
-    ],
-    aiDifficultySelect: [
-      ["easy", "Лёгкий"],
-      ["normal", "Нормальный"],
-      ["hard", "Сильный"],
-      ["insane", "Безумный"],
-    ],
-    aiStyleSelect: [
-      ["balanced", "Баланс"],
-      ["aggressive", "Атака"],
-      ["defensive", "Защита"],
-    ],
-    aiPaceSelect: [
-      ["calm", "Спокойный"],
-      ["fair", "Ровный"],
-      ["fast", "Быстрый"],
-    ],
-    onlineMaxPlayersSelect: [
-      ["2", "1 на 1"],
-      ["3", "3 игрока"],
-      ["4", "4 игрока"],
-      ["5", "5 игроков"],
-      ["6", "6 игроков"],
-      ["7", "7 игроков"],
-      ["8", "8 игроков"],
-    ],
-    onlineDurationSelect: [
-      ["120", "2 минуты"],
-      ["180", "3 минуты"],
-      ["300", "5 минут"],
-      ["600", "10 минут"],
-    ],
-  },
-  en: {
-    themeSelect: [
-      ["ember", "Graphite and mint"],
-      ["day", "Light"],
-      ["candy", "Arcade"],
-      ["mono", "Minimal"],
-    ],
-    languageSelect: [
-      ["ru", "Russian"],
-      ["en", "English"],
-    ],
-    controlModeSelect: [
-      ["gestures", "Swipes"],
-      ["hybrid", "Swipes + buttons"],
-      ["buttons", "Buttons only"],
-    ],
-    sensitivitySelect: [
-      ["low", "Low"],
-      ["medium", "Medium"],
-      ["high", "High"],
-    ],
-    handednessSelect: [
-      ["right", "Right"],
-      ["left", "Left"],
-    ],
-    performanceSelect: [
-      ["auto", "Auto"],
-      ["battery", "Battery saver"],
-      ["quality", "Quality"],
-    ],
-    aiDifficultySelect: [
-      ["easy", "Easy"],
-      ["normal", "Normal"],
-      ["hard", "Hard"],
-      ["insane", "Insane"],
-    ],
-    aiStyleSelect: [
-      ["balanced", "Balanced"],
-      ["aggressive", "Attack"],
-      ["defensive", "Defense"],
-    ],
-    aiPaceSelect: [
-      ["calm", "Calm"],
-      ["fair", "Fair"],
-      ["fast", "Fast"],
-    ],
-    onlineMaxPlayersSelect: [
-      ["2", "1v1"],
-      ["3", "3 players"],
-      ["4", "4 players"],
-      ["5", "5 players"],
-      ["6", "6 players"],
-      ["7", "7 players"],
-      ["8", "8 players"],
-    ],
-    onlineDurationSelect: [
-      ["120", "2 minutes"],
-      ["180", "3 minutes"],
-      ["300", "5 minutes"],
-      ["600", "10 minutes"],
-    ],
-  },
-};
-
-const HELP_CONTENT = {
-  ru: {
-    cards: [
-      [
-        "Быстрый старт",
-        "Обычная игра запускает выбранный режим. Daily Challenge каждый день даёт одинаковую последовательность фигур.",
-      ],
-      [
-        "Против AI-бота",
-        "Открой AI, выбери сложность, стиль и темп. Бот играет рядом, набирает очки и периодически отправляет мусорные линии.",
-      ],
-      [
-        "С другом онлайн",
-        "Нажми «Играть с другом»: комната создастся, подключится и скопирует ссылку. Друг открывает ссылку или сканирует QR.",
-      ],
-      [
-        "Режимы",
-        "Классика — рекорд. 40 линий — спринт. Дзен — спокойная игра. Хаос — периодические мусорные линии.",
-      ],
-    ],
-    controls: [
-      ["Двигать", "Свайп / ← → / A D / кнопки"],
-      ["Повернуть", "Тап / ↑ / W / X / кнопка"],
-      ["Поворот назад", "Двойной тап / Q"],
-      ["Мягко вниз", "Свайп вниз / ↓ / S / кнопка"],
-      ["Сброс", "Быстрый свайп вниз / Space / Z"],
-      ["Запас", "Долгое нажатие / C / H / E / Shift"],
-      ["Пауза", "P / Esc"],
-    ],
-  },
-  en: {
-    cards: [
-      [
-        "Quick start",
-        "Standard play starts the selected mode. Daily Challenge uses the same piece sequence for everyone each day.",
-      ],
-      [
-        "Against AI",
-        "Open AI, choose difficulty, style, and pace. The bot plays beside you, scores points, and sends garbage lines.",
-      ],
-      [
-        "Online with a friend",
-        "Press Play with friend: the room is created, connected, and copied. Your friend opens the link or scans the QR.",
-      ],
-      [
-        "Modes",
-        "Classic is for high score. 40 Lines is a sprint. Zen is relaxed. Chaos adds periodic garbage lines.",
-      ],
-    ],
-    controls: [
-      ["Move", "Swipe / ← → / A D / buttons"],
-      ["Rotate", "Tap / ↑ / W / X / button"],
-      ["Rotate back", "Double tap / Q"],
-      ["Soft drop", "Swipe down / ↓ / S / button"],
-      ["Hard drop", "Fast swipe down / Space / Z"],
-      ["Hold", "Long press / C / H / E / Shift"],
-      ["Pause", "P / Esc"],
-    ],
-  },
-};
 
 export function createUi(options = {}) {
   const root = options.root || document;
@@ -662,15 +346,14 @@ export function createUi(options = {}) {
     refs.performanceSelect.value = settings.performanceMode;
     refs.volumeRange.value = settings.volume;
     refs.volumeValue.textContent = settings.volume;
+    refs.analyticsConsentToggle.checked = Boolean(settings.analyticsConsent);
+    documentRef.documentElement.dataset.cosmetic =
+      settings.selectedCosmetic || "mint-trail";
     updateThemeSwatches(settings.theme);
     applyLanguage(settings.language);
     refs.muteButton.textContent = settings.muted
-      ? settings.language === "en"
-        ? "Unmute"
-        : "Включить звук"
-      : settings.language === "en"
-        ? "Mute"
-        : "Выключить звук";
+      ? textFor(settings.language).unmute
+      : textFor(settings.language).mute;
     refs.muteButton.classList.toggle("warn", settings.muted);
   }
 
@@ -760,12 +443,7 @@ export function createUi(options = {}) {
       text.lines,
     );
     refs.pauseButton.setAttribute("aria-label", text.pause);
-    refs.sidePanel.setAttribute(
-      "aria-label",
-      language === "en"
-        ? "Game statistics and upcoming pieces"
-        : "Игровая статистика и следующие фигуры",
-    );
+    refs.sidePanel.setAttribute("aria-label", text.sidePanelLabel);
     setText(
       documentRef.querySelector(".status-card:nth-child(1) > span"),
       text.goal,
@@ -782,50 +460,30 @@ export function createUi(options = {}) {
     setText(documentRef.querySelector("#heightValue + span"), text.height);
     setText(refs.holdButton, text.hold);
     setText(refs.mainMenuButton, text.mainMenu);
-    setText(refs.rotateButton, language === "en" ? "Rotate" : "Поворот");
-    setText(refs.downButton, language === "en" ? "Down" : "Вниз");
-    setText(refs.dropButton, language === "en" ? "Drop" : "Сброс");
+    setText(refs.rotateButton, text.rotate);
+    setText(refs.downButton, text.down);
+    setText(refs.dropButton, text.drop);
 
     setText(documentRef.querySelector("#startOverlay h1"), text.title);
     setText(documentRef.querySelector("#startOverlay .muted"), text.intro);
-    setLabel('label[for="startMode"]', language === "en" ? "Mode" : "Режим");
-    setLabel(
-      'label[for="aiDifficultySelect"]',
-      language === "en" ? "AI difficulty" : "AI сложность",
-    );
-    setLabel(
-      'label[for="aiStyleSelect"]',
-      language === "en" ? "AI style" : "Стиль AI",
-    );
-    setLabel(
-      'label[for="aiPaceSelect"]',
-      language === "en" ? "AI pace" : "Темп AI",
-    );
+    setLabel('label[for="startMode"]', text.modeLabel);
+    setLabel('label[for="aiDifficultySelect"]', text.aiDifficulty);
+    setLabel('label[for="aiStyleSelect"]', text.aiStyle);
+    setLabel('label[for="aiPaceSelect"]', text.aiPace);
     setText(refs.startButton, text.start);
-    setText(
-      refs.dailyButton,
-      language === "en" ? "Daily Challenge" : "Испытание дня",
-    );
+    setText(refs.dailyButton, text.dailyChallenge);
     setText(refs.continueButton, text.continue);
     setText(refs.friendButton, text.friend);
     setText(refs.aiButton, text.ai);
     setText(refs.menuMoreSummary, text.more);
     setText(documentRef.querySelector("#aiOverlay h2"), text.ai);
-    setText(
-      documentRef.querySelector("#aiOverlay .muted"),
-      language === "en"
-        ? "Choose bot behavior for the selected mode."
-        : "Выбери поведение бота для партии в текущем режиме.",
-    );
+    setText(documentRef.querySelector("#aiOverlay .muted"), text.aiDescription);
     setText(refs.startAiButton, text.aiStart);
     setText(refs.closeAiButton, text.mainMenu);
     setText(refs.startSettingsButton, text.settings);
     setText(refs.installButton, text.install);
     setText(refs.openStatsButton, text.stats);
-    setText(
-      refs.replayButton,
-      language === "en" ? "Best replay" : "Повтор лучшей",
-    );
+    setText(refs.replayButton, text.bestReplay);
     setText(refs.helpButton, text.help);
 
     setText(documentRef.querySelector("#settingsOverlay h2"), text.settings);
@@ -843,8 +501,12 @@ export function createUi(options = {}) {
       vibrationRow.appendChild(refs.vibrationToggle);
     }
     setLabel('label[for="volumeRange"]', text.sound);
-    setText(refs.muteButton, language === "en" ? "Mute" : "Выключить звук");
+    setText(refs.muteButton, text.mute);
     setText(refs.closeSettingsButton, text.done);
+    setText(refs.analyticsConsentRow.firstChild, text.analyticsConsent);
+    setText(refs.analyticsPrivacyHint, text.analyticsHint);
+    setText(refs.privacyLink, text.privacy);
+    setText(refs.termsLink, text.betaTerms);
 
     setText(documentRef.querySelector("#pauseOverlay h2"), text.pauseTitle);
     setText(documentRef.querySelector("#pauseOverlay .muted"), text.pauseText);
@@ -868,7 +530,7 @@ export function createUi(options = {}) {
     );
     setText(
       documentRef.querySelector("#statsOverlay h3:nth-of-type(4)"),
-      language === "en" ? "Ranked PvP" : "Ranked PvP",
+      text.ranked,
     );
     setText(
       documentRef.querySelector("#statsOverlay h3:nth-of-type(5)"),
@@ -876,6 +538,12 @@ export function createUi(options = {}) {
     );
     setText(refs.closeStatsButton, text.close);
     setText(refs.shareStatsButton, text.shareStats);
+    setText(refs.profileTitle, text.masteryProfile);
+    setText(refs.cosmeticLabel.firstChild, text.cosmetic);
+    setText(refs.exportProfileButton, text.exportProgress);
+    setText(refs.importProfileButton, text.importProgress);
+    setText(refs.pwaUpdateText, text.updateAvailable);
+    setText(refs.applyPwaUpdateButton, text.updateSafely);
 
     setText(documentRef.querySelector("#helpOverlay h2"), text.help);
     renderHelp(language);
@@ -894,53 +562,28 @@ export function createUi(options = {}) {
     setLabel('label[for="onlineRoomInput"]', text.room);
     setLabel('label[for="onlineNameInput"]', text.name);
     setText(refs.onlineRankedLabel, text.ranked);
-    setLabel(
-      'label[for="accountUsernameInput"]',
-      language === "en" ? "Account" : "Аккаунт",
-    );
-    setLabel(
-      'label[for="accountPasswordInput"]',
-      language === "en" ? "Password" : "Пароль",
-    );
+    setLabel('label[for="accountUsernameInput"]', text.account);
+    setLabel('label[for="accountPasswordInput"]', text.password);
     setPlaceholder(refs.accountUsernameInput, "username");
-    setPlaceholder(
-      refs.accountPasswordInput,
-      language === "en" ? "8+ characters" : "8+ символов",
-    );
-    setText(
-      refs.findRankedButton,
-      language === "en" ? "Find ranked" : "Ranked матч",
-    );
-    setText(refs.accountLoginButton, language === "en" ? "Login" : "Войти");
-    setText(
-      refs.accountRegisterButton,
-      language === "en" ? "Register" : "Создать",
-    );
-    setText(
-      refs.accountPasswordButton,
-      language === "en" ? "Password" : "Пароль",
-    );
-    setText(refs.accountLogoutButton, language === "en" ? "Logout" : "Выйти");
+    setPlaceholder(refs.accountPasswordInput, text.passwordHint);
+    setText(refs.findRankedButton, text.findRanked);
+    setText(refs.accountLoginButton, text.login);
+    setText(refs.accountRegisterButton, text.register);
+    setText(refs.accountPasswordButton, text.password);
+    setText(refs.accountLogoutButton, text.logout);
     setText(documentRef.querySelector(".room-card span"), text.roomCode);
-    refs.roomQr.setAttribute(
-      "alt",
-      language === "en" ? "Room QR code" : "QR комнаты",
-    );
-    setPlaceholder(
-      refs.onlineRoomInput,
-      language === "en" ? "Example: FRIENDS" : "Например: FRIENDS",
-    );
-    setPlaceholder(
-      refs.onlineNameInput,
-      language === "en" ? "Player" : "Игрок",
-    );
+    refs.roomQr.setAttribute("alt", text.roomQrAlt);
+    setPlaceholder(refs.onlineRoomInput, text.roomExample);
+    setPlaceholder(refs.onlineNameInput, text.player);
     setText(refs.onlineAdvancedSummary, text.tournamentServer);
     setLabel('label[for="onlineServerInput"]', text.server);
     setLabel('label[for="onlineMaxPlayersSelect"]', text.players);
     setLabel('label[for="onlineDurationSelect"]', text.timer);
     setText(refs.startTournamentButton, text.startTournament);
     setOnlineButtonState(refs.connectOnlineButton.dataset.connected === "true");
-    setText(refs.copyRoomButton, language === "en" ? "Copy" : "Скопировать");
+    setText(refs.createOnlineRoomButton, text.createRoom);
+    setText(refs.joinOnlineRoomButton, text.joinByCode);
+    setText(refs.copyRoomButton, text.copy);
     setText(refs.shareRoomButton, text.roomLink);
     setText(refs.closeOnlineButton, text.close);
     if (
@@ -965,36 +608,15 @@ export function createUi(options = {}) {
     setText(refs.playAgainButton, text.playAgain);
     setText(refs.gameOverMenuButton, text.mainMenu);
     setText(refs.gameOverCoachButton, text.coachTips);
-    setText(
-      refs.gameOverReplayButton,
-      language === "en" ? "Best replay" : "Повтор лучшей",
-    );
+    setText(refs.gameOverReplayButton, text.bestReplay);
     setText(refs.shareResultButton, text.shareResult);
     setText(refs.gameOverStatsButton, text.stats);
-    setText(
-      documentRef.querySelector("#replayOverlay h2"),
-      language === "en" ? "Best replay" : "Повтор лучшей",
-    );
-    setText(
-      refs.startGhostButton,
-      language === "en" ? "Play ghost run" : "Играть против призрака",
-    );
-    setText(
-      refs.playReplayButton,
-      language === "en" ? "Watch replay" : "Смотреть повтор",
-    );
-    setLabel(
-      'label[for="replaySpeedSelect"]',
-      language === "en" ? "Replay speed" : "Скорость повтора",
-    );
-    setLabel(
-      'label[for="replayPlaybackSpeed"]',
-      language === "en" ? "Speed" : "Скорость",
-    );
-    setText(
-      refs.skipOnboardingButton,
-      language === "en" ? "Skip" : "Пропустить",
-    );
+    setText(documentRef.querySelector("#replayOverlay h2"), text.bestReplay);
+    setText(refs.startGhostButton, text.playGhost);
+    setText(refs.playReplayButton, text.watchReplay);
+    setLabel('label[for="replaySpeedSelect"]', text.replaySpeed);
+    setLabel('label[for="replayPlaybackSpeed"]', text.speed);
+    setText(refs.skipOnboardingButton, text.skip);
     setText(refs.closeReplayButton, text.close);
     populateModeSelect(language);
     if (onlineCapabilities) setOnlineCapabilities(onlineCapabilities);
@@ -1029,37 +651,7 @@ export function createUi(options = {}) {
   }
 
   function tutorialItems(language = "ru") {
-    if (language === "en") {
-      return [
-        ["Move", "Swipe left/right or use arrow keys to place the piece."],
-        ["Rotate", "Tap to rotate clockwise. Double tap rotates back."],
-        ["Drop", "Swipe down to speed up. Fast swipe down hard drops."],
-        [
-          "Hold",
-          "Long press, right-click the board, or press C / H / E / Shift to save a useful piece.",
-        ],
-        [
-          "Plan",
-          "Keep one side well open for the long I piece and clear 2+ lines for attacks.",
-        ],
-      ];
-    }
-    return [
-      ["Движение", "Свайп влево/вправо или стрелки двигают фигуру."],
-      [
-        "Поворот",
-        "Тап поворачивает по часовой стрелке. Двойной тап крутит назад.",
-      ],
-      [
-        "Падение",
-        "Свайп вниз ускоряет, быстрый свайп вниз делает резкий сброс.",
-      ],
-      ["Запас", "Долгое нажатие или кнопка Запас сохраняет полезную фигуру."],
-      [
-        "План",
-        "Держи один край открытым под I-фигуру и чисти 2+ линии для атак.",
-      ],
-    ];
+    return (HELP_CONTENT[language] || HELP_CONTENT.ru).tutorial;
   }
 
   function renderTutorial(language = "ru", index = 0) {
@@ -1067,10 +659,12 @@ export function createUi(options = {}) {
     const safeIndex = Math.max(0, Math.min(items.length - 1, index));
     tutorialIndex = safeIndex;
     const [, body] = items[safeIndex];
-    refs.tutorialText.textContent =
-      language === "en"
-        ? `Step ${safeIndex + 1} of ${items.length}: ${body}`
-        : `Шаг ${safeIndex + 1} из ${items.length}: ${body}`;
+    refs.tutorialText.textContent = formatMessage(
+      language,
+      "tutorialStep",
+      { step: safeIndex + 1, total: items.length, body },
+      (HELP_CONTENT[language] || HELP_CONTENT.ru).tutorialStep,
+    );
     refs.tutorialSteps.innerHTML = items
       .map(([itemTitle], itemIndex) => {
         const active = itemIndex === safeIndex ? " active" : "";
@@ -1079,9 +673,7 @@ export function createUi(options = {}) {
       .join("");
     refs.tutorialNextButton.textContent =
       safeIndex === items.length - 1
-        ? language === "en"
-          ? "Again"
-          : "Сначала"
+        ? textFor(language).again
         : textFor(language).tutorialNext;
   }
 
@@ -1133,48 +725,6 @@ export function createUi(options = {}) {
     );
     const boardWidth = cell * cols;
     const boardHeight = cell * rows;
-    const boardPad = cell <= 18 ? 5 : cell <= 26 ? 6 : 8;
-    const previewMain = Math.max(
-      34,
-      Math.min(
-        stacked ? 72 : wide ? 104 : 86,
-        Math.round(sideWidth - boardPad * 2 - 8),
-      ),
-    );
-    const previewSmall = Math.max(
-      34,
-      Math.min(72, Math.round(previewMain * 0.76)),
-    );
-
-    documentRef.documentElement.style.setProperty("--layout-gap", `${gap}px`);
-    documentRef.documentElement.style.setProperty(
-      "--side-width",
-      `${sideWidth}px`,
-    );
-    documentRef.documentElement.style.setProperty(
-      "--board-width",
-      `${boardWidth}px`,
-    );
-    documentRef.documentElement.style.setProperty(
-      "--board-height",
-      `${boardHeight}px`,
-    );
-    documentRef.documentElement.style.setProperty(
-      "--board-pad",
-      `${boardPad}px`,
-    );
-    documentRef.documentElement.style.setProperty(
-      "--preview-main",
-      `${previewMain}px`,
-    );
-    documentRef.documentElement.style.setProperty(
-      "--preview-small",
-      `${previewSmall}px`,
-    );
-    documentRef.documentElement.style.setProperty(
-      "--game-area-height",
-      `${boardHeight + boardPad * 2}px`,
-    );
 
     return { stacked, wide, short, cell, boardWidth, boardHeight };
   }
@@ -1522,14 +1072,18 @@ export function createUi(options = {}) {
         .filter((entry) => entry.count)
         .map((entry) => `${entry.row}: ${entry.count}`)
         .join(", ");
-      refs.board.setAttribute(
-        "aria-label",
-        language === "en" ? "BlockDrop game board" : "Игровое поле BlockDrop",
+      const text = textFor(language);
+      refs.board.setAttribute("aria-label", text.boardLabel);
+      refs.boardDescription.textContent = formatMessage(
+        language,
+        "boardState",
+        {
+          active: active?.kind || text.none,
+          next: queue.slice(0, 3).join(", ") || text.none,
+          hold: hold || text.empty,
+          rows: filledRows || text.emptyBoard,
+        },
       );
-      refs.boardDescription.textContent =
-        language === "en"
-          ? `Active ${active?.kind || "none"}. Next ${queue.slice(0, 3).join(", ") || "none"}. Hold ${hold || "empty"}. Occupied cells by row: ${filledRows || "empty board"}.`
-          : `Активная фигура ${active?.kind || "нет"}. Далее ${queue.slice(0, 3).join(", ") || "нет"}. Запас ${hold || "пуст"}. Занятые клетки по строкам: ${filledRows || "поле пустое"}.`;
     }
   }
 
@@ -1544,6 +1098,7 @@ export function createUi(options = {}) {
 
   function renderOnboarding({ visible, title, instruction, step, total }) {
     refs.onboardingBar.hidden = !visible;
+    documentRef.body.classList.toggle("onboarding-active", Boolean(visible));
     if (!visible) return;
     refs.onboardingTitle.textContent = title;
     refs.onboardingInstruction.textContent = instruction;
@@ -1564,7 +1119,7 @@ export function createUi(options = {}) {
     refs.apmValue.textContent = payload.apm;
     refs.heightValue.textContent = payload.height;
     refs.goalValue.textContent = payload.goal;
-    refs.progressFill.style.width = `${payload.progress}%`;
+    refs.progressFill.value = Math.max(0, Math.min(100, payload.progress));
     refs.rankValue.textContent = payload.rank;
     refs.boardShell.classList.toggle("danger", payload.danger);
   }
@@ -1642,7 +1197,7 @@ export function createUi(options = {}) {
               `<div class="result-row"><span>${escapeHtml(player.name)} · ${escapeHtml(player.status)}</span><span>${player.score}</span></div>`,
           )
           .join("")
-      : `<div class="result-row"><span>${escapeHtml(language === "en" ? "No players yet" : "Игроков пока нет")}</span><span>0</span></div>`;
+      : `<div class="result-row"><span>${escapeHtml(text.noPlayers)}</span><span>0</span></div>`;
     if (tournament?.active) {
       refs.onlineStatus.textContent = `${text.tournamentServer}: ${formatTime(tournament.timeLeftMs)} · ${players.length}/${tournament.maxPlayers}`;
     }
@@ -1666,9 +1221,7 @@ export function createUi(options = {}) {
       ? `<div class="online-timer">${escapeHtml(text.tournamentServer)}: ${formatTime(tournament.timeLeftMs)}</div>`
       : "";
     const label =
-      room === "AI"
-        ? text.ai
-        : `${refs.languageSelect.value === "en" ? "Online" : "Онлайн"} ${escapeHtml(room)}`;
+      room === "AI" ? text.ai : `${text.online} ${escapeHtml(room)}`;
     refs.onlinePanel.innerHTML =
       timer +
       `<div class="mission done"><span>${label}</span><b>${players.length}</b></div>` +
@@ -1681,8 +1234,7 @@ export function createUi(options = {}) {
   }
 
   function renderTournamentResults(players, stateWasRunning) {
-    const noResults =
-      refs.languageSelect.value === "en" ? "No results" : "Нет результатов";
+    const noResults = textFor(refs.languageSelect.value).noResults;
     refs.tournamentResults.innerHTML = players.length
       ? players
           .map(
@@ -1703,13 +1255,16 @@ export function createUi(options = {}) {
     dailyLeaderboardDate = "",
     rankedLeaderboard = [],
     achievements,
+    profile = null,
+    nextLevelXp = 0,
   }) {
     const language = refs.languageSelect.value;
+    const text = textFor(language);
     refs.statsGrid.classList.add("stats-cards");
     refs.statsGrid.innerHTML = statsRows
       .map((item) => {
         const progress = Number.isFinite(item.progress)
-          ? `<i style="width:${Math.max(0, Math.min(100, item.progress))}%"></i>`
+          ? `<progress max="100" value="${Math.max(0, Math.min(100, item.progress))}"></progress>`
           : "";
         const note = item.note ? `<small>${escapeHtml(item.note)}</small>` : "";
         const track = progress
@@ -1725,7 +1280,7 @@ export function createUi(options = {}) {
               `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.mode)}, ${escapeHtml(entry.date)}</span><span>${entry.score}</span></div>`,
           )
           .join("")
-      : `<div class="score-row"><span>${language === "en" ? "No games yet" : "Пока пусто"}</span><span>0</span></div>`;
+      : `<div class="score-row"><span>${text.noGames}</span><span>0</span></div>`;
     refs.serverLeaderboard.innerHTML = serverRecords.length
       ? serverRecords
           .map(
@@ -1733,14 +1288,10 @@ export function createUi(options = {}) {
               `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.name)} · ${escapeHtml(entry.mode)} · ${escapeHtml(entry.date)}</span><span>${entry.score}</span></div>`,
           )
           .join("")
-      : `<div class="score-row"><span>${language === "en" ? "No server records yet" : "Пока нет связи с сервером"}</span><span>—</span></div>`;
+      : `<div class="score-row"><span>${text.noServerRecords}</span><span>—</span></div>`;
     refs.dailyLeaderboardTitle.textContent = dailyLeaderboardDate
-      ? `${
-          language === "en" ? "Daily challenge" : "Испытание дня"
-        } ${dailyLeaderboardDate}`
-      : language === "en"
-        ? "Daily challenge"
-        : "Испытание дня";
+      ? `${text.dailyChallenge} ${dailyLeaderboardDate}`
+      : text.dailyChallenge;
     refs.dailyLeaderboard.innerHTML = dailyLeaderboard.length
       ? dailyLeaderboard
           .map(
@@ -1748,9 +1299,8 @@ export function createUi(options = {}) {
               `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.name)} В· ${entry.lines}L В· ${escapeHtml(entry.time)}</span><span>${entry.score}</span></div>`,
           )
           .join("")
-      : `<div class="score-row"><span>${language === "en" ? "No daily runs yet" : "Пока нет ежедневных результатов"}</span><span>—</span></div>`;
-    refs.rankedLeaderboardTitle.textContent =
-      language === "en" ? "Ranked PvP" : "Ranked PvP";
+      : `<div class="score-row"><span>${text.noDailyRuns}</span><span>—</span></div>`;
+    refs.rankedLeaderboardTitle.textContent = text.ranked;
     refs.rankedLeaderboard.innerHTML = rankedLeaderboard.length
       ? rankedLeaderboard
           .map(
@@ -1758,13 +1308,67 @@ export function createUi(options = {}) {
               `<div class="score-row"><span>#${index + 1} ${escapeHtml(entry.name)}</span><span>${entry.rating} MMR · ${entry.wins}-${entry.losses}</span></div>`,
           )
           .join("")
-      : `<div class="score-row"><span>${language === "en" ? "No ranked matches yet" : "Пока нет ranked матчей"}</span><span>—</span></div>`;
+      : `<div class="score-row"><span>${text.noRankedMatches}</span><span>—</span></div>`;
     refs.achievementsList.innerHTML = achievements
       .map((item) => {
         const prefix = item.unlocked ? "✓ " : "";
         return `<div class="achievement"><b>${prefix}${escapeHtml(item.title)}</b><small>${escapeHtml(item.description)}</small></div>`;
       })
       .join("");
+    renderProgression(profile, nextLevelXp);
+  }
+
+  function renderProgression(profile, nextLevelXp) {
+    if (!profile) return;
+    const text = textFor(refs.languageSelect.value);
+    refs.profileSummary.innerHTML = [
+      [text.masteryLevel, profile.level],
+      [text.xp, `${profile.xp}/${nextLevelXp}`],
+      [text.gamesPlayed, profile.games],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div><b>${escapeHtml(value)}</b><span>${escapeHtml(label)}</span></div>`,
+      )
+      .join("");
+    const questLabels = {
+      games: text.questGames,
+      lines: text.questLines,
+      hardDrops: text.questHardDrops,
+      wins: text.questWins,
+    };
+    refs.questList.innerHTML = [
+      ...profile.dailyQuests.map((quest) => ({
+        ...quest,
+        period: text.dailyQuest,
+      })),
+      ...profile.weeklyQuests.map((quest) => ({
+        ...quest,
+        period: text.weeklyQuest,
+      })),
+    ]
+      .map(
+        (quest) => `<div class="quest-item">
+          <b>${escapeHtml(questLabels[quest.type] || quest.id)}</b>
+          <small>${escapeHtml(quest.period)} · +${quest.rewardXp} XP</small>
+          <progress max="${quest.target}" value="${quest.progress}">${quest.progress}/${quest.target}</progress>
+        </div>`,
+      )
+      .join("");
+    const cosmeticLabels = {
+      "mint-trail": text.cosmeticMintTrail,
+      "amber-blocks": text.cosmeticAmberBlocks,
+      "candy-spark": text.cosmeticCandySpark,
+      "mono-ghost": text.cosmeticMonoGhost,
+    };
+    refs.cosmeticSelect.innerHTML = profile.unlockedCosmetics
+      .map(
+        (id) =>
+          `<option value="${escapeHtml(id)}">${escapeHtml(cosmeticLabels[id] || id)}</option>`,
+      )
+      .join("");
+    refs.cosmeticSelect.value = profile.selectedCosmetic;
+    documentRef.documentElement.dataset.cosmetic = profile.selectedCosmetic;
   }
 
   function renderReplay(ghostRun, formatTime, replay = null) {
@@ -1775,10 +1379,9 @@ export function createUi(options = {}) {
     refs.playReplayButton.disabled = !replay;
     refs.startGhostButton.disabled = !hasGhost;
     if (!hasGhost && !replay) {
-      refs.replaySummary.textContent =
-        refs.languageSelect.value === "en"
-          ? "Replay appears after a new local best."
-          : "Запись появится после нового локального рекорда.";
+      refs.replaySummary.textContent = textFor(
+        refs.languageSelect.value,
+      ).replayMissing;
       refs.replayTimeline.innerHTML = "";
       setOverlayVisibility(refs.replayOverlay, true);
       return;
@@ -1804,7 +1407,7 @@ export function createUi(options = {}) {
       refs.replayTimeline.innerHTML = (replay.checkpoints || [])
         .map(
           (checkpoint) =>
-            `<div class="replay-step"><span>${escapeHtml(formatTime((checkpoint.tick / 60) * 1000))}</span><i style="height:50%"></i><b style="height:50%"></b></div>`,
+            `<div class="replay-step"><span>${escapeHtml(formatTime((checkpoint.tick / 60) * 1000))}</span><i class="h-50"></i><b class="h-50"></b></div>`,
         )
         .join("");
       setOverlayVisibility(refs.replayOverlay, true);
@@ -1829,7 +1432,7 @@ export function createUi(options = {}) {
           4,
           Math.round(((Number(sample.score) || 0) / maxScore) * 100),
         );
-        return `<div class="replay-step"><span>${escapeHtml(formatTime(sample.time))}</span><i style="height:${height}%"></i><b style="height:${score}%"></b></div>`;
+        return `<div class="replay-step"><span>${escapeHtml(formatTime(sample.time))}</span><i class="${heightClass(height)}"></i><b class="${heightClass(score)}"></b></div>`;
       })
       .join("");
     setOverlayVisibility(refs.replayOverlay, true);
@@ -1846,13 +1449,8 @@ export function createUi(options = {}) {
   }) {
     refs.replayPlaybackBar.hidden = !visible;
     if (!visible) return;
-    refs.replayPlaybackPause.textContent = paused
-      ? refs.languageSelect.value === "en"
-        ? "Resume"
-        : "Продолжить"
-      : refs.languageSelect.value === "en"
-        ? "Pause"
-        : "Пауза";
+    const text = textFor(refs.languageSelect.value);
+    refs.replayPlaybackPause.textContent = paused ? text.continue : text.pause;
     refs.replayPlaybackSpeed.value = String(speed);
     refs.replayPlaybackSeek.max = String(Math.max(0, finalTick));
     refs.replayPlaybackSeek.value = String(Math.max(0, tick));
@@ -1870,14 +1468,11 @@ export function createUi(options = {}) {
     const empty = "—";
     refs.menuRecords.innerHTML = [
       [text.record, bestScore || 0],
-      [
-        refs.languageSelect.value === "en" ? "Last" : "Последняя",
-        lastGame ? `${lastGame.score} · ${lastGame.mode}` : empty,
-      ],
+      [text.last, lastGame ? `${lastGame.score} · ${lastGame.mode}` : empty],
       ["Sprint", sprintBest || empty],
       ["Daily", dailyBest || empty],
       [
-        refs.languageSelect.value === "en" ? "Server" : "Сервер",
+        text.server,
         serverTop ? `${serverTop.score} · ${serverTop.name}` : empty,
       ],
     ]
@@ -1930,10 +1525,7 @@ export function createUi(options = {}) {
   function renderRoomInvite({ room, url }) {
     refs.roomCodeValue.textContent = room || "----";
     refs.roomInviteLink.textContent =
-      url ||
-      (refs.languageSelect.value === "en"
-        ? "The link appears after room creation"
-        : "Ссылка появится после генерации");
+      url || textFor(refs.languageSelect.value).linkPending;
     refs.roomQr.hidden = !url;
     if (url) refs.roomQr.src = `/api/qr?data=${encodeURIComponent(url)}`;
   }
@@ -1967,10 +1559,9 @@ export function createUi(options = {}) {
     const rankedEnabled = Boolean(capabilities.rankedEnabled);
     const maxPlayers = Math.max(2, Number(capabilities.maxPlayers) || 2);
     refs.onlineSecurityNotice.hidden = authEnabled;
-    refs.onlineSecurityNotice.textContent =
-      refs.languageSelect.value === "en"
-        ? "Accounts and ranked matches will become available over HTTPS. Casual rooms work on this address."
-        : "Аккаунты и рейтинговые матчи включатся после подключения HTTPS. Обычные комнаты уже доступны по текущему адресу.";
+    refs.onlineSecurityNotice.textContent = textFor(
+      refs.languageSelect.value,
+    ).securityNotice;
     refs.onlineRankedToggle.closest(".ranked-controls").hidden = !rankedEnabled;
     refs.findRankedButton.hidden = !rankedEnabled;
     if (!rankedEnabled) refs.onlineRankedToggle.checked = false;
@@ -2002,20 +1593,27 @@ export function createUi(options = {}) {
 
   function setAccountSession(account) {
     const language = refs.languageSelect.value;
+    const text = textFor(language);
     if (!account) {
-      refs.accountStatus.textContent = language === "en" ? "Guest" : "Гость";
+      refs.accountStatus.textContent = text.guest;
       return;
     }
     refs.accountUsernameInput.value = account.username || "";
     refs.onlineNameInput.value = account.displayName || account.username || "";
-    refs.accountStatus.textContent =
-      language === "en"
-        ? `Signed in: ${account.displayName || account.username}`
-        : `Аккаунт: ${account.displayName || account.username}`;
+    refs.accountStatus.textContent = formatMessage(language, "signedIn", {
+      name: account.displayName || account.username,
+    });
   }
 
   function updateInstallButton(visible) {
     refs.installButton.classList.toggle("hidden", !visible);
+  }
+
+  function setPwaUpdateAvailable(visible, afterMatch = false) {
+    refs.pwaUpdateNotice.hidden = !visible;
+    refs.pwaUpdateText.textContent = afterMatch
+      ? textFor(refs.languageSelect.value).updateAfterMatch
+      : textFor(refs.languageSelect.value).updateAvailable;
   }
 
   function showToast(text) {
@@ -2044,32 +1642,19 @@ export function createUi(options = {}) {
     count,
     reducedMotion,
     particles,
-    colors,
+    colors: _colors,
     lowPower = false,
   }) {
     if (!particles || reducedMotion) return;
-    const rect = refs.boardShell.getBoundingClientRect();
     const limit = lowPower ? 8 : 28;
     const allowed = Math.max(0, Math.min(count, limit - activeParticles));
     for (let i = 0; i < allowed; i += 1) {
       const particle = particlePool.pop() || documentRef.createElement("i");
-      particle.className = "particle";
-      particle.style.left = `${rect.left + rect.width / 2}px`;
-      particle.style.top = `${rect.top + rect.height * 0.42}px`;
-      particle.style.background = colors[i % colors.length];
-      particle.style.setProperty(
-        "--dx",
-        `${Math.cos(i * 1.7) * (60 + Math.random() * 110)}px`,
-      );
-      particle.style.setProperty(
-        "--dy",
-        `${Math.sin(i * 1.7) * (60 + Math.random() * 110)}px`,
-      );
+      particle.className = `particle particle-${i % 8}`;
       refs.fxLayer.appendChild(particle);
       activeParticles += 1;
       setTimeout(() => {
         particle.remove();
-        particle.removeAttribute("style");
         activeParticles = Math.max(0, activeParticles - 1);
         if (particlePool.length < limit) particlePool.push(particle);
       }, 760);
@@ -2177,6 +1762,8 @@ export function createUi(options = {}) {
       callbacks.seekReplay(refs.replayPlaybackSeek.value),
     );
     bindPress(refs.connectOnlineButton, callbacks.toggleOnlineConnection);
+    bindPress(refs.createOnlineRoomButton, callbacks.createOnlineRoom);
+    bindPress(refs.joinOnlineRoomButton, callbacks.joinOnlineRoom);
     bindPress(refs.findRankedButton, callbacks.findRankedMatch);
     bindPress(refs.accountLoginButton, callbacks.loginAccount);
     bindPress(refs.accountRegisterButton, callbacks.registerAccount);
@@ -2200,6 +1787,17 @@ export function createUi(options = {}) {
     bindPress(refs.muteButton, callbacks.toggleMute);
     bindPress(refs.closeStatsButton, callbacks.closeStats);
     bindPress(refs.shareStatsButton, callbacks.shareStats);
+    bindPress(refs.exportProfileButton, callbacks.exportProfile);
+    bindPress(refs.importProfileButton, () => refs.profileImportInput.click());
+    bindPress(refs.applyPwaUpdateButton, callbacks.applyPwaUpdate);
+    refs.profileImportInput.addEventListener("change", () => {
+      const [file] = refs.profileImportInput.files || [];
+      if (file) callbacks.importProfile(file);
+      refs.profileImportInput.value = "";
+    });
+    refs.cosmeticSelect.addEventListener("change", () =>
+      callbacks.selectCosmetic(refs.cosmeticSelect.value),
+    );
     bindPress(refs.gameOverStatsButton, callbacks.openStats);
     bindPress(refs.gameOverCoachButton, callbacks.openCoach);
     bindPress(refs.gameOverReplayButton, callbacks.openReplay);
@@ -2255,6 +1853,9 @@ export function createUi(options = {}) {
     );
     refs.vibrationToggle.addEventListener("change", () =>
       callbacks.changeSetting("vibration", refs.vibrationToggle.checked),
+    );
+    refs.analyticsConsentToggle.addEventListener("change", () =>
+      callbacks.changeAnalyticsConsent(refs.analyticsConsentToggle.checked),
     );
     refs.volumeRange.addEventListener("input", () =>
       callbacks.changeSetting("volume", Number(refs.volumeRange.value)),
@@ -2357,6 +1958,7 @@ export function createUi(options = {}) {
     setOnlineStatus,
     setOnlineButtonState,
     updateInstallButton,
+    setPwaUpdateAvailable,
     showToast,
     shakeBoard,
     pulseScore,

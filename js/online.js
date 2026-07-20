@@ -150,9 +150,7 @@ export async function copyTextToClipboard(
   const textarea = documentLike.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  textarea.style.top = "0";
+  textarea.className = "clipboard-fallback";
   documentLike.body.appendChild(textarea);
   textarea.focus();
   textarea.select();

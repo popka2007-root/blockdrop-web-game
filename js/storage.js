@@ -271,5 +271,17 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     saveOnboarding(value) {
       saveJson(keys.onboarding, value, storage);
     },
+    loadProfile(fallback = {}) {
+      return loadJson(keys.profile, fallback, storage);
+    },
+    saveProfile(value) {
+      saveJson(keys.profile, value, storage);
+    },
+    loadAnalyticsConsent(fallback = false) {
+      return loadJson(keys.analyticsConsent, fallback, storage) === true;
+    },
+    saveAnalyticsConsent(value) {
+      saveJson(keys.analyticsConsent, Boolean(value), storage);
+    },
   };
 }

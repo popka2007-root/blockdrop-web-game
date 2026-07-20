@@ -330,6 +330,90 @@ describe("server hardening", () => {
     expect(await allowed.text()).toContain("blockdrop_rooms_active");
   });
 
+  it("signs profile exports and requires a valid signature on import", async () => {
+    const port = 18921;
+    await startServer(port);
+    const payload = {
+      kind: "blockdrop-profile",
+      exportSchemaVersion: 1,
+      profile: { profileSchemaVersion: 1, xp: 900 },
+    };
+    const signedResponse = await fetch(
+      `http://127.0.0.1:${port}/api/profile-transfer`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sign", payload }),
+      },
+    );
+    const signed = await signedResponse.json();
+    expect(signedResponse.status).toBe(200);
+    expect(signed).toMatchObject({
+      envelopeSchemaVersion: 1,
+      algorithm: "HMAC-SHA256-v1",
+      payload,
+    });
+    expect(signed.signature).toBeTruthy();
+
+    const verified = await fetch(
+      `http://127.0.0.1:${port}/api/profile-transfer`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verify",
+          payload,
+          signature: signed.signature,
+        }),
+      },
+    );
+    expect(verified.status).toBe(200);
+    await expect(verified.json()).resolves.toEqual({ verified: true });
+
+    const tampered = await fetch(
+      `http://127.0.0.1:${port}/api/profile-transfer`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verify",
+          payload: { ...payload, profile: { ...payload.profile, xp: 901 } },
+          signature: signed.signature,
+        }),
+      },
+    );
+    expect(tampered.status).toBe(422);
+  });
+
+  it("accepts only consented analytics behind its feature flag", async () => {
+    const port = 18922;
+    await startServer(port, { BLOCKDROP_FEATURE_ANALYTICS: "true" });
+    const denied = await fetch(`http://127.0.0.1:${port}/api/analytics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventName: "game_finish",
+        consented: false,
+      }),
+    });
+    expect(denied.status).toBe(422);
+
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/analytics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventName: "game_finish",
+        sessionId: "session.test",
+        mode: "classic",
+        durationMs: 1000,
+        payload: { result: "win", board: [[1]], token: "secret" },
+        consented: true,
+      }),
+    });
+    expect(accepted.status).toBe(202);
+    await expect(accepted.json()).resolves.toEqual({ accepted: true });
+  });
+
   it("does not treat reverse-proxied metrics requests as localhost", async () => {
     const port = 18920;
     await startServer(port);
@@ -456,9 +540,10 @@ describe("server hardening", () => {
     const response = await fetch(`http://127.0.0.1:${port}/`);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-security-policy")).toContain(
-      "default-src 'self'",
-    );
+    const csp = response.headers.get("content-security-policy");
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("style-src 'self'");
+    expect(csp).not.toContain("unsafe-inline");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("referrer-policy")).toBe(
       "strict-origin-when-cross-origin",

@@ -3,6 +3,9 @@ const { defineConfig, devices } = require("@playwright/test");
 module.exports = defineConfig({
   testDir: "./e2e",
   timeout: 30000,
+  workers: 2,
+  snapshotPathTemplate:
+    "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
   use: {
     baseURL: "http://127.0.0.1:8787",
     trace: "on-first-retry",
@@ -17,6 +20,16 @@ module.exports = defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       testIgnore: /s25-fe\.spec\.js/,
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"], serviceWorkers: "block" },
+      testIgnore: [/s25-fe\.spec\.js/, /visual\.spec\.js/, /pwa\.spec\.js/],
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"], serviceWorkers: "block" },
+      testIgnore: [/s25-fe\.spec\.js/, /visual\.spec\.js/, /pwa\.spec\.js/],
     },
     {
       name: "galaxy-s25-fe",

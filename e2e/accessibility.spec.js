@@ -1,6 +1,8 @@
 const AxeBuilder = require("@axe-core/playwright").default;
 const { test, expect } = require("@playwright/test");
 
+test.setTimeout(60_000);
+
 async function expectNoSeriousViolations(page) {
   const result = await new AxeBuilder({ page }).analyze();
   const violations = result.violations.filter((violation) =>

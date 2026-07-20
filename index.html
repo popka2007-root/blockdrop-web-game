@@ -39,7 +39,13 @@
         <div class="status-card">
           <span>Цель</span>
           <b id="goalValue">Выжить</b>
-          <div class="progress"><i id="progressFill"></i></div>
+          <progress
+            class="progress"
+            id="progressFill"
+            max="100"
+            value="0"
+            aria-label="Прогресс цели"
+          ></progress>
         </div>
         <div class="status-card">
           <span>Ранг</span><b id="rankValue">Новичок</b>
@@ -161,23 +167,11 @@
     <section class="overlay" id="startOverlay">
       <div class="modal">
         <div class="logo" aria-hidden="true">
-          <span style="background: #21d3f5"></span
-          ><span
-            style="background: transparent; border-color: transparent"
-          ></span
-          ><span
-            style="background: transparent; border-color: transparent"
-          ></span>
-          <span style="background: #ffd166"></span
-          ><span style="background: #ff6b6b"></span
-          ><span style="background: #7c4dff"></span>
-          <span
-            style="background: transparent; border-color: transparent"
-          ></span
-          ><span style="background: #22d699"></span
-          ><span
-            style="background: transparent; border-color: transparent"
-          ></span>
+          <span class="logo-cyan"></span><span class="logo-empty"></span
+          ><span class="logo-empty"></span> <span class="logo-yellow"></span
+          ><span class="logo-red"></span><span class="logo-purple"></span>
+          <span class="logo-empty"></span><span class="logo-green"></span
+          ><span class="logo-empty"></span>
         </div>
         <h1>BlockDrop</h1>
         <p class="muted">
@@ -378,6 +372,26 @@
           <button class="button" id="muteButton" type="button">
             Выключить звук
           </button>
+          <label class="check-row" id="analyticsConsentRow">
+            Анонимная аналитика
+            <input id="analyticsConsentToggle" type="checkbox" />
+          </label>
+          <p class="privacy-hint" id="analyticsPrivacyHint">
+            Только события экранов и партий, без поля, действий, паролей и IP.
+          </p>
+          <div class="legal-links">
+            <a
+              id="privacyLink"
+              href="/PRIVACY.md"
+              target="_blank"
+              rel="noopener"
+            >
+              Конфиденциальность
+            </a>
+            <a id="termsLink" href="/TERMS.md" target="_blank" rel="noopener">
+              Условия beta
+            </a>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="button primary" id="closeSettingsButton">
@@ -401,10 +415,29 @@
         <div class="leaderboard" id="rankedLeaderboard"></div>
         <h3>Достижения</h3>
         <div class="achievements" id="achievementsList"></div>
+        <h3 id="profileTitle">Профиль мастерства</h3>
+        <div class="profile-summary" id="profileSummary"></div>
+        <div class="quest-list" id="questList"></div>
+        <label class="setting" for="cosmeticSelect" id="cosmeticLabel">
+          Косметика
+          <select class="select" id="cosmeticSelect"></select>
+        </label>
+        <input
+          id="profileImportInput"
+          type="file"
+          accept="application/json,.json"
+          hidden
+        />
         <div class="modal-actions">
           <button class="button primary" id="closeStatsButton">Закрыть</button>
           <button class="button" id="shareStatsButton">
             Поделиться статистикой
+          </button>
+          <button class="button" id="exportProfileButton">
+            Экспорт прогресса
+          </button>
+          <button class="button" id="importProfileButton">
+            Импорт прогресса
           </button>
         </div>
       </div>
@@ -507,6 +540,18 @@
     <section class="overlay" id="onlineOverlay" hidden>
       <div class="modal">
         <h2>Онлайн-комната</h2>
+        <div class="online-flow-actions" role="group" aria-label="Онлайн режим">
+          <button
+            class="button primary"
+            id="createOnlineRoomButton"
+            type="button"
+          >
+            Создать комнату
+          </button>
+          <button class="button" id="joinOnlineRoomButton" type="button">
+            Войти по коду
+          </button>
+        </div>
         <div class="room-card">
           <div>
             <span>Код комнаты</span>
@@ -717,6 +762,12 @@
 
     <div class="fx-layer" id="fxLayer"></div>
     <div class="sr-only" id="assertiveLiveRegion" aria-live="assertive"></div>
+    <div class="pwa-update-notice" id="pwaUpdateNotice" hidden>
+      <span id="pwaUpdateText">Доступна новая версия</span>
+      <button class="button primary" id="applyPwaUpdateButton" type="button">
+        Обновить безопасно
+      </button>
+    </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script type="module" src="/js/game.js"></script>

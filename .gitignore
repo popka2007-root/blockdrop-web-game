@@ -4,3 +4,4 @@ node_modules/
 blockdrop.sqlite*
 test-results/
 playwright-report/
+coverage/

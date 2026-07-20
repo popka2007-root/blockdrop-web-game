@@ -1,4 +1,6 @@
 const { chromium } = require("@playwright/test");
+const engine = require("../shared/engine.js");
+const ai = require("../shared/ai.js");
 
 const targetUrl = (process.env.TARGET_URL || "http://45.148.117.119").replace(
   /\/$/,
@@ -19,6 +21,35 @@ const viewports = [
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function buildDailyReplay(seed) {
+  const state = engine.createState({ seed: `daily:${seed}`, mode: "classic" });
+  const inputs = [];
+  let seq = 0;
+  while (!state.gameOver && state.tick < 100) {
+    const plan = ai.planMove(engine.snapshot(state), {
+      difficulty: "hard",
+      style: "defensive",
+    });
+    for (const action of plan.actions) {
+      const input = { tick: state.tick, seq: ++seq, action, pressed: true };
+      inputs.push(input);
+      engine.applyInput(state, input, []);
+    }
+    for (let tick = 0; tick < 12 && !state.gameOver; tick += 1) {
+      engine.step(state);
+    }
+  }
+  return {
+    state,
+    replay: engine.createReplay({
+      seed: state.seed,
+      mode: state.mode,
+      inputs,
+      finalState: state,
+    }),
+  };
 }
 
 async function readHealth(page) {
@@ -79,6 +110,7 @@ async function smokeAccountAndDaily(page, capabilities) {
   assert(dailyResponse.ok(), `/api/daily returned ${dailyResponse.status()}`);
   const daily = await dailyResponse.json();
   assert(daily.runToken && daily.runSignature, "daily run signature missing");
+  const dailyRun = buildDailyReplay(daily.seed);
 
   const submitResponse = await page.request.post(`${targetUrl}/api/daily`, {
     headers: account?.token
@@ -89,14 +121,16 @@ async function smokeAccountAndDaily(page, capabilities) {
       runSignature: daily.runSignature,
       playerId: "smoke",
       name: "Smoke",
-      score: 500,
-      lines: 2,
-      level: 1,
-      timeMs: 2500,
-      pieces: 10,
-      bestCombo: 1,
+      score: dailyRun.state.score,
+      lines: dailyRun.state.lines,
+      level: dailyRun.state.level,
+      timeMs: Math.floor((dailyRun.state.tick / engine.TICK_RATE) * 1000),
+      pieces: dailyRun.state.pieces,
+      bestCombo: dailyRun.state.combo,
       tSpins: 0,
       perfectClears: 0,
+      replayChecksum: dailyRun.replay.finalChecksum,
+      replay: dailyRun.replay,
     },
   });
   assert(
