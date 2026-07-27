@@ -20,9 +20,11 @@ if (!refName) {
   process.exit(0);
 }
 
-if (refName !== version) {
+const normalizedTag = refName.replace(/^v/, "");
+
+if (normalizedTag !== version && refName !== version) {
   console.error(
-    `release validation failed: tag ${refName} does not match package version ${version}`,
+    `release validation failed: tag ${refName} (normalized: ${normalizedTag}) does not match package version ${version}`,
   );
   process.exit(1);
 }
