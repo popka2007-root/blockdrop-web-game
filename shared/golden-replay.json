@@ -1,6 +1,6 @@
 {
   "replayVersion": 1,
-  "engineVersion": 2,
+  "engineVersion": 3,
   "seed": "golden-v1",
   "mode": "classic",
   "inputs": [
@@ -17,5 +17,5 @@
   ],
   "externalEvents": [],
   "finalTick": 120,
-  "finalChecksum": "2b722289"
+  "finalChecksum": "39cca084"
 }
