@@ -42,9 +42,9 @@ if (fs.existsSync(ciPath)) {
     );
   for (const required of [
     "name: CI",
-    "npm install",
+    "npm ci",
     "npm run lint",
-    "npm test",
+    "npm run test:coverage",
     "npm run test:e2e",
   ]) {
     if (!ciText.includes(required))
