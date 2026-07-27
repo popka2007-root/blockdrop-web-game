@@ -1179,8 +1179,10 @@ function allowHttpRequest(req, bucketName, max, windowMs) {
   if (!bucket || now - bucket.startedAt >= windowMs) {
     httpRateBuckets.set(key, { startedAt: now, count: 1 });
     if (httpRateBuckets.size > 5000) {
+      let checked = 0;
       for (const [entryKey, entry] of httpRateBuckets) {
         if (now - entry.startedAt >= windowMs) httpRateBuckets.delete(entryKey);
+        if (++checked >= 100) break;
       }
     }
     return true;
@@ -1332,7 +1334,7 @@ function allowedWebSocketOrigins(req) {
     origins.add(`http://${host}`);
     origins.add(`https://${host}`);
   }
-  origins.add("http://45.148.117.119");
+
   origins.add("http://localhost:8787");
   origins.add("http://127.0.0.1:8787");
   return origins;
@@ -1950,13 +1952,11 @@ function removeQueuedClient(client) {
 
 function findReconnectSlot(
   room,
-  name,
-  playerId = "",
+  _name,
+  _playerId = "",
   reconnectToken = "",
-  protocolVersion = 1,
+  _protocolVersion = 1,
 ) {
-  const normalized = cleanName(name).toLowerCase();
-  const safePlayerId = cleanPlayerId(playerId);
   for (const [id, slot] of room.reconnects.entries()) {
     if (
       reconnectToken &&
@@ -1964,9 +1964,6 @@ function findReconnectSlot(
     ) {
       return id;
     }
-    if (protocolVersion >= 2) continue;
-    if (safePlayerId && slot.playerId === safePlayerId) return id;
-    if (slot.name.toLowerCase() === normalized) return id;
   }
   return "";
 }
