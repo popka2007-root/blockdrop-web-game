@@ -83,20 +83,45 @@ function startServer(port, env = {}) {
         BLOCKDROP_DB_FILE: databaseFile,
         ...env,
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "ignore", "ignore"],
     });
 
-    const timeout = setTimeout(
-      () => reject(new Error("server did not start")),
-      15000,
-    );
-    serverProcess.stdout.on("data", (chunk) => {
-      if (String(chunk).includes(`localhost:${port}`)) {
-        clearTimeout(timeout);
-        resolve();
+    serverProcess.on("error", (err) => {
+      clearTimeout(giveUp);
+      reject(err);
+    });
+    serverProcess.on("exit", (code) => {
+      if (code !== null && code !== 0) {
+        clearTimeout(giveUp);
+        reject(new Error(`server exited with code ${code}`));
       }
     });
-    serverProcess.on("error", reject);
+
+    const deadline = Date.now() + 15000;
+    const giveUp = setTimeout(
+      () => reject(new Error("server did not start within 15s")),
+      15000,
+    );
+
+    function poll() {
+      if (Date.now() > deadline) return;
+      const req = http.get(
+        { hostname: "127.0.0.1", port, path: "/health/live", timeout: 500 },
+        (res) => {
+          if (res.statusCode === 200) {
+            res.resume();
+            clearTimeout(giveUp);
+            resolve();
+          } else {
+            res.resume();
+            setTimeout(poll, 250);
+          }
+        },
+      );
+      req.on("error", () => setTimeout(poll, 250));
+      req.end();
+    }
+    setTimeout(poll, 200);
   });
 }
 
