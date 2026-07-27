@@ -3,16 +3,13 @@ name: Release Deploy
 on:
   push:
     tags:
-      - "*"
+      - "v*"
   workflow_dispatch:
     inputs:
       ref:
         description: "Git ref or tag to deploy"
         required: false
         default: ""
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: blockdrop-release
@@ -25,14 +22,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -100,13 +97,13 @@ jobs:
 
       - name: Checkout
         if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Node
         if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
