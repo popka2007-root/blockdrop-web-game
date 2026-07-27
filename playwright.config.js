@@ -5,8 +5,7 @@ module.exports = defineConfig({
   timeout: 45000,
   // Performance budgets must run without a competing browser worker.
   workers: 1,
-  snapshotPathTemplate:
-    "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
+  snapshotPathTemplate: `{testDir}/{testFilePath}-snapshots/{arg}-{projectName}-${process.platform}{ext}`,
   use: {
     baseURL: "http://127.0.0.1:8787",
     trace: "on-first-retry",

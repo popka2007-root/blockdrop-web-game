@@ -4,6 +4,7 @@
   --bg-c: #f06f4f;
   --panel: rgba(255, 255, 255, 0.1);
   --panel-strong: rgba(255, 255, 255, 0.16);
+  --modal-bg: #131a2a;
   --text: #f8fbff;
   --muted: rgba(248, 251, 255, 0.72);
   --accent: #56dfba;
@@ -45,6 +46,7 @@
   --bg-c: #e45757;
   --panel: rgba(20, 30, 42, 0.1);
   --panel-strong: rgba(20, 30, 42, 0.15);
+  --modal-bg: #c8bdab;
   --text: #172033;
   --muted: rgba(23, 32, 51, 0.7);
   --accent: #167f72;
@@ -59,6 +61,7 @@
   --bg-c: #ffcf56;
   --accent: #ffcf56;
   --accent-2: #ff7a90;
+  --modal-bg: #241f39;
 }
 
 [data-theme="mono"] {
@@ -67,6 +70,7 @@
   --bg-c: #d9d0bd;
   --accent: #d9d0bd;
   --accent-2: #8dd3c7;
+  --modal-bg: #121413;
 }
 
 * {
@@ -825,7 +829,7 @@ body.layout-wide .app {
   border-radius: 14px;
   padding: 18px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg-a) 82%, black);
+  background: var(--modal-bg);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
   text-align: center;
   overflow-wrap: anywhere;
