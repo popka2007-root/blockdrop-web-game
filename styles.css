@@ -4,7 +4,7 @@
   --bg-c: #f06f4f;
   --panel: rgba(255, 255, 255, 0.1);
   --panel-strong: rgba(255, 255, 255, 0.16);
-  --modal-bg: #131a2a;
+  --modal-bg: rgba(19, 26, 42, 0.85);
   --text: #f8fbff;
   --muted: rgba(248, 251, 255, 0.72);
   --accent: #56dfba;
@@ -221,6 +221,14 @@ button {
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.2s;
+}
+
+.icon-button:hover,
+.button:hover,
+.tabs button:hover {
+  transform: scale(1.02);
+  background: var(--panel-strong);
 }
 
 .icon-button {
@@ -830,6 +838,8 @@ body.layout-wide .app {
   padding: 18px;
   border: 1px solid var(--line);
   background: var(--modal-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
   text-align: center;
   overflow-wrap: anywhere;

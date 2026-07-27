@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const fs = require("fs");
+const zlib = require("zlib");
 const http = require("http");
 const path = require("path");
 const QRCode = require("qrcode");
@@ -275,18 +276,51 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
+  fs.stat(filePath, (err, stats) => {
+    if (err || !stats.isFile()) {
       writeHead(res, 404);
       res.end("Not found");
       return;
     }
-    writeHead(res, 200, {
-      "Content-Type":
-        mime[path.extname(filePath)] || "application/octet-stream",
+
+    const headers = {
+      "Content-Type": mime[path.extname(filePath)] || "application/octet-stream",
       "Cache-Control": "no-cache",
+      "Vary": "Accept-Encoding"
+    };
+
+    if (req.method === "HEAD") {
+      writeHead(res, 200, headers);
+      res.end();
+      return;
+    }
+
+    const acceptEncoding = req.headers["accept-encoding"] || "";
+    const raw = fs.createReadStream(filePath);
+    
+    raw.on("error", () => {
+      if (!res.headersSent) {
+        writeHead(res, 500);
+        res.end("Internal Server Error");
+      }
     });
-    res.end(req.method === "HEAD" ? undefined : data);
+
+    if (acceptEncoding.includes("br")) {
+      headers["Content-Encoding"] = "br";
+      writeHead(res, 200, headers);
+      raw.pipe(zlib.createBrotliCompress()).pipe(res);
+    } else if (acceptEncoding.includes("gzip")) {
+      headers["Content-Encoding"] = "gzip";
+      writeHead(res, 200, headers);
+      raw.pipe(zlib.createGzip()).pipe(res);
+    } else if (acceptEncoding.includes("deflate")) {
+      headers["Content-Encoding"] = "deflate";
+      writeHead(res, 200, headers);
+      raw.pipe(zlib.createDeflate()).pipe(res);
+    } else {
+      writeHead(res, 200, headers);
+      raw.pipe(res);
+    }
   });
 });
 
