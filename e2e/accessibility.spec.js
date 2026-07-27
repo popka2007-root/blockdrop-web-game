@@ -4,6 +4,11 @@ const { test, expect } = require("@playwright/test");
 test.setTimeout(60_000);
 
 async function expectNoSeriousViolations(page) {
+  await page.waitForFunction(() =>
+    document
+      .getAnimations({ subtree: true })
+      .every((animation) => ["finished", "idle"].includes(animation.playState)),
+  );
   const result = await new AxeBuilder({ page }).analyze();
   const violations = result.violations.filter((violation) =>
     ["critical", "serious"].includes(violation.impact),

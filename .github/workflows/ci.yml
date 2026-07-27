@@ -49,19 +49,6 @@ jobs:
       - name: E2E tests
         run: npm run test:e2e
 
-      - name: Generate Linux visual baselines for failed-run diagnosis
-        if: failure()
-        run: npx playwright test e2e/visual.spec.js --project=chromium --update-snapshots
-
-      - name: Upload generated Linux visual baselines
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-visual-baselines
-          path: e2e/visual.spec.js-snapshots/*-linux.png
-          if-no-files-found: error
-          retention-days: 3
-
   release-validate:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
