@@ -1,6 +1,6 @@
 # BlockDrop Web Game
 
-BlockDrop 3.0.0-beta.1 — браузерная Web/PWA-игра с единым детерминированным движком, настоящим AI, проверяемыми replay и server-authoritative casual PvP.
+BlockDrop 3.0.0-beta.13 — браузерная Web/PWA-игра с единым детерминированным движком, настоящим AI, проверяемыми replay и server-authoritative casual PvP.
 
 Демо: [http://45.148.117.119/](http://45.148.117.119/)
 
@@ -71,7 +71,9 @@ js/replay.js              replay/checkpoint/checksum
 js/online*.js             protocol v1/v2 и client reconciliation
 js/i18n.js                RU/EN-каталоги локализации и UI-тексты
 js/progression.js         профиль, достижения (Achievements), cosmetics, import/export
-server.js                 HTTP/WebSocket authoritative runtime
+server.js                 composition root and authoritative WebSocket runtime
+server-http.js            HTTP/API/health/static service boundary
+server-contracts.js       executable contracts between server modules
 server-store.js           SQLite migrations и persistence
 scripts/                  backup, restore, smoke, rollout, soak
 deploy/                   systemd, Prometheus, Grafana, `.github/workflows` (APK CI)
