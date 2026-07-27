@@ -524,7 +524,9 @@ describe("server store", () => {
       sessionId: "expired",
       consented: true,
     });
-    store.db.prepare("UPDATE analytics_events SET expires_at = ?").run(expiredAt);
+    store.db
+      .prepare("UPDATE analytics_events SET expires_at = ?")
+      .run(expiredAt);
     const expiredRun = store.createDailyRun({
       dateKey: "2026-07-20",
       playerId: "expired-player",

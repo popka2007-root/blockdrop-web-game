@@ -17,16 +17,30 @@
     {
       "type": "stat",
       "title": "Backup age (hours)",
-      "targets": [{ "expr": "blockdrop_backup_age_seconds / 3600", "refId": "A" }],
+      "targets": [
+        { "expr": "blockdrop_backup_age_seconds / 3600", "refId": "A" }
+      ],
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 }
     },
     {
       "type": "timeseries",
       "title": "Latency p95 (ms)",
       "targets": [
-        { "expr": "blockdrop_http_request_ms_p95", "legendFormat": "HTTP", "refId": "A" },
-        { "expr": "blockdrop_match_processing_ms_p95", "legendFormat": "match", "refId": "B" },
-        { "expr": "blockdrop_event_loop_lag_ms", "legendFormat": "event loop", "refId": "C" }
+        {
+          "expr": "blockdrop_http_request_ms_p95",
+          "legendFormat": "HTTP",
+          "refId": "A"
+        },
+        {
+          "expr": "blockdrop_match_processing_ms_p95",
+          "legendFormat": "match",
+          "refId": "B"
+        },
+        {
+          "expr": "blockdrop_event_loop_lag_ms",
+          "legendFormat": "event loop",
+          "refId": "C"
+        }
       ],
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
     },
@@ -34,8 +48,16 @@
       "type": "timeseries",
       "title": "Process resources",
       "targets": [
-        { "expr": "blockdrop_process_cpu_percent", "legendFormat": "CPU %", "refId": "A" },
-        { "expr": "blockdrop_memory_rss_bytes / 1048576", "legendFormat": "RSS MiB", "refId": "B" }
+        {
+          "expr": "blockdrop_process_cpu_percent",
+          "legendFormat": "CPU %",
+          "refId": "A"
+        },
+        {
+          "expr": "blockdrop_memory_rss_bytes / 1048576",
+          "legendFormat": "RSS MiB",
+          "refId": "B"
+        }
       ],
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
     },
@@ -43,10 +65,26 @@
       "type": "timeseries",
       "title": "Errors and disconnects (5m)",
       "targets": [
-        { "expr": "increase(blockdrop_http_5xx_total[5m])", "legendFormat": "5xx", "refId": "A" },
-        { "expr": "increase(blockdrop_ws_disconnect_total[5m])", "legendFormat": "disconnect", "refId": "B" },
-        { "expr": "increase(blockdrop_match_abort_total[5m])", "legendFormat": "abort", "refId": "C" },
-        { "expr": "increase(blockdrop_db_errors_total[5m])", "legendFormat": "DB", "refId": "D" }
+        {
+          "expr": "increase(blockdrop_http_5xx_total[5m])",
+          "legendFormat": "5xx",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(blockdrop_ws_disconnect_total[5m])",
+          "legendFormat": "disconnect",
+          "refId": "B"
+        },
+        {
+          "expr": "increase(blockdrop_match_abort_total[5m])",
+          "legendFormat": "abort",
+          "refId": "C"
+        },
+        {
+          "expr": "increase(blockdrop_db_errors_total[5m])",
+          "legendFormat": "DB",
+          "refId": "D"
+        }
       ],
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 }
     }

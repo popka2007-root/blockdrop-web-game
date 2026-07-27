@@ -90,7 +90,9 @@ async function main() {
       readonly: true,
       fileMustExist: true,
     });
-    const recoveredProof = recoveredDb.prepare("SELECT id, value FROM proof").get();
+    const recoveredProof = recoveredDb
+      .prepare("SELECT id, value FROM proof")
+      .get();
     recoveredDb.close();
     if (recoveredProof?.id !== id || recoveredProof?.value !== "verified") {
       throw new Error("Stale WAL data replaced the restored backup");

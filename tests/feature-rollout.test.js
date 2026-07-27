@@ -30,14 +30,18 @@ describe("feature rollout CLI", () => {
       enabled: true,
       rolloutPercentage: 10,
     });
-    expect(applyRollout({ db, flag: "casualV2", rollback: true })).toMatchObject({
+    expect(
+      applyRollout({ db, flag: "casualV2", rollback: true }),
+    ).toMatchObject({
       enabled: false,
       rolloutPercentage: 0,
     });
     const database = new Database(db, { readonly: true });
     expect(
       database
-        .prepare("SELECT enabled, rollout_percentage FROM feature_flags WHERE key = 'casualV2'")
+        .prepare(
+          "SELECT enabled, rollout_percentage FROM feature_flags WHERE key = 'casualV2'",
+        )
         .get(),
     ).toEqual({ enabled: 0, rollout_percentage: 0 });
     database.close();

@@ -221,7 +221,9 @@ button {
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
-  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.2s;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.2s;
 }
 
 .icon-button:hover,
@@ -2055,4 +2057,50 @@ body.low-performance .fx-layer {
       calc((100dvh - 136px) / 2)
     );
   }
+}
+/* Achievements Styling */
+.achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.achievement {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+.achievement b {
+  font-size: 1.1rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.achievement small {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.achievement:has(b:contains("?")) {
+  background: linear-gradient(
+    135deg,
+    rgba(var(--accent-purple-rgb), 0.2),
+    rgba(var(--accent-cyan-rgb), 0.2)
+  );
+  border-color: var(--accent-cyan);
+  box-shadow: 0 4px 12px rgba(var(--accent-cyan-rgb), 0.15);
+}
+.achievement.unlocked {
+  background: linear-gradient(
+    135deg,
+    rgba(142, 45, 226, 0.2),
+    rgba(74, 0, 224, 0.2)
+  );
+  border-color: #8e2de2;
+  box-shadow: 0 4px 12px rgba(142, 45, 226, 0.15);
 }

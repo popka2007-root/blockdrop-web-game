@@ -1311,8 +1311,9 @@ export function createUi(options = {}) {
       : `<div class="score-row"><span>${text.noRankedMatches}</span><span>—</span></div>`;
     refs.achievementsList.innerHTML = achievements
       .map((item) => {
-        const prefix = item.unlocked ? "✓ " : "";
-        return `<div class="achievement"><b>${prefix}${escapeHtml(item.title)}</b><small>${escapeHtml(item.description)}</small></div>`;
+        const prefix = item.unlocked ? "✅ " : "🔒 ";
+        const statusClass = item.unlocked ? "unlocked" : "locked";
+        return `<div class="achievement ${statusClass}"><b>${prefix}${escapeHtml(item.title)}</b><small>${escapeHtml(item.description)}</small></div>`;
       })
       .join("");
     renderProgression(profile, nextLevelXp);

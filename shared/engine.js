@@ -402,7 +402,10 @@
     function nextRandom(state) {
       let s = state.randomState;
       if (!Array.isArray(s)) s = hashSeed(String(s));
-      let a = s[0] >>> 0, b = s[1] >>> 0, c = s[2] >>> 0, d = s[3] >>> 0;
+      let a = s[0] >>> 0,
+        b = s[1] >>> 0,
+        c = s[2] >>> 0,
+        d = s[3] >>> 0;
       let t = (a + b) | 0;
       a = b ^ (b >>> 9);
       b = (c + (c << 3)) | 0;
@@ -881,7 +884,9 @@
         seed: state.seed,
         mode: state.mode,
         tick: state.tick,
-        randomState: Array.isArray(state.randomState) ? [...state.randomState] : state.randomState,
+        randomState: Array.isArray(state.randomState)
+          ? [...state.randomState]
+          : state.randomState,
         board: state.board.map((row) => [...row]),
         active: state.active ? { ...state.active } : null,
         queue: [...state.queue],
@@ -965,12 +970,14 @@
         seed: String(value.seed || "blockdrop").slice(0, 128),
         mode,
         tick: integer(value.tick, 0, 0, TICK_RATE * 60 * 60 * 24),
-        randomState: Array.isArray(value.randomState) ? [
-          integer(value.randomState[0], 0, 0, 0xffffffff) >>> 0,
-          integer(value.randomState[1], 0, 0, 0xffffffff) >>> 0,
-          integer(value.randomState[2], 0, 0, 0xffffffff) >>> 0,
-          integer(value.randomState[3], 0, 0, 0xffffffff) >>> 0
-        ] : hashSeed(""),
+        randomState: Array.isArray(value.randomState)
+          ? [
+              integer(value.randomState[0], 0, 0, 0xffffffff) >>> 0,
+              integer(value.randomState[1], 0, 0, 0xffffffff) >>> 0,
+              integer(value.randomState[2], 0, 0, 0xffffffff) >>> 0,
+              integer(value.randomState[3], 0, 0, 0xffffffff) >>> 0,
+            ]
+          : hashSeed(""),
         board,
         active,
         queue,

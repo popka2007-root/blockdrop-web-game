@@ -436,14 +436,11 @@ describe("server hardening", () => {
     await fetch(`http://127.0.0.1:${port}/api/daily`, { method: "HEAD" });
     const healthBeforeRun = await fetch(`http://127.0.0.1:${port}/health`);
     const healthBeforeRunPayload = await healthBeforeRun.json();
-    const runResponse = await fetch(
-      `http://127.0.0.1:${port}/api/daily/run`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: "stable-guest" }),
-      },
-    );
+    const runResponse = await fetch(`http://127.0.0.1:${port}/api/daily/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId: "stable-guest" }),
+    });
     const runPayload = await runResponse.json();
     const metrics = await fetch(`http://127.0.0.1:${port}/metrics`);
     const metricsText = await metrics.text();
@@ -509,17 +506,14 @@ describe("server hardening", () => {
     });
     expect(revokedSession.status).toBe(401);
 
-    const runResponse = await fetch(
-      `http://127.0.0.1:${port}/api/daily/run`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${passwordPayload.token}`,
-        },
-        body: JSON.stringify({ playerId: "local" }),
+    const runResponse = await fetch(`http://127.0.0.1:${port}/api/daily/run`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${passwordPayload.token}`,
       },
-    );
+      body: JSON.stringify({ playerId: "local" }),
+    });
     expect(runResponse.status).toBe(201);
     const run = await runResponse.json();
     const dailyRun = buildDailyReplay(run.seed);

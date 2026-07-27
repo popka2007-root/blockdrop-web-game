@@ -2,7 +2,11 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { parseArgs, parseMetrics, websocketUrl } = require("../scripts/soak-test.js");
+const {
+  parseArgs,
+  parseMetrics,
+  websocketUrl,
+} = require("../scripts/soak-test.js");
 
 describe("100 CCU soak runner", () => {
   it("parses Prometheus values used by the release thresholds", () => {

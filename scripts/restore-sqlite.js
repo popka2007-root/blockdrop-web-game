@@ -42,8 +42,14 @@ function restoreDatabase({
       "Refusing to overwrite the live database without --allow-live-target",
     );
   }
-  const targetArtifacts = [targetFile, `${targetFile}-wal`, `${targetFile}-shm`];
-  const existingArtifacts = targetArtifacts.filter((file) => fs.existsSync(file));
+  const targetArtifacts = [
+    targetFile,
+    `${targetFile}-wal`,
+    `${targetFile}-shm`,
+  ];
+  const existingArtifacts = targetArtifacts.filter((file) =>
+    fs.existsSync(file),
+  );
   if (existingArtifacts.length && !force) {
     throw new Error(`Restore target already exists: ${existingArtifacts[0]}`);
   }

@@ -46,7 +46,9 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
 function verifyPassword(password, passwordHash) {
   const [scheme, salt, expected] = String(passwordHash || "").split("$");
   if (scheme !== "scrypt" || !salt || !expected) return false;
-  const actual = crypto.scryptSync(String(password || ""), salt, 32).toString("hex");
+  const actual = crypto
+    .scryptSync(String(password || ""), salt, 32)
+    .toString("hex");
   const left = Buffer.from(actual, "hex");
   const right = Buffer.from(expected, "hex");
   return left.length === right.length && crypto.timingSafeEqual(left, right);

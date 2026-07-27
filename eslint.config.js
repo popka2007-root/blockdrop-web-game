@@ -64,6 +64,7 @@ module.exports = [
       "playwright-report/**",
       "test-results/**",
       "screenshots/**",
+      "android/**"
     ],
   },
   js.configs.recommended,
