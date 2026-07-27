@@ -21,9 +21,11 @@ BlockDrop 3.0.0-beta.1 — браузерная Web/PWA-игра с единым
 - AI в Web Worker с beam search и четырьмя измеримо разными уровнями сложности.
 - Replay с input stream, checkpoints, checksum, скоростью 0.5×–4×, seek и проверкой совместимости.
 - RU/EN, клавиатура, touch, screen-reader описание поля, live announcements, focus trap/restore и reduced motion.
-- Локальный профиль мастерства, задания, косметические награды и подписанный export/import прогресса.
+- Локальный профиль мастерства, **достижения (Achievements)**, косметические награды и подписанный export/import прогресса.
 - Privacy-first аналитика только после согласия; board, inputs, пароль, token и полный IP не записываются.
 - Безопасное обновление service worker после матча, offline fallback и очистка старых cache.
+- **Поддержка Android (Capacitor)**: нативный офлайн APK, автоматическая сборка через GitHub Actions.
+- Современный и стильный UI с элементами Glassmorphism.
 - SQLite WAL, forward-only migrations, проверяемые backup/restore, structured logs, Prometheus alerts и Grafana dashboard.
 
 ## Управление
@@ -67,12 +69,13 @@ js/game.js                orchestration сессий и сцен
 js/ai-worker.js           AI beam search вне main thread
 js/replay.js              replay/checkpoint/checksum
 js/online*.js             protocol v1/v2 и client reconciliation
-js/i18n.js                RU/EN-каталоги
-js/progression.js         профиль, задания, cosmetics, import/export
-server.js                 HTTP/WebSocket authoritative runtime
+js/i18n.js                RU/EN-каталоги локализации и UI-тексты
+js/progression.js         профиль, достижения (Achievements), cosmetics, import/export
+server.js                 HTTP/WebSocket entrypoint и базовая инициализация
+src/server/               Модульная архитектура сервера (http.js, ws.js, matchmaking.js)
 server-store.js           SQLite migrations и persistence
 scripts/                  backup, restore, smoke, rollout, soak
-deploy/                   systemd, Prometheus и Grafana
+deploy/                   systemd, Prometheus, Grafana, `.github/workflows` (APK CI)
 tests/                    unit/property/integration
 e2e/                      Chromium, Firefox, WebKit, mobile, axe, PWA, visual
 ```
