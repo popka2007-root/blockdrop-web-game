@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -92,20 +93,45 @@ function startServer(port) {
         PORT: String(port),
         BLOCKDROP_DB_FILE: currentDatabaseFile,
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "ignore", "ignore"],
     });
 
-    const timeout = setTimeout(
-      () => reject(new Error("server did not start")),
-      15000,
-    );
-    serverProcess.stdout.on("data", (chunk) => {
-      if (String(chunk).includes(`localhost:${port}`)) {
-        clearTimeout(timeout);
-        resolve();
+    serverProcess.on("error", (err) => {
+      clearTimeout(giveUp);
+      reject(err);
+    });
+    serverProcess.on("exit", (code) => {
+      if (code !== null && code !== 0) {
+        clearTimeout(giveUp);
+        reject(new Error(`server exited with code ${code}`));
       }
     });
-    serverProcess.on("error", reject);
+
+    const deadline = Date.now() + 15000;
+    const giveUp = setTimeout(
+      () => reject(new Error("server did not start within 15s")),
+      15000,
+    );
+
+    function poll() {
+      if (Date.now() > deadline) return;
+      const req = http.get(
+        { hostname: "127.0.0.1", port, path: "/health/live", timeout: 500 },
+        (res) => {
+          if (res.statusCode === 200) {
+            res.resume();
+            clearTimeout(giveUp);
+            resolve();
+          } else {
+            res.resume();
+            setTimeout(poll, 250);
+          }
+        },
+      );
+      req.on("error", () => setTimeout(poll, 250));
+      req.end();
+    }
+    setTimeout(poll, 200);
   });
 }
 
@@ -673,7 +699,7 @@ describe("online PvP room flow", () => {
     const match = await first.waitForType("matchStart", () => true, 6000);
     expect(match).toMatchObject({
       protocolVersion: 2,
-      engineVersion: 2,
+      engineVersion: 3,
       authoritative: true,
     });
 
@@ -692,6 +718,7 @@ describe("online PvP room flow", () => {
 
     const first = await connectClient(port, { room: "duel", name: "Alpha" });
     const firstHello = await first.waitForType("hello");
+    const firstProtocol = await first.waitForType("protocol");
     const second = await connectClient(port, { room: "duel", name: "Bravo" });
     await second.waitForType("role", (message) => message.role === "player");
     await first.waitForType("matchStart", () => true, 6000);
@@ -702,7 +729,11 @@ describe("online PvP room flow", () => {
       playerId: firstHello.id,
     });
 
-    const rejoined = await connectClient(port, { room: "duel", name: "Alpha" });
+    const rejoined = await connectClient(port, {
+      room: "duel",
+      name: "Alpha",
+      reconnectToken: firstProtocol.reconnectToken,
+    });
     await expect(
       rejoined.waitForType("hello", (message) => message.id === firstHello.id),
     ).resolves.toMatchObject({
