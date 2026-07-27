@@ -131,6 +131,8 @@ process.on("SIGTERM", shutdown);
 if (require.main === module) {
   server.listen(PORT, () => {
     logger.info("server_started", { port: PORT });
+    // plain line so integration tests can detect readiness
+    process.stdout.write(`listening on http://localhost:${PORT}\n`);
   });
 }
 
