@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let serverProcess = null;
+let currentDatabaseFile = "";
 const openClients = new Set();
 
 function getFreePort() {
@@ -16,8 +18,7 @@ function getFreePort() {
     probe.on("error", reject);
     probe.listen(0, "127.0.0.1", () => {
       const address = probe.address();
-      const port =
-        address && typeof address === "object" ? address.port : 0;
+      const port = address && typeof address === "object" ? address.port : 0;
       probe.close((error) => {
         if (error) reject(error);
         else resolve(port);
@@ -53,14 +54,44 @@ afterEach(async () => {
     serverProcess.kill();
     serverProcess = null;
   }
+  if (currentDatabaseFile) {
+    for (const file of [
+      currentDatabaseFile,
+      `${currentDatabaseFile}-shm`,
+      `${currentDatabaseFile}-wal`,
+    ]) {
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        // the child process may retain a short-lived WAL handle on Windows
+      }
+    }
+    try {
+      fs.rmSync(`${currentDatabaseFile}.migration-backups`, {
+        recursive: true,
+        force: true,
+      });
+    } catch {
+      // no migration backup is expected for a new test database
+    }
+    currentDatabaseFile = "";
+  }
   cleanupPersistedState();
 });
 
 function startServer(port) {
+  currentDatabaseFile = path.join(
+    os.tmpdir(),
+    `blockdrop-online-${crypto.randomUUID()}.sqlite`,
+  );
   return new Promise((resolve, reject) => {
     serverProcess = spawn(process.execPath, ["server.js"], {
       cwd: process.cwd(),
-      env: { ...process.env, PORT: String(port) },
+      env: {
+        ...process.env,
+        PORT: String(port),
+        BLOCKDROP_DB_FILE: currentDatabaseFile,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -86,7 +117,12 @@ function maskedTextFrame(text) {
   if (payload.length < 126) {
     header = Buffer.from([0x81, 0x80 | payload.length]);
   } else {
-    header = Buffer.from([0x81, 0xfe, payload.length >> 8, payload.length & 0xff]);
+    header = Buffer.from([
+      0x81,
+      0xfe,
+      payload.length >> 8,
+      payload.length & 0xff,
+    ]);
   }
 
   const masked = Buffer.from(payload);
@@ -154,6 +190,8 @@ function connectClient(
     identityToken = "",
     accountToken = "",
     rankedQueue = false,
+    protocolVersion = 1,
+    reconnectToken = "",
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -239,6 +277,8 @@ function connectClient(
           identityToken,
           accountToken,
           rankedQueue,
+          protocolVersion,
+          reconnectToken,
         });
         if (!settled) {
           settled = true;
@@ -295,9 +335,7 @@ function expectNoMessage(client, predicate, durationMs = 500) {
     setTimeout(() => {
       const unexpected = client.messages.slice(startIndex).find(predicate);
       if (unexpected) {
-        reject(
-          new Error(`Unexpected message: ${JSON.stringify(unexpected)}`),
-        );
+        reject(new Error(`Unexpected message: ${JSON.stringify(unexpected)}`));
         return;
       }
       resolve();
@@ -345,8 +383,7 @@ describe("online PvP room flow", () => {
     const state = await first.waitForType(
       "roomState",
       (message) =>
-        message.players?.length === 2 &&
-        message.tournament?.maxPlayers === 2,
+        message.players?.length === 2 && message.tournament?.maxPlayers === 2,
     );
     expect(state.players).toHaveLength(2);
     expect(state.spectators).toHaveLength(0);
@@ -375,7 +412,9 @@ describe("online PvP room flow", () => {
           message.players?.length === 2 && message.spectators?.length === 1,
       ),
     ).resolves.toMatchObject({
-      spectators: [expect.objectContaining({ name: "Charlie", role: "spectator" })],
+      spectators: [
+        expect.objectContaining({ name: "Charlie", role: "spectator" }),
+      ],
     });
   });
 
@@ -392,7 +431,10 @@ describe("online PvP room flow", () => {
       name: "Charlie",
       maxPlayers: 8,
     });
-    await spectator.waitForType("role", (message) => message.role === "spectator");
+    await spectator.waitForType(
+      "role",
+      (message) => message.role === "spectator",
+    );
     await first.waitForType("matchStart", () => true, 6000);
 
     first.resetMessages();
@@ -409,7 +451,363 @@ describe("online PvP room flow", () => {
     );
   });
 
-  it("requires ranked attacks to be backed by a recent match event", async () => {
+  it("runs casual v2 on the server and reconciles out-of-order inputs", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    const first = await connectClient(port, {
+      room: "v2duel",
+      name: "Alpha",
+      protocolVersion: 2,
+    });
+    const protocolMessage = await first.waitForType("protocol");
+    expect(protocolMessage).toMatchObject({
+      selectedVersion: 2,
+      authoritative: true,
+      reconnectGraceMs: 12000,
+    });
+    expect(protocolMessage.reconnectToken).toBeTruthy();
+
+    const second = await connectClient(port, {
+      room: "v2duel",
+      name: "Bravo",
+      protocolVersion: 2,
+    });
+    await second.waitForType("protocol", (message) => message.authoritative);
+    const match = await first.waitForType("matchStart", () => true, 6000);
+    expect(match.matchId).toMatch(/^match:V2DUEL:/);
+
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 2,
+      tick: 0,
+      action: "left",
+      pressed: true,
+    });
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 1,
+      tick: 0,
+      action: "right",
+      pressed: true,
+    });
+    const acknowledgedTwo = await first.waitForType(
+      "match.snapshot",
+      (message) => message.ackSeq >= 2,
+    );
+    expect(acknowledgedTwo.gameSnapshot.active.x).toBe(3);
+
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 4,
+      tick: acknowledgedTwo.serverTick,
+      action: "hardDrop",
+      pressed: true,
+    });
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 4,
+      tick: acknowledgedTwo.serverTick,
+      action: "hardDrop",
+      pressed: true,
+    });
+    await expectNoMessage(
+      first,
+      (message) => message.type === "match.snapshot" && message.ackSeq >= 4,
+      250,
+    );
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 3,
+      tick: acknowledgedTwo.serverTick,
+      action: "rotateCW",
+      pressed: true,
+    });
+    const acknowledgedFour = await first.waitForType(
+      "match.snapshot",
+      (message) => message.ackSeq >= 4,
+    );
+    expect(acknowledgedFour.stats.score).toBeGreaterThan(0);
+    expect(acknowledgedFour.gameSnapshot.pieces).toBe(1);
+
+    const db = new Database(currentDatabaseFile, { readonly: true });
+    const stored = db
+      .prepare("SELECT COUNT(*) AS total FROM match_inputs WHERE match_id = ?")
+      .get(match.matchId);
+    db.close();
+    expect(Number(stored.total)).toBe(4);
+  });
+
+  it("restores the authoritative snapshot within the 12 second grace window", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+    const first = await connectClient(port, {
+      room: "resumev2",
+      name: "Alpha",
+      protocolVersion: 2,
+    });
+    const firstHello = await first.waitForType("hello");
+    const negotiated = await first.waitForType("protocol");
+    const second = await connectClient(port, {
+      room: "resumev2",
+      name: "Bravo",
+      protocolVersion: 2,
+    });
+    const match = await first.waitForType("matchStart", () => true, 6000);
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 1,
+      tick: 0,
+      action: "hardDrop",
+      pressed: true,
+    });
+    await first.waitForType(
+      "match.snapshot",
+      (message) => message.ackSeq === 1,
+    );
+    await closeClient(first);
+    await second.waitForType(
+      "reconnecting",
+      (message) => message.playerId === firstHello.id,
+    );
+
+    const resumed = await connectClient(port, {
+      room: "resumev2",
+      name: "Alpha",
+      protocolVersion: 2,
+      reconnectToken: negotiated.reconnectToken,
+    });
+    await resumed.waitForType(
+      "hello",
+      (message) => message.id === firstHello.id,
+    );
+    const snapshot = await resumed.waitForType(
+      "match.snapshot",
+      (message) => message.matchId === match.matchId,
+    );
+    expect(snapshot.ackSeq).toBe(1);
+    expect(snapshot.gameSnapshot.pieces).toBe(1);
+  });
+
+  it("ignores well-formed stale input during a match transition", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+    const first = await connectClient(port, {
+      room: "transitionv2",
+      name: "Alpha",
+      protocolVersion: 2,
+    });
+    await first.waitForType("protocol", (message) => message.authoritative);
+    await connectClient(port, {
+      room: "transitionv2",
+      name: "Bravo",
+      protocolVersion: 2,
+    });
+
+    first.send({
+      type: "input",
+      matchId: "match:transitionv2:stale",
+      seq: 1,
+      tick: 0,
+      action: "hardDrop",
+      pressed: true,
+    });
+    const match = await first.waitForType("matchStart", () => true, 6000);
+    expect(first.messages.some((message) => message.type === "error")).toBe(
+      false,
+    );
+
+    first.send({
+      type: "input",
+      matchId: match.matchId,
+      seq: 1,
+      tick: 0,
+      action: "hardDrop",
+      pressed: true,
+    });
+    await expect(
+      first.waitForType(
+        "match.snapshot",
+        (message) => message.matchId === match.matchId && message.ackSeq === 1,
+      ),
+    ).resolves.toBeTruthy();
+  });
+
+  it("rejects ranked v1 and accepts only input commands in ranked v2", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    const legacy = await connectClient(port, {
+      room: "legacy-ranked",
+      name: "Legacy",
+      ranked: true,
+      protocolVersion: 1,
+      playerId: "legacy-ranked",
+    });
+    await expect(legacy.waitForType("error")).resolves.toMatchObject({
+      code: "protocolUpgradeRequired",
+    });
+
+    const first = await connectClient(port, {
+      room: "ranked",
+      name: "Alpha",
+      ranked: true,
+      protocolVersion: 2,
+      playerId: "alpha-attack",
+    });
+    await first.waitForType("rankedProfile");
+    const second = await connectClient(port, {
+      room: "ranked",
+      name: "Bravo",
+      ranked: true,
+      protocolVersion: 2,
+      playerId: "bravo-attack",
+    });
+    await second.waitForType("rankedProfile");
+    const match = await first.waitForType("matchStart", () => true, 6000);
+    expect(match).toMatchObject({
+      protocolVersion: 2,
+      engineVersion: 2,
+      authoritative: true,
+    });
+
+    first.resetMessages();
+    second.resetMessages();
+    first.send({ type: "attack", room: "ranked", lines: 4 });
+    await expectNoMessage(second, (message) => message.type === "attack", 700);
+    await expect(first.waitForType("error")).resolves.toMatchObject({
+      message: expect.stringContaining("calculates attacks"),
+    });
+  });
+
+  it("restores a disconnected player who rejoins within the grace window", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    const first = await connectClient(port, { room: "duel", name: "Alpha" });
+    const firstHello = await first.waitForType("hello");
+    const second = await connectClient(port, { room: "duel", name: "Bravo" });
+    await second.waitForType("role", (message) => message.role === "player");
+    await first.waitForType("matchStart", () => true, 6000);
+
+    await closeClient(first);
+    await expect(second.waitForType("reconnecting")).resolves.toMatchObject({
+      name: "Alpha",
+      playerId: firstHello.id,
+    });
+
+    const rejoined = await connectClient(port, { room: "duel", name: "Alpha" });
+    await expect(
+      rejoined.waitForType("hello", (message) => message.id === firstHello.id),
+    ).resolves.toMatchObject({
+      id: firstHello.id,
+    });
+    await expect(rejoined.waitForType("role")).resolves.toMatchObject({
+      role: "player",
+    });
+    await expect(
+      rejoined.waitForType(
+        "roomState",
+        (message) =>
+          message.players?.length === 2 &&
+          (message.match?.reconnecting || []).length === 0,
+      ),
+    ).resolves.toBeTruthy();
+    await expectNoMessage(
+      second,
+      (message) =>
+        message.type === "matchFinished" && message.reason === "disconnect",
+      1200,
+    );
+  }, 12000);
+
+  it("finishes the match after the disconnect grace window expires", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    const first = await connectClient(port, { room: "duel", name: "Alpha" });
+    const firstHello = await first.waitForType("hello");
+    const second = await connectClient(port, { room: "duel", name: "Bravo" });
+    const secondHello = await second.waitForType("hello");
+    await second.waitForType("role", (message) => message.role === "player");
+    await first.waitForType("matchStart", () => true, 6000);
+
+    await closeClient(first);
+    await expect(
+      second.waitForType(
+        "matchFinished",
+        (message) => message.reason === "disconnect",
+        15000,
+      ),
+    ).resolves.toMatchObject({
+      reason: "disconnect",
+      winnerId: secondHello.id,
+      loserId: firstHello.id,
+    });
+  }, 22000);
+
+  it("requires both players for rematch and ignores spectator rematchReady", async () => {
+    const port = await getFreePort();
+    await startServer(port);
+
+    const first = await connectClient(port, { room: "duel", name: "Alpha" });
+    const firstHello = await first.waitForType("hello");
+    const second = await connectClient(port, { room: "duel", name: "Bravo" });
+    const secondHello = await second.waitForType("hello");
+    const spectator = await connectClient(port, {
+      room: "duel",
+      name: "Charlie",
+      maxPlayers: 8,
+    });
+    await spectator.waitForType(
+      "role",
+      (message) => message.role === "spectator",
+    );
+    await first.waitForType("matchStart", () => true, 6000);
+
+    first.send({ type: "matchOver", room: "duel", result: "win" });
+    await expect(
+      first.waitForType(
+        "matchFinished",
+        (message) => message.winnerId === firstHello.id,
+      ),
+    ).resolves.toBeTruthy();
+
+    first.resetMessages();
+    second.resetMessages();
+    spectator.resetMessages();
+
+    first.send({ type: "rematchReady", room: "duel" });
+    spectator.send({ type: "rematchReady", room: "duel" });
+
+    const waitingState = await first.waitForType(
+      "roomState",
+      (message) => message.match?.rematchReady?.length === 1,
+    );
+    expect(waitingState.match.rematchReady).toEqual([firstHello.id]);
+    expect(waitingState.match.rematchReady).not.toContain(secondHello.id);
+    await expectNoMessage(
+      first,
+      (message) => message.type === "rematchStart",
+      1000,
+    );
+
+    second.send({ type: "rematchReady", room: "duel" });
+    await expect(first.waitForType("countdown")).resolves.toMatchObject({
+      value: 3,
+    });
+    await expect(
+      second.waitForType("rematchStart", () => true, 5000),
+    ).resolves.toBeTruthy();
+  }, 12000);
+
+  it("stores ranked ratings and completes a best-of-3 series", async () => {
     const port = await getFreePort();
     await startServer(port);
 
@@ -417,285 +815,99 @@ describe("online PvP room flow", () => {
       room: "ranked",
       name: "Alpha",
       ranked: true,
-      playerId: "alpha-attack",
+      protocolVersion: 2,
+      playerId: "alpha-id",
     });
+    const firstHello = await first.waitForType("hello");
     const firstProfile = await first.waitForType("rankedProfile");
+    expect(firstProfile).toMatchObject({
+      playerId: "alpha-id",
+      rating: 1000,
+      identityToken: expect.stringMatching(/^v1\./),
+    });
+
     const second = await connectClient(port, {
       room: "ranked",
       name: "Bravo",
       ranked: true,
-      playerId: "bravo-attack",
+      protocolVersion: 2,
+      playerId: "bravo-id",
     });
-    await second.waitForType("rankedProfile");
-    await first.waitForType("matchStart", () => true, 6000);
-
-    first.resetMessages();
-    second.resetMessages();
-    first.send({ type: "attack", room: "ranked", lines: 4 });
-    await expectNoMessage(second, (message) => message.type === "attack", 700);
-
-    first.send({
-      type: "matchEvent",
-      room: "ranked",
-      eventType: "clear",
-      lines: 4,
-      attackLines: 4,
-      combo: 1,
-      score: 1200,
-      elapsedMs: 1000,
-    });
-    first.send({ type: "attack", room: "ranked", lines: 4 });
-    await expect(second.waitForType("attack")).resolves.toMatchObject({
-      lines: 4,
-    });
-    expect(firstProfile.identityToken).toMatch(/^v1\./);
-  });
-
-  it(
-    "restores a disconnected player who rejoins within the grace window",
-    async () => {
-      const port = await getFreePort();
-      await startServer(port);
-
-      const first = await connectClient(port, { room: "duel", name: "Alpha" });
-      const firstHello = await first.waitForType("hello");
-      const second = await connectClient(port, { room: "duel", name: "Bravo" });
-      await second.waitForType("role", (message) => message.role === "player");
-      await first.waitForType("matchStart", () => true, 6000);
-
-      await closeClient(first);
-      await expect(second.waitForType("reconnecting")).resolves.toMatchObject({
-        name: "Alpha",
-        playerId: firstHello.id,
-      });
-
-      const rejoined = await connectClient(port, { room: "duel", name: "Alpha" });
-      await expect(
-        rejoined.waitForType("hello", (message) => message.id === firstHello.id),
-      ).resolves.toMatchObject({
-        id: firstHello.id,
-      });
-      await expect(rejoined.waitForType("role")).resolves.toMatchObject({
-        role: "player",
-      });
-      await expect(
-        rejoined.waitForType(
-          "roomState",
-          (message) =>
-            message.players?.length === 2 &&
-            (message.match?.reconnecting || []).length === 0,
-        ),
-      ).resolves.toBeTruthy();
-      await expectNoMessage(
-        second,
-        (message) =>
-          message.type === "matchFinished" && message.reason === "disconnect",
-        1200,
-      );
-    },
-    12000,
-  );
-
-  it(
-    "finishes the match after the disconnect grace window expires",
-    async () => {
-      const port = await getFreePort();
-      await startServer(port);
-
-      const first = await connectClient(port, { room: "duel", name: "Alpha" });
-      const firstHello = await first.waitForType("hello");
-      const second = await connectClient(port, { room: "duel", name: "Bravo" });
-      const secondHello = await second.waitForType("hello");
-      await second.waitForType("role", (message) => message.role === "player");
-      await first.waitForType("matchStart", () => true, 6000);
-
-      await closeClient(first);
-      await expect(
-        second.waitForType(
-          "matchFinished",
-          (message) => message.reason === "disconnect",
-          15000,
-        ),
-      ).resolves.toMatchObject({
-        reason: "disconnect",
-        winnerId: secondHello.id,
-        loserId: firstHello.id,
-      });
-    },
-    22000,
-  );
-
-  it(
-    "requires both players for rematch and ignores spectator rematchReady",
-    async () => {
-      const port = await getFreePort();
-      await startServer(port);
-
-      const first = await connectClient(port, { room: "duel", name: "Alpha" });
-      const firstHello = await first.waitForType("hello");
-      const second = await connectClient(port, { room: "duel", name: "Bravo" });
-      const secondHello = await second.waitForType("hello");
-      const spectator = await connectClient(port, {
-        room: "duel",
-        name: "Charlie",
-        maxPlayers: 8,
-      });
-      await spectator.waitForType("role", (message) => message.role === "spectator");
-      await first.waitForType("matchStart", () => true, 6000);
-
-      first.send({ type: "matchOver", room: "duel", result: "win" });
-      await expect(
-        first.waitForType(
-          "matchFinished",
-          (message) => message.winnerId === firstHello.id,
-        ),
-      ).resolves.toBeTruthy();
-
-      first.resetMessages();
-      second.resetMessages();
-      spectator.resetMessages();
-
-      first.send({ type: "rematchReady", room: "duel" });
-      spectator.send({ type: "rematchReady", room: "duel" });
-
-      const waitingState = await first.waitForType(
-        "roomState",
-        (message) => message.match?.rematchReady?.length === 1,
-      );
-      expect(waitingState.match.rematchReady).toEqual([firstHello.id]);
-      expect(waitingState.match.rematchReady).not.toContain(secondHello.id);
-      await expectNoMessage(
-        first,
-        (message) => message.type === "rematchStart",
-        1000,
-      );
-
-      second.send({ type: "rematchReady", room: "duel" });
-      await expect(first.waitForType("countdown")).resolves.toMatchObject({
-        value: 3,
-      });
-      await expect(
-        second.waitForType("rematchStart", () => true, 5000),
-      ).resolves.toBeTruthy();
-    },
-    12000,
-  );
-
-  it(
-    "stores ranked ratings and completes a best-of-3 series",
-    async () => {
-      const port = await getFreePort();
-      await startServer(port);
-
-      const first = await connectClient(port, {
-        room: "ranked",
-        name: "Alpha",
-        ranked: true,
-        playerId: "alpha-id",
-      });
-      const firstHello = await first.waitForType("hello");
-      const firstProfile = await first.waitForType("rankedProfile");
-      expect(firstProfile).toMatchObject({
-        playerId: "alpha-id",
-        rating: 1000,
-        identityToken: expect.stringMatching(/^v1\./),
-      });
-
-      const second = await connectClient(port, {
-        room: "ranked",
-        name: "Bravo",
-        ranked: true,
-        playerId: "bravo-id",
-      });
-      const secondHello = await second.waitForType("hello");
-      const secondProfile = await second.waitForType("rankedProfile");
-      expect(secondProfile.identityToken).toMatch(/^v1\./);
-      await first.waitForType("matchStart", () => true, 6000);
-
-      first.send({
-        type: "update",
-        room: "ranked",
-        name: "Alpha",
-        score: 5000,
-        lines: 12,
-        level: 2,
-        height: 4,
-        sentGarbage: 8,
-        receivedGarbage: 2,
-        mode: "Classic",
-        time: "0:03",
-        status: "Playing",
-        force: true,
-      });
+    const secondHello = await second.waitForType("hello");
+    const secondProfile = await second.waitForType("rankedProfile");
+    expect(secondProfile.identityToken).toMatch(/^v1\./);
+    const firstMatch = await first.waitForType("matchStart", () => true, 6000);
+    for (let seq = 1; seq <= 20; seq += 1) {
       second.send({
-        type: "update",
-        room: "ranked",
-        name: "Bravo",
-        score: 2400,
-        lines: 7,
-        level: 1,
-        height: 16,
-        sentGarbage: 2,
-        receivedGarbage: 8,
-        mode: "Classic",
-        time: "0:03",
-        status: "Playing",
-        force: true,
+        type: "input",
+        matchId: firstMatch.matchId,
+        seq,
+        tick: 0,
+        action: "hardDrop",
+        pressed: true,
       });
-      second.send({ type: "matchOver", room: "ranked", result: "loss" });
+    }
 
-      const firstResult = await first.waitForType(
-        "matchFinished",
-        (message) => message.ranked?.winner?.playerId === "alpha-id",
-      );
-      expect(firstResult.ranked.winner.ratingBefore).toBe(1000);
-      expect(firstResult.ranked.winner.ratingAfter).toBeGreaterThan(1000);
-      expect(firstResult.ranked.loser.ratingAfter).toBeLessThan(1000);
-      expect(firstResult.series.completed).toBe(false);
-      expect(firstResult.series.wins[firstHello.id]).toBe(1);
+    const firstResult = await first.waitForType(
+      "matchFinished",
+      (message) => message.ranked?.winner?.playerId === "alpha-id",
+    );
+    expect(firstResult.ranked.winner.ratingBefore).toBe(1000);
+    expect(firstResult.ranked.winner.ratingAfter).toBeGreaterThan(1000);
+    expect(firstResult.ranked.loser.ratingAfter).toBeLessThan(1000);
+    expect(firstResult.series.completed).toBe(false);
+    expect(firstResult.series.wins[firstHello.id]).toBe(1);
 
-      first.send({ type: "rematchReady", room: "ranked" });
-      second.send({ type: "rematchReady", room: "ranked" });
-      await first.waitForType("rematchStart", () => true, 6000);
+    first.send({ type: "rematchReady", room: "ranked" });
+    second.send({ type: "rematchReady", room: "ranked" });
+    const secondMatch = await first.waitForType(
+      "rematchStart",
+      () => true,
+      6000,
+    );
+    for (let seq = 1; seq <= 20; seq += 1) {
+      second.send({
+        type: "input",
+        matchId: secondMatch.matchId,
+        seq,
+        tick: 0,
+        action: "hardDrop",
+        pressed: true,
+      });
+    }
+    const finalResult = await first.waitForType(
+      "matchFinished",
+      (message) => message.series?.completed === true,
+    );
+    expect(finalResult.series.winnerId).toBe(firstHello.id);
+    expect(finalResult.series.wins[firstHello.id]).toBe(2);
+    expect(finalResult.series.wins[secondHello.id] || 0).toBe(0);
 
-      second.send({ type: "matchOver", room: "ranked", result: "loss" });
-      const finalResult = await first.waitForType(
-        "matchFinished",
-        (message) => message.series?.completed === true,
-      );
-      expect(finalResult.series.winnerId).toBe(firstHello.id);
-      expect(finalResult.series.wins[firstHello.id]).toBe(2);
-      expect(finalResult.series.wins[secondHello.id] || 0).toBe(0);
+    const db = new Database(currentDatabaseFile);
+    const rankedRows = db
+      .prepare(
+        "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players WHERE player_id IN ('alpha-id', 'bravo-id') ORDER BY player_id ASC",
+      )
+      .all();
+    const matchRows = db
+      .prepare("SELECT COUNT(*) AS total FROM ranked_matches")
+      .get();
+    db.close();
 
-      const db = new Database(
-        process.env.BLOCKDROP_DB_FILE || path.join(process.cwd(), "blockdrop.sqlite"),
-      );
-      const rankedRows = db
-        .prepare(
-          "SELECT player_id AS playerId, wins, losses, best_win_streak AS bestWinStreak, best_loss_streak AS bestLossStreak FROM ranked_players WHERE player_id IN ('alpha-id', 'bravo-id') ORDER BY player_id ASC",
-        )
-        .all();
-      const matchRows = db
-        .prepare("SELECT COUNT(*) AS total FROM ranked_matches")
-        .get();
-      db.close();
-
-      expect(rankedRows).toEqual([
-        expect.objectContaining({
-          playerId: "alpha-id",
-          wins: 2,
-          bestWinStreak: 2,
-        }),
-        expect.objectContaining({
-          playerId: "bravo-id",
-          losses: 2,
-          bestLossStreak: 2,
-        }),
-      ]);
-      expect(Number(matchRows.total)).toBe(2);
-    },
-    16000,
-  );
+    expect(rankedRows).toEqual([
+      expect.objectContaining({
+        playerId: "alpha-id",
+        wins: 2,
+        bestWinStreak: 2,
+      }),
+      expect.objectContaining({
+        playerId: "bravo-id",
+        losses: 2,
+        bestLossStreak: 2,
+      }),
+    ]);
+    expect(Number(matchRows.total)).toBe(2);
+  }, 16000);
 
   it("pairs signed-in players through the ranked queue", async () => {
     const port = await getFreePort();
@@ -720,6 +932,7 @@ describe("online PvP room flow", () => {
       room: "ranked",
       name: "QueueA",
       ranked: true,
+      protocolVersion: 2,
       rankedQueue: true,
       accountToken: await register("queuea"),
     });
@@ -731,6 +944,7 @@ describe("online PvP room flow", () => {
       room: "ranked",
       name: "QueueB",
       ranked: true,
+      protocolVersion: 2,
       rankedQueue: true,
       accountToken: await register("queueb"),
     });
@@ -748,7 +962,8 @@ describe("online PvP room flow", () => {
         (message) => message.players?.length === 2 && message.match?.ranked,
       ),
     ).resolves.toBeTruthy();
-    await expect(first.waitForType("matchStart", () => true, 6000)).resolves.toBeTruthy();
+    await expect(
+      first.waitForType("matchStart", () => true, 6000),
+    ).resolves.toBeTruthy();
   }, 12000);
-
 });

@@ -69,6 +69,13 @@ test("hold works on C key and is limited until the next lock", async ({
 }) => {
   await page.addInitScript(() => {
     Math.random = () => 0;
+    Object.defineProperty(globalThis.crypto, "getRandomValues", {
+      configurable: true,
+      value(values) {
+        values.fill(0x2a);
+        return values;
+      },
+    });
   });
   await page.goto("/");
   await page.locator("#startButton").click();
@@ -90,13 +97,11 @@ test("hold works on C key and is limited until the next lock", async ({
   expect(afterBlockedHold).toBe(afterHold);
 
   await page.keyboard.press("Space");
-  await page.waitForTimeout(50);
+  await expect(page.locator("#piecesValue")).toHaveText("1");
   await page.keyboard.press("KeyC");
-  await page.waitForTimeout(50);
-  const afterLockHold = await holdPreview.evaluate((canvas) =>
-    canvas.toDataURL(),
-  );
-  expect(afterLockHold).not.toBe(afterBlockedHold);
+  await expect
+    .poll(() => holdPreview.evaluate((canvas) => canvas.toDataURL()))
+    .not.toBe(afterBlockedHold);
 });
 
 test("autosave restores an active game from the menu", async ({ page }) => {
@@ -108,8 +113,10 @@ test("autosave restores an active game from the menu", async ({ page }) => {
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("blockdrop-save-v2") || "null"),
   );
-  expect(saved?.active).toBeTruthy();
-  expect(saved?.hold).toBeTruthy();
+  expect(saved?.saveSchemaVersion).toBe(2);
+  expect(saved?.engineVersion).toBe(2);
+  expect(saved?.state?.active).toBeTruthy();
+  expect(saved?.state?.hold).toBeTruthy();
 
   await page.reload();
   await page.locator("#continueButton").click();
@@ -196,8 +203,9 @@ test("new menu actions expose useful play flows", async ({ page }) => {
   await expect(page.locator("#connectOnlineButton")).toHaveText("Начать игру");
   await expect(page.locator("#roomQr")).toHaveAttribute(
     "src",
-    /create-qr-code/,
+    /\/api\/qr\?data=/,
   );
+  await expect(page.locator("#roomQr")).toHaveJSProperty("complete", true);
   await expect
     .poll(() => page.evaluate(() => window.__copiedText))
     .toContain("/room/");
@@ -210,6 +218,21 @@ test("new menu actions expose useful play flows", async ({ page }) => {
 test("language switch updates settings, help, and online labels", async ({
   page,
 }) => {
+  await page.route("**/api/capabilities", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        secureTransport: false,
+        authEnabled: false,
+        rankedEnabled: false,
+        casualOnlineEnabled: true,
+        casualV2Enabled: true,
+        analyticsEnabled: false,
+        pwaInstallEnabled: false,
+        maxPlayers: 8,
+      }),
+    }),
+  );
   await page.goto("/");
   await page.locator("#menuMoreSummary").click();
   await page.locator("#startSettingsButton").click();
@@ -230,9 +253,33 @@ test("language switch updates settings, help, and online labels", async ({
 
   await page.locator("#friendButton").click();
   await expect(page.locator("#onlineOverlay h2")).toHaveText("Online room");
+  await expect(page.locator("#createOnlineRoomButton")).toHaveText(
+    "Create room",
+  );
+  await expect(page.locator("#joinOnlineRoomButton")).toHaveText(
+    "Join by code",
+  );
   await expect(page.locator("label[for='onlineRoomInput']")).toHaveText("Room");
-  await expect(page.locator(".toggle-row")).toContainText("Ranked PvP");
+  await expect(page.locator("#onlineSecurityNotice")).toBeVisible();
+  await expect(page.locator("#onlineSecurityNotice")).toContainText("HTTPS");
+  await expect(page.locator(".ranked-controls")).toBeHidden();
+  await expect(page.locator("#findRankedButton")).toBeHidden();
   await expect(page.locator("#connectOnlineButton")).toHaveText("Start game");
+});
+
+test("online flow separates room creation from joining by code", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator("#friendButton").click();
+
+  await page.locator("#onlineRoomInput").fill("");
+  await page.locator("#createOnlineRoomButton").click();
+  await expect(page.locator("#roomCodeValue")).not.toHaveText("----");
+
+  await page.locator("#onlineRoomInput").fill("JOIN42");
+  await page.locator("#joinOnlineRoomButton").click();
+  await expect(page.locator("#onlineStatus")).toContainText("JOIN42");
 });
 
 test("mobile layout keeps board and controls inside viewport", async ({
@@ -255,10 +302,38 @@ test("mobile layout keeps board and controls inside viewport", async ({
   expect(pause?.height).toBeGreaterThanOrEqual(44);
 });
 
+test("desktop side panel never overlaps the controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.locator("#startButton").click();
+
+  const boxes = await page.evaluate(() => {
+    const side = document.querySelector("#sidePanel").getBoundingClientRect();
+    const controls = document
+      .querySelector("#controls")
+      .getBoundingClientRect();
+    const game = document.querySelector("#gameLayout").getBoundingClientRect();
+    return {
+      sideBottom: side.bottom,
+      controlsTop: controls.top,
+      gameBottom: game.bottom,
+      sideScrollable:
+        document.querySelector("#sidePanel").scrollHeight >=
+        document.querySelector("#sidePanel").clientHeight,
+    };
+  });
+
+  expect(boxes.sideBottom).toBeLessThanOrEqual(boxes.gameBottom + 1);
+  expect(boxes.sideBottom).toBeLessThanOrEqual(boxes.controlsTop + 1);
+  expect(boxes.sideScrollable).toBe(true);
+});
+
 test("mobile touch controls work without page scroll", async ({
   browser,
+  browserName,
   baseURL,
 }) => {
+  test.skip(browserName !== "chromium", "mobile emulation requires Chromium");
   const context = await browser.newContext({ ...devices["iPhone 12"] });
   await context.addInitScript(() => {
     localStorage.setItem(
@@ -351,4 +426,204 @@ test("hardcore time attack and replay menu are exposed", async ({ page }) => {
   await expect(page.locator("#replayOverlay")).toBeVisible();
   await expect(page.locator("#replaySummary")).toBeVisible();
   await page.locator("#closeReplayButton").click();
+});
+
+test("AI opponent plans in a Web Worker", async ({ page }) => {
+  const workerUrls = [];
+  page.on("worker", (worker) => workerUrls.push(worker.url()));
+  await page.goto("/");
+  await page.locator("#aiButton").click();
+  await page.selectOption("#aiDifficultySelect", "insane");
+  await page.locator("#startAiButton").click();
+
+  await expect
+    .poll(() => workerUrls.some((url) => url.endsWith("/js/ai-worker.js")))
+    .toBe(true);
+  await expect(page.locator("#startOverlay")).toBeHidden();
+  await page.waitForTimeout(700);
+  await expect(page.locator("#scoreValue")).toBeVisible();
+});
+
+test("deterministic replay supports speed, pause, and checkpoint seek", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const engine = await import("/js/engine.js");
+    const state = engine.createState({ seed: "playwright-replay" });
+    const inputs = [];
+    for (let seq = 1; seq <= 6 && !state.gameOver; seq += 1) {
+      const input = {
+        tick: state.tick,
+        seq,
+        action: "hardDrop",
+        pressed: true,
+      };
+      inputs.push(input);
+      engine.applyInput(state, input, []);
+      for (let tick = 0; tick < 12 && !state.gameOver; tick += 1) {
+        engine.step(state);
+      }
+    }
+    for (let tick = 0; tick < 1200 && !state.gameOver; tick += 1) {
+      engine.step(state);
+    }
+    const replay = engine.createReplay({
+      seed: state.seed,
+      mode: state.mode,
+      inputs,
+      finalState: state,
+      checkpointIntervalTicks: 20,
+      metadata: { score: state.score },
+    });
+    localStorage.setItem("blockdrop-replay-v1", JSON.stringify(replay));
+  });
+  await page.reload();
+  await page.locator("#menuMoreSummary").click();
+  await page.locator("#replayButton").click();
+  await expect(page.locator("#playReplayButton")).toBeEnabled();
+  await page.selectOption("#replaySpeedSelect", "4");
+  await page.locator("#playReplayButton").click();
+  await expect(page.locator("#replayPlaybackBar")).toBeVisible();
+  await expect(page.locator("#replayPlaybackSpeed")).toHaveValue("4");
+  await page.locator("#replayPlaybackPause").click();
+  await expect(page.locator("#replayPlaybackPause")).toContainText(
+    /Продолжить|Resume/,
+  );
+  const max = Number(
+    await page.locator("#replayPlaybackSeek").getAttribute("max"),
+  );
+  await page.locator("#replayPlaybackSeek").fill(String(Math.floor(max / 2)));
+  await expect(page.locator("#replayPlaybackStatus")).not.toHaveText(
+    "0:00 / 0:00",
+  );
+});
+
+test("golden replay checksum matches browser and Worker", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const engine = await import("/js/engine.js");
+    const replay = await fetch("/shared/golden-replay.json").then((response) =>
+      response.json(),
+    );
+    const browser = engine.simulateReplay(replay);
+    const worker = await new Promise((resolve, reject) => {
+      const instance = new Worker("/js/ai-worker.js");
+      const timeout = setTimeout(
+        () => reject(new Error("Worker timeout")),
+        5000,
+      );
+      instance.addEventListener("message", (event) => {
+        if (event.data?.type !== "replayResult") return;
+        clearTimeout(timeout);
+        instance.terminate();
+        resolve(event.data);
+      });
+      instance.postMessage({
+        type: "simulateReplay",
+        requestId: "golden",
+        replay,
+      });
+    });
+    return {
+      expected: replay.finalChecksum,
+      browser: browser.finalChecksum,
+      browserOk: browser.ok,
+      worker: worker.finalChecksum,
+      workerOk: worker.ok,
+    };
+  });
+
+  expect(result).toEqual({
+    expected: "2b722289",
+    browser: "2b722289",
+    browserOk: true,
+    worker: "2b722289",
+    workerOk: true,
+  });
+});
+
+test("mastery profile supports cosmetics and signed export/import", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "blockdrop-profile-v1",
+      JSON.stringify({
+        profileSchemaVersion: 1,
+        xp: 8_000,
+        games: 10,
+        unlockedCosmetics: [
+          "mint-trail",
+          "amber-blocks",
+          "candy-spark",
+          "mono-ghost",
+        ],
+        selectedCosmetic: "mint-trail",
+      }),
+    );
+  });
+  await page.goto("/");
+  await page.locator("#menuMoreSummary").click();
+  await page.locator("#openStatsButton").click();
+  await expect(page.locator("#profileSummary")).toContainText("10");
+  await expect(page.locator("#questList .quest-item")).toHaveCount(4);
+
+  await page.selectOption("#cosmeticSelect", "candy-spark");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-cosmetic",
+    "candy-spark",
+  );
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("#exportProfileButton").click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(download.suggestedFilename()).toMatch(/^blockdrop-profile-.*\.json$/);
+  await page.locator("#profileImportInput").setInputFiles(downloadPath);
+  await expect(page.locator("#toast")).toContainText(
+    /Прогресс импортирован|Progress imported/,
+  );
+});
+
+test("analytics sends a minimal event only after explicit consent", async ({
+  page,
+}) => {
+  const events = [];
+  await page.route("**/api/capabilities", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        analyticsEnabled: true,
+        authEnabled: false,
+        rankedEnabled: false,
+        pwaInstallEnabled: false,
+      }),
+    }),
+  );
+  await page.route("**/api/analytics", async (route) => {
+    events.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ accepted: true }),
+    });
+  });
+  const capabilitiesReady = page.waitForResponse((response) =>
+    response.url().endsWith("/api/capabilities"),
+  );
+  await page.goto("/");
+  await capabilitiesReady;
+  await page.locator("#menuMoreSummary").click();
+  await page.locator("#startSettingsButton").click();
+  expect(events).toHaveLength(0);
+  await page.locator("#analyticsConsentToggle").check();
+  await expect.poll(() => events.length).toBe(1);
+  expect(events[0]).toMatchObject({
+    eventName: "screen_view",
+    consented: true,
+  });
+  expect(JSON.stringify(events[0])).not.toMatch(
+    /board|inputs|password|token|127\.0\.0\.1/,
+  );
 });

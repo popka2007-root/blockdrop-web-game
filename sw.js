@@ -1,18 +1,49 @@
-const CACHE_NAME = "blockdrop-cache-v13";
+const CACHE_NAME = "blockdrop-cache-v20";
 const ASSETS = [
-  "./",
-  "index.html",
-  "sw.js",
-  "manifest.webmanifest",
-  "icons/icon-192.png",
-  "icons/icon-512.png",
+  "/",
+  "/index.html",
+  "/styles.css",
+  "/styles/pvp-enhancements.css",
+  "/manifest.webmanifest",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/shared/protocol.js",
+  "/shared/engine.js",
+  "/shared/ai.js",
+  "/shared/golden-replay.json",
+  "/js/ai-client.js",
+  "/js/ai-worker.js",
+  "/js/analytics.js",
+  "/js/audio.js",
+  "/js/config.js",
+  "/js/engine.js",
+  "/js/game.js",
+  "/js/input.js",
+  "/js/i18n.js",
+  "/js/modes.js",
+  "/js/online-controller.js",
+  "/js/online.js",
+  "/js/progression.js",
+  "/js/pvp-enhancements.js",
+  "/js/runtime-loop.js",
+  "/js/replay.js",
+  "/js/save-load.js",
+  "/js/scene-state.js",
+  "/js/scoring.js",
+  "/js/session-state.js",
+  "/js/storage.js",
+  "/js/ui.js",
+  "/js/utils.js",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)),
   );
-  self.skipWaiting();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

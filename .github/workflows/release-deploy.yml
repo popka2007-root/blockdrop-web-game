@@ -14,9 +14,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: blockdrop-release
+  cancel-in-progress: false
+
 jobs:
   release-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -31,16 +36,22 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
 
       - name: Unit tests
-        run: npm test
+        run: npm run test:coverage
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Verify database backup and restore
+        run: npm run db:verify-backup
 
       - name: Install Playwright
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: E2E tests
         run: npm run test:e2e
@@ -54,6 +65,7 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: write
+    timeout-minutes: 10
 
     steps:
       - name: Publish GitHub release
@@ -66,73 +78,139 @@ jobs:
       - release-check
       - publish-release
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        startsWith(github.ref, 'refs/tags/') &&
-        secrets.VPS_HOST != '' &&
-        secrets.VPS_USER != '' &&
-        secrets.VPS_PASSWORD != '' &&
-        secrets.TARGET_URL != ''
-      }}
+    timeout-minutes: 20
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      TARGET_URL: ${{ secrets.TARGET_URL }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
 
     steps:
+      - name: Check deployment configuration
+        id: deploy-config
+        run: |
+          if [ -n "$VPS_HOST" ] && [ -n "$VPS_USER" ] && [ -n "$VPS_SSH_KEY" ] && [ -n "$VPS_KNOWN_HOSTS" ] && [ -n "$TARGET_URL" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deployment secrets are incomplete; release remains published without VPS deployment."
+          fi
+
       - name: Checkout
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         uses: actions/checkout@v5
 
       - name: Setup Node
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
+        run: npm ci
 
       - name: Install Playwright
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         run: npx playwright install --with-deps chromium
 
-      - name: Install sshpass
-        run: sudo apt-get update && sudo apt-get install -y sshpass
+      - name: Configure pinned SSH identity
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
       - name: Deploy tagged release
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
           DEPLOY_REF: ${{ github.ref_name }}
           EXPECTED_REVISION: ${{ github.sha }}
         run: |
-          sshpass -p "$VPS_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" <<EOF
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<EOF
           set -e
-          cd /opt/tetris
+          DATA_DIR=/opt/blockdrop-data
           BACKUP_DIR="/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
-          cp -a /opt/tetris "\$BACKUP_DIR"
-          if [ -f /opt/tetris/blockdrop.sqlite ]; then
-            cp -a /opt/tetris/blockdrop.sqlite "\$BACKUP_DIR/blockdrop.sqlite.predeploy"
-          fi
+          NEXT_DIR=\$(mktemp -d /opt/tetris-release.XXXXXX)
+          CUTOVER=0
+          install -d -o tetris -g tetris -m 750 "\$DATA_DIR" "\$DATA_DIR/backups"
           rollback() {
-            echo "Deploy failed, rolling back to \$BACKUP_DIR"
-            systemctl stop tetris.service || true
-            rm -rf /opt/tetris.failed
-            mv /opt/tetris /opt/tetris.failed
-            cp -a "\$BACKUP_DIR" /opt/tetris
-            chown -R tetris:tetris /opt/tetris
-            systemctl restart tetris.service
+            set +e
+            echo "Deploy failed; cutover=\$CUTOVER"
+            if [ "\$CUTOVER" = "1" ] && [ -d "\$BACKUP_DIR" ]; then
+              systemctl stop tetris.service || true
+              FAILED_DIR="/opt/tetris_failed_\$(date +%Y%m%d_%H%M%S)"
+              if [ -d /opt/tetris ]; then mv /opt/tetris "\$FAILED_DIR"; fi
+              mv "\$BACKUP_DIR" /opt/tetris
+              chown -R tetris:tetris /opt/tetris
+              systemctl restart tetris.service
+            elif [ -n "\$NEXT_DIR" ]; then
+              case "\$NEXT_DIR" in
+                /opt/tetris-release.*) rm -rf -- "\$NEXT_DIR" ;;
+              esac
+            fi
           }
           trap rollback ERR
+
+          git -C /opt/tetris fetch origin --tags
+          git clone --local --no-hardlinks /opt/tetris "\$NEXT_DIR"
+          git -C "\$NEXT_DIR" checkout --detach "$DEPLOY_REF"
+          ACTUAL_REVISION=\$(git -C "\$NEXT_DIR" rev-parse HEAD)
+          test "\$ACTUAL_REVISION" = "$EXPECTED_REVISION"
+          printf '%s\n' "\$ACTUAL_REVISION" > "\$NEXT_DIR/REVISION"
+          cd "\$NEXT_DIR"
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 20 || (major === 20 && minor < 19)) process.exit(1)'
+          npm ci
+
+          systemctl stop tetris.service
+          if [ ! -f "\$DATA_DIR/blockdrop.sqlite" ] && [ -f /opt/tetris/blockdrop.sqlite ]; then
+            cp -a /opt/tetris/blockdrop.sqlite* "\$DATA_DIR/"
+          fi
+          chown -R tetris:tetris "\$DATA_DIR"
+          find "\$DATA_DIR" -maxdepth 1 -type f -name 'blockdrop.sqlite*' -exec chmod 600 {} \;
           git fetch origin --tags
           git checkout "$DEPLOY_REF"
-          npm install
-          git rev-parse HEAD > REVISION
-          BLOCKDROP_DB_FILE=/tmp/blockdrop-verify.sqlite BLOCKDROP_DEPLOY_REASON=github-actions npm run verify
+          npm ci
+          if [ -f "\$DATA_DIR/blockdrop.sqlite" ]; then
+            BLOCKDROP_DB_FILE="\$DATA_DIR/blockdrop.sqlite" BLOCKDROP_BACKUP_DIR="\$DATA_DIR/backups" npm run db:backup
+          fi
+          mv /opt/tetris "\$BACKUP_DIR"
+          CUTOVER=1
+          mv "\$NEXT_DIR" /opt/tetris
+          NEXT_DIR=""
+          cd /opt/tetris
+          install -m 644 deploy/blockdrop-backup.service /etc/systemd/system/blockdrop-backup.service
+          install -m 644 deploy/blockdrop-backup.timer /etc/systemd/system/blockdrop-backup.timer
+          install -d -m 755 /etc/systemd/system/tetris.service.d
+          printf '[Service]\nEnvironment=BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite\n' > /etc/systemd/system/tetris.service.d/blockdrop.conf
+          systemctl daemon-reload
           chown -R tetris:tetris /opt/tetris
           systemctl restart tetris.service
-          curl --fail http://127.0.0.1/health
+          systemctl enable --now blockdrop-backup.timer
+          READY=0
+          for attempt in \$(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1/health/live >/dev/null && curl --silent --fail http://127.0.0.1/health/ready >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "\$READY" = "1"
           curl --fail http://127.0.0.1/metrics
           trap - ERR
           EOF
 
       - name: Check public health
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           EXPECTED_REVISION: ${{ github.sha }}
@@ -140,6 +218,7 @@ jobs:
         run: npm run health:check
 
       - name: Run public smoke
+        if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           EXPECTED_REVISION: ${{ github.sha }}

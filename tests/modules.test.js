@@ -8,6 +8,7 @@ import {
 import {
   BOARD_PREVIEW_COLS,
   BOARD_PREVIEW_ROWS,
+  buildInputMessage,
   buildJoinMessage,
   copyTextToClipboard,
   buildRoomInviteUrl,
@@ -104,11 +105,28 @@ describe("online module", () => {
       durationSec: 180,
       mode: "classic",
       ranked: true,
-        playerId: "playerid",
-        identityToken: "",
-        accountToken: "",
-        rankedQueue: false,
-      });
+      playerId: "playerid",
+      identityToken: "",
+      accountToken: "",
+      rankedQueue: false,
+      reconnectToken: "",
+    });
+
+    expect(
+      buildInputMessage({
+        matchId: "match:1",
+        seq: 4,
+        tick: 12,
+        action: "rotateCW",
+      }),
+    ).toEqual({
+      type: "input",
+      matchId: "match:1",
+      seq: 4,
+      tick: 12,
+      action: "rotateCW",
+      pressed: true,
+    });
 
     expect(
       buildUpdateMessage({ room: "abc", name: "P1", score: 12.8, level: 0 })
@@ -187,12 +205,12 @@ describe("online module", () => {
       .mockReturnValueOnce(250)
       .mockReturnValueOnce(380);
 
-    expect(sendScoreUpdate(client, { room: "duel", name: "P1", score: 10 })).toBe(
-      true,
-    );
-    expect(sendScoreUpdate(client, { room: "duel", name: "P1", score: 20 })).toBe(
-      false,
-    );
+    expect(
+      sendScoreUpdate(client, { room: "duel", name: "P1", score: 10 }),
+    ).toBe(true);
+    expect(
+      sendScoreUpdate(client, { room: "duel", name: "P1", score: 20 }),
+    ).toBe(false);
     expect(
       sendScoreUpdate(client, {
         room: "duel",
@@ -207,9 +225,9 @@ describe("online module", () => {
     ]);
 
     client.role = "spectator";
-    expect(sendScoreUpdate(client, { room: "duel", name: "P1", score: 40 })).toBe(
-      false,
-    );
+    expect(
+      sendScoreUpdate(client, { room: "duel", name: "P1", score: 40 }),
+    ).toBe(false);
     expect(sendAttack(client, "duel", 4)).toBe(false);
     expect(sendRematchReady(client, "duel")).toBe(false);
   });
@@ -233,9 +251,9 @@ describe("online module", () => {
       value: true,
     });
 
-    await expect(copyTextToClipboard("https://example.com/room/DUEL")).resolves.toBe(
-      true,
-    );
+    await expect(
+      copyTextToClipboard("https://example.com/room/DUEL"),
+    ).resolves.toBe(true);
     expect(clipboard.writeText).toHaveBeenCalledWith(
       "https://example.com/room/DUEL",
     );
@@ -272,7 +290,11 @@ describe("online module", () => {
       delete globalThis.navigator;
     }
     if (originalSecureContext) {
-      Object.defineProperty(globalThis, "isSecureContext", originalSecureContext);
+      Object.defineProperty(
+        globalThis,
+        "isSecureContext",
+        originalSecureContext,
+      );
     } else {
       delete globalThis.isSecureContext;
     }
@@ -309,7 +331,11 @@ describe("storage module", () => {
     };
 
     expect(() =>
-      saveMatchHistoryEntry({ result: "win", opponent: "Alex" }, "history", storage),
+      saveMatchHistoryEntry(
+        { result: "win", opponent: "Alex" },
+        "history",
+        storage,
+      ),
     ).not.toThrow();
   });
 

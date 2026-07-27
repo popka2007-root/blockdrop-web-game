@@ -1,0 +1,21 @@
+{
+  "replayVersion": 1,
+  "engineVersion": 2,
+  "seed": "golden-v1",
+  "mode": "classic",
+  "inputs": [
+    { "tick": 0, "seq": 1, "action": "left", "pressed": true },
+    { "tick": 1, "seq": 2, "action": "rotateCW", "pressed": true },
+    { "tick": 2, "seq": 3, "action": "hardDrop", "pressed": true },
+    { "tick": 10, "seq": 4, "action": "hold", "pressed": true },
+    { "tick": 11, "seq": 5, "action": "right", "pressed": true },
+    { "tick": 12, "seq": 6, "action": "hardDrop", "pressed": true },
+    { "tick": 30, "seq": 7, "action": "softDrop", "pressed": true },
+    { "tick": 35, "seq": 8, "action": "softDrop", "pressed": false },
+    { "tick": 40, "seq": 9, "action": "rotateCCW", "pressed": true },
+    { "tick": 41, "seq": 10, "action": "hardDrop", "pressed": true }
+  ],
+  "externalEvents": [],
+  "finalTick": 120,
+  "finalChecksum": "2b722289"
+}

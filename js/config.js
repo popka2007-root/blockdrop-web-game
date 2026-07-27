@@ -1,381 +1,44 @@
-export const COLS = 10;
-export const ROWS = 20;
+import {
+  ATTACK as ENGINE_ATTACK,
+  COLS,
+  PIECES,
+  ROWS,
+  SCORE as ENGINE_SCORE,
+  SHAPES,
+  SRS_KICKS,
+} from "./engine.js";
 
-export const PIECES = ["I", "O", "T", "S", "Z", "J", "L"];
+export { COLS, PIECES, ROWS, SHAPES, SRS_KICKS };
 
-export const SHAPES = {
-  I: [
-    [
-      [0, 1],
-      [1, 1],
-      [2, 1],
-      [3, 1],
-    ],
-    [
-      [2, 0],
-      [2, 1],
-      [2, 2],
-      [2, 3],
-    ],
-    [
-      [0, 2],
-      [1, 2],
-      [2, 2],
-      [3, 2],
-    ],
-    [
-      [1, 0],
-      [1, 1],
-      [1, 2],
-      [1, 3],
-    ],
-  ],
-  O: [
-    [
-      [1, 0],
-      [2, 0],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [1, 0],
-      [2, 0],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [1, 0],
-      [2, 0],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [1, 0],
-      [2, 0],
-      [1, 1],
-      [2, 1],
-    ],
-  ],
-  T: [
-    [
-      [1, 0],
-      [0, 1],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [1, 0],
-      [1, 1],
-      [2, 1],
-      [1, 2],
-    ],
-    [
-      [0, 1],
-      [1, 1],
-      [2, 1],
-      [1, 2],
-    ],
-    [
-      [1, 0],
-      [0, 1],
-      [1, 1],
-      [1, 2],
-    ],
-  ],
-  S: [
-    [
-      [1, 0],
-      [2, 0],
-      [0, 1],
-      [1, 1],
-    ],
-    [
-      [1, 0],
-      [1, 1],
-      [2, 1],
-      [2, 2],
-    ],
-    [
-      [1, 1],
-      [2, 1],
-      [0, 2],
-      [1, 2],
-    ],
-    [
-      [0, 0],
-      [0, 1],
-      [1, 1],
-      [1, 2],
-    ],
-  ],
-  Z: [
-    [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [2, 0],
-      [1, 1],
-      [2, 1],
-      [1, 2],
-    ],
-    [
-      [0, 1],
-      [1, 1],
-      [1, 2],
-      [2, 2],
-    ],
-    [
-      [1, 0],
-      [0, 1],
-      [1, 1],
-      [0, 2],
-    ],
-  ],
-  J: [
-    [
-      [0, 0],
-      [0, 1],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [1, 0],
-      [2, 0],
-      [1, 1],
-      [1, 2],
-    ],
-    [
-      [0, 1],
-      [1, 1],
-      [2, 1],
-      [2, 2],
-    ],
-    [
-      [1, 0],
-      [1, 1],
-      [0, 2],
-      [1, 2],
-    ],
-  ],
-  L: [
-    [
-      [2, 0],
-      [0, 1],
-      [1, 1],
-      [2, 1],
-    ],
-    [
-      [1, 0],
-      [1, 1],
-      [1, 2],
-      [2, 2],
-    ],
-    [
-      [0, 1],
-      [1, 1],
-      [2, 1],
-      [0, 2],
-    ],
-    [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [1, 2],
-    ],
-  ],
-};
+export const SCORE_TABLE = ENGINE_SCORE.line;
 
-export const SCORE_TABLE = [0, 100, 300, 500, 800];
+export const ATTACK_TABLE = Object.freeze({
+  0: ENGINE_ATTACK.line[0],
+  1: ENGINE_ATTACK.line[1],
+  2: ENGINE_ATTACK.line[2],
+  3: ENGINE_ATTACK.line[3],
+  4: ENGINE_ATTACK.line[4],
+});
 
-export const ATTACK_TABLE = {
-  0: 0,
-  1: 0,
-  2: 1,
-  3: 2,
-  4: 4,
-};
-
-export const ADVANCED_SCORING = {
-  line: {
-    0: 0,
-    1: 100,
-    2: 300,
-    3: 500,
-    4: 800,
-  },
-  tSpin: {
-    0: 400,
-    1: 800,
-    2: 1200,
-    3: 1600,
-  },
-  tSpinMini: {
-    0: 100,
-    1: 200,
-  },
-  combo: [0, 0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500],
-  perfectClear: {
-    0: 0,
-    1: 800,
-    2: 1200,
-    3: 1800,
-    4: 2000,
-  },
+export const ADVANCED_SCORING = Object.freeze({
+  line: Object.freeze({ ...ENGINE_SCORE.line }),
+  tSpin: Object.freeze({ ...ENGINE_SCORE.tSpin }),
+  tSpinMini: Object.freeze({ ...ENGINE_SCORE.tSpinMini }),
+  combo: ENGINE_SCORE.combo,
+  perfectClear: Object.freeze({ ...ENGINE_SCORE.perfectClear }),
   backToBackMultiplier: 1.5,
-};
+});
 
-export const ADVANCED_ATTACK = {
-  line: {
-    0: 0,
-    1: 0,
-    2: 1,
-    3: 2,
-    4: 4,
-  },
-  tSpin: {
-    0: 0,
-    1: 2,
-    2: 4,
-    3: 6,
-  },
-  tSpinMini: {
-    0: 0,
-    1: 1,
-  },
-  combo: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5],
-  perfectClear: {
-    0: 0,
-    1: 4,
-    2: 6,
-    3: 8,
-    4: 10,
-  },
+export const ADVANCED_ATTACK = Object.freeze({
+  line: Object.freeze({ ...ENGINE_ATTACK.line }),
+  tSpin: Object.freeze({ ...ENGINE_ATTACK.tSpin }),
+  tSpinMini: Object.freeze({ ...ENGINE_ATTACK.tSpinMini }),
+  combo: ENGINE_ATTACK.combo,
+  perfectClear: Object.freeze({ ...ENGINE_ATTACK.perfectClear }),
   backToBackBonus: 1,
-};
+});
 
-export const SRS_KICKS = {
-  normal: {
-    "0>1": [
-      [0, 0],
-      [-1, 0],
-      [-1, 1],
-      [0, -2],
-      [-1, -2],
-    ],
-    "1>0": [
-      [0, 0],
-      [1, 0],
-      [1, -1],
-      [0, 2],
-      [1, 2],
-    ],
-    "1>2": [
-      [0, 0],
-      [1, 0],
-      [1, -1],
-      [0, 2],
-      [1, 2],
-    ],
-    "2>1": [
-      [0, 0],
-      [-1, 0],
-      [-1, 1],
-      [0, -2],
-      [-1, -2],
-    ],
-    "2>3": [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, -2],
-      [1, -2],
-    ],
-    "3>2": [
-      [0, 0],
-      [-1, 0],
-      [-1, -1],
-      [0, 2],
-      [-1, 2],
-    ],
-    "3>0": [
-      [0, 0],
-      [-1, 0],
-      [-1, -1],
-      [0, 2],
-      [-1, 2],
-    ],
-    "0>3": [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, -2],
-      [1, -2],
-    ],
-  },
-  I: {
-    "0>1": [
-      [0, 0],
-      [-2, 0],
-      [1, 0],
-      [-2, -1],
-      [1, 2],
-    ],
-    "1>0": [
-      [0, 0],
-      [2, 0],
-      [-1, 0],
-      [2, 1],
-      [-1, -2],
-    ],
-    "1>2": [
-      [0, 0],
-      [-1, 0],
-      [2, 0],
-      [-1, 2],
-      [2, -1],
-    ],
-    "2>1": [
-      [0, 0],
-      [1, 0],
-      [-2, 0],
-      [1, -2],
-      [-2, 1],
-    ],
-    "2>3": [
-      [0, 0],
-      [2, 0],
-      [-1, 0],
-      [2, 1],
-      [-1, -2],
-    ],
-    "3>2": [
-      [0, 0],
-      [-2, 0],
-      [1, 0],
-      [-2, -1],
-      [1, 2],
-    ],
-    "3>0": [
-      [0, 0],
-      [1, 0],
-      [-2, 0],
-      [1, -2],
-      [-2, 1],
-    ],
-    "0>3": [
-      [0, 0],
-      [-1, 0],
-      [2, 0],
-      [-1, 2],
-      [2, -1],
-    ],
-  },
-};
-
-export const TIMING = {
+export const TIMING = Object.freeze({
   FRAME_MS: 16.67,
   GRAVITY_BASE: 1,
   dasMs: 140,
@@ -386,50 +49,50 @@ export const TIMING = {
   ARR_MS: 36,
   SOFT_DROP_LOCK_MS: 80,
   MAX_FRAME_DELTA_MS: 80,
-};
+});
 
-export const PHYSICS = {
+export const PHYSICS = Object.freeze({
   SOFT_DROP_SPEED: 1,
   HARD_DROP_SCORE_PER_CELL: 2,
   MIN_DROP_INTERVAL_MS: 70,
   BASE_DROP_INTERVAL_MS: 760,
   RELAXED_DROP_BONUS_MS: 180,
   LEVEL_DROP_STEP_MS: 42,
-};
+});
 
-export const FLOW_STATE = {
+export const FLOW_STATE = Object.freeze({
   MENU: "menu",
   PLAYING: "playing",
   PAUSED: "paused",
   GAME_OVER: "gameOver",
-};
+});
 
-export const PROGRESSION = {
+export const PROGRESSION = Object.freeze({
   TIME_SPEED_STEP_MS: 12_000,
   TIME_SPEED_STEP_DROP_MS: 12,
   TIME_SPEED_MAX_DROP_MS: 150,
   SURVIVAL_STREAK_STEP_MS: 10_000,
   SURVIVAL_STREAK_SCORE: 12,
   MAX_STREAK_SCORE_BONUS: 220,
-};
+});
 
-export const UI = {
+export const UI = Object.freeze({
   TOAST_DURATION_MS: 1800,
   ANIMATION_DURATION_MS: 300,
   COMBO_DECAY_MS: 1000,
   FLASH_DECAY_MS: 320,
   FLASH_GROW_MS: 140,
-};
+});
 
-export const SCORING_THRESHOLDS = {
+export const SCORING_THRESHOLDS = Object.freeze({
   PLAYER: 1200,
   PRO: 3500,
   MASTER: 7000,
   LEGEND: 12000,
-};
+});
 
-export const DEFAULT_TIMING = {
+export const DEFAULT_TIMING = Object.freeze({
   dasMs: TIMING.DAS_MS,
   arrMs: TIMING.ARR_MS,
   lockDelayMs: TIMING.LOCK_DELAY_MS,
-};
+});
