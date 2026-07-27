@@ -813,7 +813,8 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
   }
 
   async function startDailyChallenge() {
-    const daily = (await loadServerDaily()) || null;
+    const daily =
+      (await createServerDailyRun()) || (await loadServerDaily()) || null;
     const key = daily?.date || localDateKey();
     const seed = daily?.seed ? `daily:${daily.seed}` : `daily:${key}`;
     startGame("classic", "normal", {
@@ -2208,6 +2209,38 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       };
       syncUi();
       if (ui.isOverlayVisible("statsOverlay")) renderStats();
+      return state.serverDaily;
+    } catch {
+      return null;
+    }
+  }
+
+  async function createServerDailyRun() {
+    if (!location.protocol.startsWith("http")) return null;
+    try {
+      const accountToken = state.capabilities.authEnabled
+        ? storage.loadAccountToken?.("")
+        : "";
+      const response = await fetch("/api/daily/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}),
+        },
+        body: JSON.stringify({
+          playerId: storage.loadRankedPlayerId("") || loadOrCreatePlayerId(),
+        }),
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      state.serverDaily = {
+        date: String(data.date || localDateKey()),
+        seed: String(data.seed || ""),
+        runToken: String(data.runToken || ""),
+        runSignature: String(data.runSignature || ""),
+        runExpiresAt: Number(data.runExpiresAt) || 0,
+        leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : [],
+      };
       return state.serverDaily;
     } catch {
       return null;
@@ -3630,9 +3663,15 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
         )
           pause();
       },
-      offline: () => showToast("Офлайн: одиночная игра доступна"),
+      offline: () =>
+        showToast(
+          onlineText(
+            "Офлайн: одиночная игра доступна",
+            "Offline: solo play is available",
+          ),
+        ),
       online: () => {
-        showToast("Сеть вернулась");
+        showToast(onlineText("Сеть вернулась", "Connection restored"));
         loadServerRecords();
         loadServerDaily();
         loadServerRanked();
@@ -3676,7 +3715,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
       navigator.serviceWorker
         .register("/sw.js")
         .then((registration) => {
-          showToast("Офлайн-кэш готовится");
+          showToast(
+            onlineText("Офлайн-кэш готовится", "Offline cache is preparing"),
+          );
           const offerUpdate = (worker) => {
             pendingServiceWorker = worker;
             ui.setPwaUpdateAvailable(true, state.running && !state.gameOver);
@@ -3710,7 +3751,9 @@ import { getGhostOverlayHeight, localDateKey } from "./utils.js";
     window.addEventListener("appinstalled", () => {
       deferredInstallPrompt = null;
       updateInstallButton();
-      showToast("Офлайн-версия установлена");
+      showToast(
+        onlineText("Офлайн-версия установлена", "Offline version installed"),
+      );
     });
   }
 

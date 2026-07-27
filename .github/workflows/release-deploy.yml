@@ -138,21 +138,39 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<EOF
           set -e
-          cd /opt/tetris
           DATA_DIR=/opt/blockdrop-data
           BACKUP_DIR="/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
-          cp -a /opt/tetris "\$BACKUP_DIR"
+          NEXT_DIR=\$(mktemp -d /opt/tetris-release.XXXXXX)
+          CUTOVER=0
           install -d -o tetris -g tetris -m 750 "\$DATA_DIR" "\$DATA_DIR/backups"
           rollback() {
-            echo "Deploy failed, rolling back to \$BACKUP_DIR"
-            systemctl stop tetris.service || true
-            rm -rf /opt/tetris.failed
-            mv /opt/tetris /opt/tetris.failed
-            cp -a "\$BACKUP_DIR" /opt/tetris
-            chown -R tetris:tetris /opt/tetris
-            systemctl restart tetris.service
+            set +e
+            echo "Deploy failed; cutover=\$CUTOVER"
+            if [ "\$CUTOVER" = "1" ] && [ -d "\$BACKUP_DIR" ]; then
+              systemctl stop tetris.service || true
+              FAILED_DIR="/opt/tetris_failed_\$(date +%Y%m%d_%H%M%S)"
+              if [ -d /opt/tetris ]; then mv /opt/tetris "\$FAILED_DIR"; fi
+              mv "\$BACKUP_DIR" /opt/tetris
+              chown -R tetris:tetris /opt/tetris
+              systemctl restart tetris.service
+            elif [ -n "\$NEXT_DIR" ]; then
+              case "\$NEXT_DIR" in
+                /opt/tetris-release.*) rm -rf -- "\$NEXT_DIR" ;;
+              esac
+            fi
           }
           trap rollback ERR
+
+          git -C /opt/tetris fetch origin --tags
+          git clone --local --no-hardlinks /opt/tetris "\$NEXT_DIR"
+          git -C "\$NEXT_DIR" checkout --detach "$DEPLOY_REF"
+          ACTUAL_REVISION=\$(git -C "\$NEXT_DIR" rev-parse HEAD)
+          test "\$ACTUAL_REVISION" = "$EXPECTED_REVISION"
+          printf '%s\n' "\$ACTUAL_REVISION" > "\$NEXT_DIR/REVISION"
+          cd "\$NEXT_DIR"
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 20 || (major === 20 && minor < 19)) process.exit(1)'
+          npm ci
+
           systemctl stop tetris.service
           if [ ! -f "\$DATA_DIR/blockdrop.sqlite" ] && [ -f /opt/tetris/blockdrop.sqlite ]; then
             cp -a /opt/tetris/blockdrop.sqlite* "\$DATA_DIR/"
@@ -165,18 +183,28 @@ jobs:
           if [ -f "\$DATA_DIR/blockdrop.sqlite" ]; then
             BLOCKDROP_DB_FILE="\$DATA_DIR/blockdrop.sqlite" BLOCKDROP_BACKUP_DIR="\$DATA_DIR/backups" npm run db:backup
           fi
+          mv /opt/tetris "\$BACKUP_DIR"
+          CUTOVER=1
+          mv "\$NEXT_DIR" /opt/tetris
+          NEXT_DIR=""
+          cd /opt/tetris
           install -m 644 deploy/blockdrop-backup.service /etc/systemd/system/blockdrop-backup.service
           install -m 644 deploy/blockdrop-backup.timer /etc/systemd/system/blockdrop-backup.timer
           install -d -m 755 /etc/systemd/system/tetris.service.d
           printf '[Service]\nEnvironment=BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite\n' > /etc/systemd/system/tetris.service.d/blockdrop.conf
           systemctl daemon-reload
-          git rev-parse HEAD > REVISION
-          BLOCKDROP_DB_FILE=/tmp/blockdrop-verify.sqlite BLOCKDROP_DEPLOY_REASON=github-actions npm run verify
           chown -R tetris:tetris /opt/tetris
           systemctl restart tetris.service
           systemctl enable --now blockdrop-backup.timer
-          curl --fail http://127.0.0.1/health/live
-          curl --fail http://127.0.0.1/health/ready
+          READY=0
+          for attempt in \$(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1/health/live >/dev/null && curl --silent --fail http://127.0.0.1/health/ready >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "\$READY" = "1"
           curl --fail http://127.0.0.1/metrics
           trap - ERR
           EOF

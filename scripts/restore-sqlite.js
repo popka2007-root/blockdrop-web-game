@@ -13,6 +13,18 @@ function parseArgs(argv) {
   return options;
 }
 
+function syncDirectory(file) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(path.dirname(file), "r");
+    fs.fsyncSync(descriptor);
+  } catch {
+    // Directory fsync is not supported on every platform (notably Windows).
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 function restoreDatabase({
   backup,
   target,
@@ -30,23 +42,50 @@ function restoreDatabase({
       "Refusing to overwrite the live database without --allow-live-target",
     );
   }
-  if (fs.existsSync(targetFile) && !force) {
-    throw new Error(`Restore target already exists: ${targetFile}`);
+  const targetArtifacts = [targetFile, `${targetFile}-wal`, `${targetFile}-shm`];
+  const existingArtifacts = targetArtifacts.filter((file) => fs.existsSync(file));
+  if (existingArtifacts.length && !force) {
+    throw new Error(`Restore target already exists: ${existingArtifacts[0]}`);
   }
   verifyDatabase(backupFile);
   fs.mkdirSync(path.dirname(targetFile), { recursive: true, mode: 0o750 });
   const temporaryFile = `${targetFile}.restore-${process.pid}`;
+  const rollbackSuffix = `.before-restore-${new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")}`;
+  const displaced = [];
   try {
     fs.copyFileSync(backupFile, temporaryFile);
     verifyDatabase(temporaryFile);
-    if (fs.existsSync(targetFile)) fs.unlinkSync(targetFile);
-    fs.renameSync(temporaryFile, targetFile);
-    fs.chmodSync(targetFile, 0o600);
+    try {
+      for (const file of existingArtifacts) {
+        const rollbackFile = `${file}${rollbackSuffix}`;
+        fs.renameSync(file, rollbackFile);
+        displaced.push({ file, rollbackFile });
+      }
+      fs.renameSync(temporaryFile, targetFile);
+      fs.chmodSync(targetFile, 0o600);
+      syncDirectory(targetFile);
+      verifyDatabase(targetFile);
+    } catch (error) {
+      if (fs.existsSync(targetFile)) fs.unlinkSync(targetFile);
+      for (const entry of [...displaced].reverse()) {
+        if (fs.existsSync(entry.rollbackFile)) {
+          fs.renameSync(entry.rollbackFile, entry.file);
+        }
+      }
+      syncDirectory(targetFile);
+      throw error;
+    }
   } finally {
     if (fs.existsSync(temporaryFile)) fs.unlinkSync(temporaryFile);
   }
-  verifyDatabase(targetFile);
-  return { backup: backupFile, target: targetFile, status: "ok" };
+  return {
+    backup: backupFile,
+    target: targetFile,
+    rollbackFiles: displaced.map((entry) => entry.rollbackFile),
+    status: "ok",
+  };
 }
 
 if (require.main === module) {

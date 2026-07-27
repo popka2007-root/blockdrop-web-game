@@ -525,7 +525,15 @@ describe("server store", () => {
       consented: true,
     });
     store.db.prepare("UPDATE analytics_events SET expires_at = ?").run(expiredAt);
+    const expiredRun = store.createDailyRun({
+      dateKey: "2026-07-20",
+      playerId: "expired-player",
+    });
+    store.db
+      .prepare("UPDATE daily_runs SET expires_at = ? WHERE token = ?")
+      .run(expiredAt, expiredRun.token);
     expect(store.pruneExpiredProductData()).toEqual({
+      dailyRuns: 1,
       matches: 1,
       replays: 1,
       analytics: 1,

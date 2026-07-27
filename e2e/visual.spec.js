@@ -47,9 +47,10 @@ for (const theme of THEMES) {
     await page.goto("/");
     await capture(page, theme, "start");
 
+    await page.locator("#startButton").click();
+    await page.locator("#pauseButton").click();
+    await expect(page.locator("#pauseOverlay")).toBeVisible();
     await page.evaluate(() => {
-      document.querySelector("#startButton").click();
-      document.querySelector("#pauseButton").click();
       document.querySelector("#pauseOverlay").hidden = true;
     });
     await capture(page, theme, "gameplay");

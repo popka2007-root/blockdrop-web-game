@@ -1296,7 +1296,7 @@ export function createUi(options = {}) {
       ? dailyLeaderboard
           .map(
             (entry, index) =>
-              `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.name)} В· ${entry.lines}L В· ${escapeHtml(entry.time)}</span><span>${entry.score}</span></div>`,
+              `<div class="score-row"><span>${index + 1}. ${escapeHtml(entry.name)} · ${entry.lines}L · ${escapeHtml(entry.time)}</span><span>${entry.score}</span></div>`,
           )
           .join("")
       : `<div class="score-row"><span>${text.noDailyRuns}</span><span>—</span></div>`;

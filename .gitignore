@@ -5,3 +5,5 @@ blockdrop.sqlite*
 test-results/
 playwright-report/
 coverage/
+screenshots/
+node_modules_failed_second/

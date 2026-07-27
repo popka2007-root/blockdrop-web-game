@@ -11,6 +11,7 @@ module.exports = defineConfig({
         "shared/protocol.js",
         "server-auth.js",
         "server-observability.js",
+        "server-transport.js",
       ],
       reporter: ["text", "json-summary"],
       thresholds: {

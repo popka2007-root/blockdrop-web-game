@@ -24,13 +24,14 @@
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || ^22.13.0 || >=24"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.53.0",
     "@vitest/coverage-v8": "^4.1.5",
-    "eslint": "^9.25.1",
+    "eslint": "^10.8.0",
     "globals": "^15.15.0",
     "prettier": "^3.3.3",
     "vitest": "^4.1.5"

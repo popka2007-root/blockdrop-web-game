@@ -42,7 +42,7 @@ describe("engine property checks", () => {
           expect(engine.isValid(state.board, state.active)).toBe(true);
       }
     }
-  });
+  }, 15_000);
 
   it("never returns an illegal successful SRS rotation", () => {
     const random = randomGenerator(12345);

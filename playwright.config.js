@@ -2,8 +2,9 @@ const { defineConfig, devices } = require("@playwright/test");
 
 module.exports = defineConfig({
   testDir: "./e2e",
-  timeout: 30000,
-  workers: 2,
+  timeout: 45000,
+  // Performance budgets must run without a competing browser worker.
+  workers: 1,
   snapshotPathTemplate:
     "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
   use: {

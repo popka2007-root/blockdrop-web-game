@@ -42,7 +42,7 @@ npm start
 ```
 
 Откройте `http://localhost:8787`. Для отдельной production-БД задайте
-`BLOCKDROP_DB_PATH`; рекомендуемый путь на VPS — `/opt/blockdrop-data/blockdrop.sqlite`.
+`BLOCKDROP_DB_FILE`; рекомендуемый путь на VPS — `/opt/blockdrop-data/blockdrop.sqlite`.
 
 ## Проверки и эксплуатация
 

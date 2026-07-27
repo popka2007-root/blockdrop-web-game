@@ -20,7 +20,12 @@ reverse proxy. Рабочая копия приложения находится
    `BLOCKDROP_METRICS_TOKEN` endpoint принимает только прямые loopback-запросы и
    отклоняет запросы с proxy-заголовками. Для удалённого Prometheus задайте
    длинный случайный токен и передавайте его как Bearer token.
-5. Установите `deploy/blockdrop-backup.service` и
+5. Привяжите Node.js к loopback-интерфейсу или закройте порт приложения
+   firewall. Если HTTPS завершается на локальном reverse proxy, задайте
+   `BLOCKDROP_TRUST_PROXY=true`. Для удалённого proxy дополнительно перечислите
+   его адреса через `BLOCKDROP_TRUSTED_PROXY_ADDRESSES`; заголовки
+   `X-Forwarded-*` от остальных адресов игнорируются.
+6. Установите `deploy/blockdrop-backup.service` и
    `deploy/blockdrop-backup.timer`, затем выполните:
 
    ```bash
@@ -89,8 +94,6 @@ npm run db:restore -- \
 
 ```bash
 systemctl stop tetris.service
-cp -a /opt/blockdrop-data/blockdrop.sqlite \
-  /opt/blockdrop-data/blockdrop.sqlite.before-restore
 npm run db:restore -- \
   --backup /opt/blockdrop-data/backups/daily/blockdrop-YYYY-MM-DD.sqlite \
   --target /opt/blockdrop-data/blockdrop.sqlite \
@@ -102,7 +105,9 @@ curl --fail http://127.0.0.1/health/live
 curl --fail http://127.0.0.1/health/ready
 ```
 
-Не удаляйте `blockdrop.sqlite.before-restore` до проверки данных и smoke-теста.
+Restore атомарно отодвигает прежние SQLite/WAL/SHM в файлы с суффиксом
+`.before-restore-<timestamp>` и выводит их пути в `rollbackFiles`. Не удаляйте
+их до проверки данных и smoke-теста.
 
 ## Health endpoints
 

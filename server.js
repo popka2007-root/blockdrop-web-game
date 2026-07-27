@@ -6,6 +6,10 @@ const QRCode = require("qrcode");
 const { WebSocket, WebSocketServer } = require("ws");
 const { createMetrics, createLogger } = require("./server-observability");
 const {
+  clientAddress,
+  isSensitiveTransportAllowed,
+} = require("./server-transport");
+const {
   RANKED_MAX_RATING,
   RANKED_MIN_RATING,
   createServerStore,
@@ -183,7 +187,12 @@ const server = http.createServer((req, res) => {
   }
 
   if (requestUrl.pathname === "/api/daily") {
-    handleDailyApi(req, res, requestUrl);
+    handleDailyApi(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/daily/run") {
+    handleDailyRunApi(req, res);
     return;
   }
 
@@ -638,7 +647,7 @@ function handleRecordsApi(req, res) {
     if (body.length > 4096) req.destroy();
   });
   req.on("end", () => {
-    let data = {};
+    let data;
     try {
       data = JSON.parse(body || "{}");
     } catch {
@@ -674,24 +683,16 @@ function handleRecordsApi(req, res) {
   });
 }
 
-function handleDailyApi(req, res, requestUrl) {
+function handleDailyApi(req, res) {
   if (req.method === "GET" || req.method === "HEAD") {
     const dateKey = serverDateKey();
-    if (!allowHttpRequest(req, "daily-start", 60, HTTP_RATE_WINDOW_MS)) {
+    if (!allowHttpRequest(req, "daily-read", 120, HTTP_RATE_WINDOW_MS)) {
       sendRateLimited(res);
       return;
     }
-    const account = isSensitiveTransportAllowed(req)
-      ? accountFromRequest(req)
-      : null;
-    const playerId = cleanPlayerId(requestUrl.searchParams.get("playerId"));
-    const run = store.createDailyRun({ dateKey, account, playerId });
     const payload = {
       date: dateKey,
       seed: store.getOrCreateDailySeed(dateKey),
-      runToken: run.token,
-      runSignature: run.signature,
-      runExpiresAt: run.expiresAt,
       leaderboard: store.listDailyLeaderboard(dateKey),
     };
     if (req.method === "HEAD") {
@@ -722,7 +723,7 @@ function handleDailyApi(req, res, requestUrl) {
     if (body.length > 2 * 1024 * 1024) req.destroy();
   });
   req.on("end", () => {
-    let data = {};
+    let data;
     try {
       data = JSON.parse(body || "{}");
     } catch {
@@ -793,6 +794,37 @@ function handleDailyApi(req, res, requestUrl) {
   });
 }
 
+function handleDailyRunApi(req, res) {
+  if (req.method !== "POST") {
+    sendJson(res, { error: "Method not allowed" }, 405);
+    return;
+  }
+  if (!allowHttpRequest(req, "daily-start", 40, HTTP_RATE_WINDOW_MS)) {
+    sendRateLimited(res);
+    return;
+  }
+  readJsonRequest(req, res, 16 * 1024, (data) => {
+    const dateKey = serverDateKey();
+    const account = isSensitiveTransportAllowed(req)
+      ? accountFromRequest(req, data.accountToken)
+      : null;
+    const playerId = cleanPlayerId(data.playerId);
+    const run = store.createDailyRun({ dateKey, account, playerId });
+    sendJson(
+      res,
+      {
+        date: dateKey,
+        seed: store.getOrCreateDailySeed(dateKey),
+        runToken: run.token,
+        runSignature: run.signature,
+        runExpiresAt: run.expiresAt,
+        leaderboard: store.listDailyLeaderboard(dateKey),
+      },
+      201,
+    );
+  });
+}
+
 function handleAccountApi(req, res) {
   if (!isSensitiveTransportAllowed(req)) {
     sendJson(
@@ -833,7 +865,7 @@ function handleAccountApi(req, res) {
     if (body.length > 4096) req.destroy();
   });
   req.on("end", () => {
-    let data = {};
+    let data;
     try {
       data = JSON.parse(body || "{}");
     } catch {
@@ -1138,42 +1170,6 @@ function writeHead(res, status, headers = {}) {
     "X-Request-Id": res.blockdropRequestId || crypto.randomUUID(),
     ...headers,
   });
-}
-
-function requestHostName(req) {
-  const host = String(req.headers.host || "").trim();
-  if (!host) return "";
-  try {
-    return new URL(`http://${host}`).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function isSensitiveTransportAllowed(req) {
-  if (process.env.BLOCKDROP_ALLOW_INSECURE_AUTH === "true") return true;
-  if (req.socket?.encrypted) return true;
-  if (process.env.BLOCKDROP_TRUST_PROXY === "true") {
-    const forwardedProtocol = String(req.headers["x-forwarded-proto"] || "")
-      .split(",")[0]
-      .trim()
-      .toLowerCase();
-    if (forwardedProtocol === "https") return true;
-  }
-  const hostname = requestHostName(req);
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-  );
-}
-
-function clientAddress(req) {
-  if (process.env.BLOCKDROP_TRUST_PROXY === "true") {
-    const forwardedAddress = String(req.headers["x-forwarded-for"] || "")
-      .split(",")[0]
-      .trim();
-    if (forwardedAddress) return forwardedAddress.slice(0, 80);
-  }
-  return String(req.socket?.remoteAddress || "unknown").slice(0, 80);
 }
 
 function allowHttpRequest(req, bucketName, max, windowMs) {
@@ -3076,6 +3072,52 @@ store.insertDeployAudit({
   version: readPackageMeta().version,
   reason: process.env.BLOCKDROP_DEPLOY_REASON || "startup",
 });
+
+let shutdownStarted = false;
+
+function closeStoreAndExit(code) {
+  try {
+    store.db.pragma("wal_checkpoint(TRUNCATE)");
+  } catch (error) {
+    logger.error("shutdown_checkpoint_failed", {
+      error: String(error?.message || error).slice(0, 240),
+    });
+  }
+  try {
+    store.db.close();
+  } catch {
+    // The store may already be closed by a completed shutdown callback.
+  }
+  process.exit(code);
+}
+
+function shutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  logger.info("server_shutdown_started", { signal });
+  clearInterval(operationalMetricsTimer);
+  clearInterval(roomMetricsTimer);
+  clearInterval(productDataPruneTimer);
+  for (const room of rooms.values()) stopAuthoritativeMatch(room);
+  for (const socket of webSocketServer.clients) {
+    try {
+      socket.close(1012, "Server restart");
+    } catch {
+      socket.terminate();
+    }
+  }
+  webSocketServer.close();
+  server.close(() => closeStoreAndExit(0));
+  server.closeIdleConnections?.();
+  const deadline = setTimeout(() => {
+    server.closeAllConnections?.();
+    closeStoreAndExit(1);
+  }, 5000);
+  deadline.unref();
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
 
 server.listen(PORT, () => {
   updateLiveMetrics();

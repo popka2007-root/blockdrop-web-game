@@ -102,12 +102,16 @@ async function smokeAccountAndDaily(page, capabilities) {
     );
   }
 
-  const dailyResponse = await page.request.get(`${targetUrl}/api/daily`, {
+  const dailyResponse = await page.request.post(`${targetUrl}/api/daily/run`, {
     headers: account?.token
       ? { Authorization: `Bearer ${account.token}` }
       : undefined,
+    data: { playerId: "smoke" },
   });
-  assert(dailyResponse.ok(), `/api/daily returned ${dailyResponse.status()}`);
+  assert(
+    dailyResponse.ok(),
+    `/api/daily/run returned ${dailyResponse.status()}`,
+  );
   const daily = await dailyResponse.json();
   assert(daily.runToken && daily.runSignature, "daily run signature missing");
   const dailyRun = buildDailyReplay(daily.seed);
