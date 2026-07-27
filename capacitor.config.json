@@ -1,5 +1,5 @@
 {
   "appId": "com.blockdrop.game",
   "appName": "BlockDrop",
-  "webDir": "dist"
+  "webDir": "www"
 }
