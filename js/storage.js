@@ -88,8 +88,10 @@ export function saveMatchHistoryEntry(
   key = "blockdrop-online-match-history-v1",
   storage = globalThis.localStorage,
 ) {
-  const history = [normalizeMatchHistoryEntry(entry), ...loadMatchHistory(key, storage)]
-    .slice(0, 10);
+  const history = [
+    normalizeMatchHistoryEntry(entry),
+    ...loadMatchHistory(key, storage),
+  ].slice(0, 10);
   saveJson(key, history, storage);
   return history;
 }
@@ -127,6 +129,24 @@ export function saveOnlineStats(
 }
 
 export function createGameStorage(keys, storage = globalThis.localStorage) {
+  function archive(key, value, reason) {
+    if (!key || value == null) return;
+    const existing = loadJson(key, [], storage);
+    const entries = Array.isArray(existing) ? existing : [];
+    saveJson(
+      key,
+      [
+        {
+          archivedAt: new Date().toISOString(),
+          reason: String(reason || "invalidData").slice(0, 64),
+          value,
+        },
+        ...entries,
+      ].slice(0, 5),
+      storage,
+    );
+  }
+
   return {
     loadSettings(fallback = {}) {
       return loadJson(keys.settings, fallback, storage);
@@ -152,6 +172,20 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     saveGhostRun(value) {
       saveJson(keys.ghostRun, value, storage);
     },
+    archiveGhostRun(value, reason) {
+      archive(keys.ghostArchive, value, reason);
+      removeItem(keys.ghostRun, storage);
+    },
+    loadReplay(fallback = null) {
+      return loadJson(keys.replay, fallback, storage);
+    },
+    saveReplay(value) {
+      saveJson(keys.replay, value, storage);
+    },
+    archiveReplay(value, reason) {
+      archive(keys.replayArchive, value, reason);
+      removeItem(keys.replay, storage);
+    },
     loadAchievements(fallback = {}) {
       return loadJson(keys.achievements, fallback, storage);
     },
@@ -163,6 +197,13 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     },
     saveGame(value) {
       saveJson(keys.save, value, storage);
+    },
+    archiveSave(value, reason) {
+      archive(keys.saveArchive, value, reason);
+      removeItem(keys.save, storage);
+    },
+    loadSaveArchive(fallback = []) {
+      return loadJson(keys.saveArchive, fallback, storage);
     },
     clearSave() {
       removeItem(keys.save, storage);
@@ -223,6 +264,24 @@ export function createGameStorage(keys, storage = globalThis.localStorage) {
     },
     saveOnlineStats(result) {
       return saveOnlineStats(result, keys.onlineStats, storage);
+    },
+    loadOnboarding(fallback = null) {
+      return loadJson(keys.onboarding, fallback, storage);
+    },
+    saveOnboarding(value) {
+      saveJson(keys.onboarding, value, storage);
+    },
+    loadProfile(fallback = {}) {
+      return loadJson(keys.profile, fallback, storage);
+    },
+    saveProfile(value) {
+      saveJson(keys.profile, value, storage);
+    },
+    loadAnalyticsConsent(fallback = false) {
+      return loadJson(keys.analyticsConsent, fallback, storage) === true;
+    },
+    saveAnalyticsConsent(value) {
+      saveJson(keys.analyticsConsent, Boolean(value), storage);
     },
   };
 }

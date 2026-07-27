@@ -18,6 +18,7 @@ export const {
   createLocalPlayerId,
   sanitizeBoardPreview,
   buildJoinMessage,
+  buildInputMessage,
   buildUpdateMessage,
   buildTournamentMessage,
   buildPingMessage,
@@ -133,7 +134,10 @@ export function buildRoomInviteText(locationLike, room, language = "ru") {
     : `Заходи в комнату BlockDrop ${safeRoom}: ${url}`;
 }
 
-export async function copyTextToClipboard(text, documentLike = globalThis.document) {
+export async function copyTextToClipboard(
+  text,
+  documentLike = globalThis.document,
+) {
   if (!text) return false;
   try {
     if (navigator.clipboard && globalThis.isSecureContext) {
@@ -146,9 +150,7 @@ export async function copyTextToClipboard(text, documentLike = globalThis.docume
   const textarea = documentLike.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  textarea.style.top = "0";
+  textarea.className = "clipboard-fallback";
   documentLike.body.appendChild(textarea);
   textarea.focus();
   textarea.select();
@@ -187,6 +189,18 @@ export function createOnlineClient() {
     lastSentAt: 0,
     pingTimer: 0,
     listeners: new Set(),
+    protocolVersion: 1,
+    authoritative: false,
+    reconnectToken: "",
+    reconnectGraceMs: 12000,
+    reconnectDeadline: 0,
+    reconnectAttempt: 0,
+    reconnectTimer: 0,
+    shouldReconnect: false,
+    connectOptions: null,
+    matchId: "",
+    pendingInputs: new Map(),
+    needsInputResend: false,
   };
 }
 
@@ -248,6 +262,13 @@ export function stopOnlinePing(client) {
 
 export function disconnectOnline(client) {
   stopOnlinePing(client);
+  if (client?.reconnectTimer) clearTimeout(client.reconnectTimer);
+  if (client) {
+    client.reconnectTimer = 0;
+    client.shouldReconnect = false;
+    client.connectOptions = null;
+    client.reconnectDeadline = 0;
+  }
   if (client?.socket) client.socket.close();
   if (!client) return;
   client.socket = null;
@@ -269,9 +290,12 @@ export function connectOnline(
     identityToken = "",
     accountToken = "",
     rankedQueue = false,
+    reconnectToken = "",
+    _reconnecting = false,
   },
 ) {
-  disconnectOnline(client);
+  if (!_reconnecting) disconnectOnline(client);
+  else stopOnlinePing(client);
   const socket = new WebSocket(server);
   client.socket = socket;
   client.room = normalizeRoomId(room);
@@ -281,10 +305,28 @@ export function connectOnline(
   client.playerId = normalizePlayerId(playerId);
   client.identityToken = normalizeIdentityToken(identityToken);
   client.accountToken = normalizeIdentityToken(accountToken);
+  client.shouldReconnect = true;
+  client.connectOptions = {
+    server,
+    room,
+    name,
+    maxPlayers,
+    durationSec,
+    mode,
+    ranked,
+    playerId,
+    identityToken,
+    accountToken,
+    rankedQueue,
+  };
+  if (reconnectToken)
+    client.reconnectToken = normalizeIdentityToken(reconnectToken);
 
   socket.addEventListener("open", () => {
+    if (client.socket !== socket) return;
     client.connected = true;
     client.reconnecting = false;
+    client.reconnectAttempt = 0;
     sendOnlineMessage(
       client,
       buildJoinMessage({
@@ -298,6 +340,7 @@ export function connectOnline(
         identityToken: client.identityToken,
         accountToken: client.accountToken,
         rankedQueue,
+        reconnectToken: client.reconnectToken,
       }),
     );
     startOnlinePing(client);
@@ -317,6 +360,35 @@ export function connectOnline(
         return;
       }
       if (payload.type === "role") client.role = payload.role || "player";
+      if (payload.type === "protocol") {
+        client.protocolVersion = Number(payload.selectedVersion) || 1;
+        client.authoritative = Boolean(payload.authoritative);
+        client.reconnectToken = normalizeIdentityToken(
+          payload.reconnectToken || client.reconnectToken,
+        );
+        client.reconnectGraceMs = Math.max(
+          1000,
+          Number(payload.reconnectGraceMs) || 12000,
+        );
+        client.reconnectDeadline = 0;
+      }
+      if (payload.type === "matchStart" || payload.type === "rematchStart") {
+        client.matchId = String(payload.matchId || payload.seed || "");
+        client.pendingInputs.clear();
+      }
+      if (payload.type === "match.snapshot") {
+        client.matchId = String(payload.matchId || client.matchId);
+        const ackSeq = Math.max(0, Number(payload.ackSeq) || 0);
+        for (const seq of client.pendingInputs.keys()) {
+          if (seq <= ackSeq) client.pendingInputs.delete(seq);
+        }
+        if (client.needsInputResend) {
+          client.needsInputResend = false;
+          for (const input of client.pendingInputs.values()) {
+            sendOnlineMessage(client, input);
+          }
+        }
+      }
       if (payload.type === "rankedProfile") {
         client.rating = Math.max(0, Math.floor(Number(payload.rating) || 1000));
         if (payload.identityToken) {
@@ -330,10 +402,13 @@ export function connectOnline(
   });
 
   socket.addEventListener("close", () => {
+    if (client.socket !== socket) return;
     stopOnlinePing(client);
     client.connected = false;
     client.socket = null;
+    client.needsInputResend = true;
     emitOnlineMessage(client, { type: "close" });
+    scheduleOnlineReconnect(client);
   });
 
   socket.addEventListener("error", () => {
@@ -341,4 +416,39 @@ export function connectOnline(
   });
 
   return socket;
+}
+
+export function sendAuthoritativeInput(client, input) {
+  if (!client?.authoritative || !client.matchId) return false;
+  const message = buildInputMessage({
+    ...input,
+    matchId: client.matchId,
+  });
+  if (!message.action) return false;
+  client.pendingInputs.set(message.seq, message);
+  return sendOnlineMessage(client, message);
+}
+
+function scheduleOnlineReconnect(client) {
+  if (!client?.shouldReconnect || !client.connectOptions) return;
+  if (!client.reconnectDeadline) {
+    client.reconnectDeadline = Date.now() + client.reconnectGraceMs;
+  }
+  if (Date.now() >= client.reconnectDeadline) {
+    client.shouldReconnect = false;
+    emitOnlineMessage(client, { type: "reconnectFailed" });
+    return;
+  }
+  client.reconnecting = true;
+  client.reconnectAttempt += 1;
+  const delay = Math.min(2000, 250 * 2 ** (client.reconnectAttempt - 1));
+  client.reconnectTimer = setTimeout(() => {
+    client.reconnectTimer = 0;
+    if (!client.shouldReconnect || !client.connectOptions) return;
+    connectOnline(client, {
+      ...client.connectOptions,
+      reconnectToken: client.reconnectToken,
+      _reconnecting: true,
+    });
+  }, delay);
 }

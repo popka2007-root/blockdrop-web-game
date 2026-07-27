@@ -11,6 +11,7 @@ import {
   onOnlineMessage,
   saveRankedIdentityToken,
   sendOnlineMessage,
+  sendAuthoritativeInput as sendV2Input,
   sendRematchReady,
   sendScoreUpdate,
 } from "./online.js";
@@ -37,6 +38,7 @@ export function createOnlineController({
   currentHeight,
   modeName,
   buildBoardPreview,
+  applyAuthoritativeSnapshot,
 }) {
   function emitOnlineEvent(type, detail = {}) {
     globalThis.dispatchEvent(
@@ -189,6 +191,11 @@ export function createOnlineController({
     );
   }
 
+  function joinOnlineRoom() {
+    ui.setOnlineRanked(false);
+    connectOnline();
+  }
+
   function disconnectOnline(show = true) {
     closeOnlineSocket(onlineClient);
     state.online.connected = false;
@@ -211,13 +218,20 @@ export function createOnlineController({
   }
 
   function connectOnline() {
-    const { server, name: rawName, ranked, maxPlayers, durationSec } =
-      ui.getOnlineForm();
+    const {
+      server,
+      name: rawName,
+      ranked,
+      maxPlayers,
+      durationSec,
+    } = ui.getOnlineForm();
     const room = ensureRoomCode();
     const name = (rawName || defaultPlayerName()).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
     const identityToken = loadRankedIdentityToken();
-    const accountToken = storage.loadAccountToken?.("") || loadAccountToken();
+    const accountToken = state.capabilities?.authEnabled
+      ? storage.loadAccountToken?.("") || loadAccountToken()
+      : "";
     const mode = normalizeModeKey(ui.getStartMode());
     storage.saveRankedPlayerId(playerId);
     storage.savePlayerName(name);
@@ -249,6 +263,15 @@ export function createOnlineController({
   }
 
   function findRankedMatch() {
+    if (!state.capabilities?.rankedEnabled) {
+      showToast(
+        onlineText(
+          "Ranked станет доступен после подключения HTTPS",
+          "Ranked play requires HTTPS",
+        ),
+      );
+      return;
+    }
     const accountToken = storage.loadAccountToken?.("") || loadAccountToken();
     if (!accountToken) {
       showToast(
@@ -259,8 +282,17 @@ export function createOnlineController({
       );
       return;
     }
-    const { server, name: rawName, maxPlayers, durationSec } = ui.getOnlineForm();
-    const name = (rawName || storage.loadAccountName?.("") || defaultPlayerName()).slice(0, 18);
+    const {
+      server,
+      name: rawName,
+      maxPlayers,
+      durationSec,
+    } = ui.getOnlineForm();
+    const name = (
+      rawName ||
+      storage.loadAccountName?.("") ||
+      defaultPlayerName()
+    ).slice(0, 18);
     const playerId = loadOrCreatePlayerId();
     const identityToken = loadRankedIdentityToken();
     const mode = normalizeModeKey(ui.getStartMode());
@@ -271,7 +303,9 @@ export function createOnlineController({
       state.online.name = name;
       state.online.ranked = true;
       ui.setOnlineRanked(true);
-      ui.setOnlineStatus(onlineText("Ищем ranked матч...", "Finding ranked match..."));
+      ui.setOnlineStatus(
+        onlineText("Ищем ranked матч...", "Finding ranked match..."),
+      );
       openOnlineSocket(onlineClient, {
         server,
         room: "RANKED",
@@ -310,7 +344,12 @@ export function createOnlineController({
   }
 
   function sendOnlineUpdate(force = false) {
-    if (!state.online.connected || !isOnlineSession()) return;
+    if (
+      !state.online.connected ||
+      !isOnlineSession() ||
+      onlineClient.authoritative
+    )
+      return;
     state.online.lastSent = performance.now();
     sendScoreUpdate(onlineClient, {
       room: state.online.room,
@@ -388,7 +427,9 @@ export function createOnlineController({
   onOnlineMessage(onlineClient, (data) => {
     if (data.type === "open") {
       state.online.connected = true;
-      ui.setOnlineStatus(onlineText(`Комната ${data.room}`, `Room ${data.room}`));
+      ui.setOnlineStatus(
+        onlineText(`Комната ${data.room}`, `Room ${data.room}`),
+      );
       if (globalThis.location.protocol.startsWith("http")) {
         globalThis.history.replaceState(null, "", roomInviteUrl(data.room));
       }
@@ -432,7 +473,9 @@ export function createOnlineController({
     }
 
     if (data.type === "queued") {
-      ui.setOnlineStatus(onlineText("Ожидание соперника...", "Waiting for opponent..."));
+      ui.setOnlineStatus(
+        onlineText("Ожидание соперника...", "Waiting for opponent..."),
+      );
       showToast(onlineText("Ranked очередь", "Ranked queue"));
       return;
     }
@@ -440,15 +483,26 @@ export function createOnlineController({
     if (data.type === "matchFound") {
       state.online.room = data.room || state.online.room;
       ui.setOnlineRoom(state.online.room);
-      ui.setOnlineStatus(onlineText(`Матч найден: ${state.online.room}`, `Match found: ${state.online.room}`));
+      ui.setOnlineStatus(
+        onlineText(
+          `Матч найден: ${state.online.room}`,
+          `Match found: ${state.online.room}`,
+        ),
+      );
       showToast(onlineText("Соперник найден", "Opponent found"));
       return;
     }
 
     if (data.type === "close") {
       state.online.connected = false;
-      if (isOnlineSession()) setSession({ type: "solo", source: "disconnect" });
-      ui.setOnlineStatus(onlineText("Отключено", "Disconnected"));
+      if (isOnlineSession() && !onlineClient.shouldReconnect) {
+        setSession({ type: "solo", source: "disconnect" });
+      }
+      ui.setOnlineStatus(
+        onlineClient.shouldReconnect
+          ? onlineText("Переподключение...", "Reconnecting...")
+          : onlineText("Отключено", "Disconnected"),
+      );
       renderOnlinePanel();
       updateOnlineControls();
       updateLayoutMetrics();
@@ -456,6 +510,37 @@ export function createOnlineController({
         room: state.online.room,
         role: onlineClient.role,
       });
+      return;
+    }
+
+    if (data.type === "protocol") {
+      state.online.authoritative = Boolean(data.authoritative);
+      state.online.protocolVersion = Number(data.selectedVersion) || 1;
+      emitOnlineEvent("protocol", {
+        protocolVersion: state.online.protocolVersion,
+        authoritative: state.online.authoritative,
+      });
+      return;
+    }
+
+    if (data.type === "match.snapshot") {
+      applyAuthoritativeSnapshot?.(data);
+      emitOnlineEvent("snapshot", {
+        matchId: data.matchId || "",
+        serverTick: Number(data.serverTick) || 0,
+        ackSeq: Number(data.ackSeq) || 0,
+      });
+      renderOnlinePanel();
+      return;
+    }
+
+    if (data.type === "match.event") {
+      emitOnlineEvent("matchEvent", data);
+      return;
+    }
+
+    if (data.type === "match.result") {
+      emitOnlineEvent("matchResult", data);
       return;
     }
 
@@ -478,7 +563,9 @@ export function createOnlineController({
     if (data.type === "state") {
       state.online.peers = data.players || {};
       state.online.tournament = data.tournament || null;
-      state.online.mode = normalizeModeKey(data.match?.mode || state.online.mode);
+      state.online.mode = normalizeModeKey(
+        data.match?.mode || state.online.mode,
+      );
       state.online.series = data.match?.series || null;
       state.online.ranked = Boolean(data.match?.ranked || state.online.ranked);
       state.online.rankedResult =
@@ -500,7 +587,9 @@ export function createOnlineController({
 
     if (data.type === "countdown") {
       emitOnlineEvent("countdown", { value: data.value || 0 });
-      showToast(onlineText(`PvP старт: ${data.value}`, `PvP starts: ${data.value}`));
+      showToast(
+        onlineText(`PvP старт: ${data.value}`, `PvP starts: ${data.value}`),
+      );
       return;
     }
 
@@ -574,6 +663,7 @@ export function createOnlineController({
     shareRoomLink,
     copyRoomLink,
     createFriendRoom,
+    joinOnlineRoom,
     connectOnline,
     findRankedMatch,
     disconnectOnline,
@@ -585,5 +675,8 @@ export function createOnlineController({
     renderOnlinePanel,
     sendOnlineUpdate,
     sendOnlineUpdateThrottled,
+    sendAuthoritativeInput(input) {
+      return sendV2Input(onlineClient, input);
+    },
   };
 }

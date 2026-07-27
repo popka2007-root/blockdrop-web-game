@@ -10,7 +10,9 @@ export function makeSessionState(next = {}) {
   return {
     ...DEFAULT_SESSION,
     ...next,
-    type: ["solo", "ai", "online"].includes(next.type) ? next.type : "solo",
+    type: ["solo", "ai", "online", "replay"].includes(next.type)
+      ? next.type
+      : "solo",
     room: String(next.room || ""),
     ranked: Boolean(next.ranked),
     matchId: String(next.matchId || ""),
@@ -25,4 +27,9 @@ export function isOnlineSession(stateOrSession) {
 export function isAiSession(stateOrSession) {
   const session = stateOrSession?.session || stateOrSession;
   return session?.type === "ai";
+}
+
+export function isReplaySession(stateOrSession) {
+  const session = stateOrSession?.session || stateOrSession;
+  return session?.type === "replay";
 }

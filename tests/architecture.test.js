@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { EventBus } from "../js/event-bus.js";
-import { GameState } from "../js/game-state.js";
+import { describe, expect, it } from "vitest";
 import {
   getModeConfig,
   getModeOptions,
@@ -13,6 +11,7 @@ import {
   localDateKey,
   validate,
 } from "../js/utils.js";
+import fs from "node:fs";
 
 describe("mode configuration", () => {
   it("normalizes known modes and legacy aliases", () => {
@@ -27,43 +26,6 @@ describe("mode configuration", () => {
     expect(getModeConfig("hardcore").speedMultiplier).toBeGreaterThan(1);
     expect(getModeConfig("timeAttack").timeLimit).toBe(120);
     expect(getModeOptions("en").map((mode) => mode.name)).toContain("40 Lines");
-  });
-});
-
-describe("event bus", () => {
-  it("emits regular and once-only handlers", () => {
-    const bus = new EventBus();
-    const regular = vi.fn();
-    const once = vi.fn();
-
-    bus.on("game:started", regular);
-    bus.once("game:started", once);
-    bus.emit("game:started", { mode: "classic" });
-    bus.emit("game:started", { mode: "sprint" });
-
-    expect(regular).toHaveBeenCalledTimes(2);
-    expect(once).toHaveBeenCalledTimes(1);
-  });
-
-  it("removes handlers", () => {
-    const bus = new EventBus();
-    const handler = vi.fn();
-    bus.on("settings:changed", handler);
-    bus.off("settings:changed", handler);
-    bus.emit("settings:changed", {});
-    expect(handler).not.toHaveBeenCalled();
-  });
-});
-
-describe("game state manager", () => {
-  it("starts from mode defaults and serializes the state", () => {
-    const state = new GameState(getModeConfig("sprint"));
-    state.updateScore(100);
-    state.updateLines(4);
-
-    expect(state.level).toBe(1);
-    expect(state.lines).toBe(4);
-    expect(state.toJSON().mode).toBe("sprint");
   });
 });
 
@@ -119,5 +81,36 @@ describe("utils", () => {
         elapsedMs: 7000,
       }),
     ).toBe(7);
+  });
+});
+
+describe("PWA update architecture", () => {
+  it("waits for an explicit safe-reload message before activating updates", () => {
+    const worker = fs.readFileSync(
+      new URL("../sw.js", import.meta.url),
+      "utf8",
+    );
+    const installHandler = worker.slice(
+      worker.indexOf('self.addEventListener("install"'),
+      worker.indexOf('self.addEventListener("message"'),
+    );
+    expect(installHandler).not.toContain("skipWaiting");
+    expect(worker).toContain('event.data?.type === "SKIP_WAITING"');
+    expect(worker).toContain("caches.delete");
+    expect(worker).toContain("/js/progression.js");
+    expect(worker).toContain("/js/analytics.js");
+  });
+});
+
+describe("strict CSP source gate", () => {
+  it("contains no inline style attributes or runtime style assignments", () => {
+    const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const browserSources = ["ui.js", "game.js", "online.js"].map((name) =>
+      fs.readFileSync(new URL(`../js/${name}`, import.meta.url), "utf8"),
+    );
+    expect(html).not.toMatch(/\sstyle\s*=/i);
+    for (const source of browserSources) {
+      expect(source).not.toMatch(/\.style\.|setAttribute\(["']style["']/);
+    }
   });
 });

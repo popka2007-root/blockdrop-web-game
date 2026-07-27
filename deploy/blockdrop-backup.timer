@@ -1,0 +1,11 @@
+[Unit]
+Description=Run BlockDrop SQLite backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=blockdrop-backup.service
+
+[Install]
+WantedBy=timers.target

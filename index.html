@@ -39,7 +39,13 @@
         <div class="status-card">
           <span>Цель</span>
           <b id="goalValue">Выжить</b>
-          <div class="progress"><i id="progressFill"></i></div>
+          <progress
+            class="progress"
+            id="progressFill"
+            max="100"
+            value="0"
+            aria-label="Прогресс цели"
+          ></progress>
         </div>
         <div class="status-card">
           <span>Ранг</span><b id="rankValue">Новичок</b>
@@ -49,10 +55,24 @@
       <section class="game-layout" id="gameLayout">
         <div class="board-shell" id="boardShell">
           <div class="danger-band"></div>
-          <canvas id="board" width="320" height="640"></canvas>
+          <canvas
+            id="board"
+            width="320"
+            height="640"
+            role="img"
+            tabindex="0"
+            aria-describedby="boardDescription"
+          ></canvas>
+          <p class="sr-only" id="boardDescription"></p>
         </div>
 
-        <aside class="side" id="sidePanel">
+        <aside
+          class="side"
+          id="sidePanel"
+          role="region"
+          tabindex="0"
+          aria-label="Игровая статистика и следующие фигуры"
+        >
           <div class="panel" id="nextPanel">
             <div class="panel-title">Дальше</div>
             <canvas class="preview" id="next1" width="76" height="76"></canvas>
@@ -90,6 +110,43 @@
         </aside>
       </section>
 
+      <section
+        class="onboarding-bar"
+        id="onboardingBar"
+        aria-live="polite"
+        hidden
+      >
+        <b id="onboardingTitle">Обучение</b>
+        <span id="onboardingInstruction"></span>
+        <progress id="onboardingProgress" max="4" value="0"></progress>
+        <button class="button" id="skipOnboardingButton" type="button">
+          Пропустить
+        </button>
+      </section>
+
+      <section class="replay-playback-bar" id="replayPlaybackBar" hidden>
+        <button class="button" id="replayPlaybackPause" type="button">
+          Пауза
+        </button>
+        <label for="replayPlaybackSpeed">Скорость</label>
+        <select class="select" id="replayPlaybackSpeed">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+        <label class="replay-seek-label" for="replayPlaybackSeek">
+          <span id="replayPlaybackStatus">0:00 / 0:00</span>
+          <input
+            id="replayPlaybackSeek"
+            type="range"
+            min="0"
+            max="0"
+            value="0"
+          />
+        </label>
+      </section>
+
       <section class="controls" id="controls">
         <div class="controls-row control-buttons">
           <button class="button" id="leftButton">←</button>
@@ -110,23 +167,11 @@
     <section class="overlay" id="startOverlay">
       <div class="modal">
         <div class="logo" aria-hidden="true">
-          <span style="background: #21d3f5"></span
-          ><span
-            style="background: transparent; border-color: transparent"
-          ></span
-          ><span
-            style="background: transparent; border-color: transparent"
-          ></span>
-          <span style="background: #ffd166"></span
-          ><span style="background: #ff6b6b"></span
-          ><span style="background: #7c4dff"></span>
-          <span
-            style="background: transparent; border-color: transparent"
-          ></span
-          ><span style="background: #22d699"></span
-          ><span
-            style="background: transparent; border-color: transparent"
-          ></span>
+          <span class="logo-cyan"></span><span class="logo-empty"></span
+          ><span class="logo-empty"></span> <span class="logo-yellow"></span
+          ><span class="logo-red"></span><span class="logo-purple"></span>
+          <span class="logo-empty"></span><span class="logo-green"></span
+          ><span class="logo-empty"></span>
         </div>
         <h1>BlockDrop</h1>
         <p class="muted">
@@ -327,6 +372,26 @@
           <button class="button" id="muteButton" type="button">
             Выключить звук
           </button>
+          <label class="check-row" id="analyticsConsentRow">
+            Анонимная аналитика
+            <input id="analyticsConsentToggle" type="checkbox" />
+          </label>
+          <p class="privacy-hint" id="analyticsPrivacyHint">
+            Только события экранов и партий, без поля, действий, паролей и IP.
+          </p>
+          <div class="legal-links">
+            <a
+              id="privacyLink"
+              href="/PRIVACY.md"
+              target="_blank"
+              rel="noopener"
+            >
+              Конфиденциальность
+            </a>
+            <a id="termsLink" href="/TERMS.md" target="_blank" rel="noopener">
+              Условия beta
+            </a>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="button primary" id="closeSettingsButton">
@@ -350,10 +415,29 @@
         <div class="leaderboard" id="rankedLeaderboard"></div>
         <h3>Достижения</h3>
         <div class="achievements" id="achievementsList"></div>
+        <h3 id="profileTitle">Профиль мастерства</h3>
+        <div class="profile-summary" id="profileSummary"></div>
+        <div class="quest-list" id="questList"></div>
+        <label class="setting" for="cosmeticSelect" id="cosmeticLabel">
+          Косметика
+          <select class="select" id="cosmeticSelect"></select>
+        </label>
+        <input
+          id="profileImportInput"
+          type="file"
+          accept="application/json,.json"
+          hidden
+        />
         <div class="modal-actions">
           <button class="button primary" id="closeStatsButton">Закрыть</button>
           <button class="button" id="shareStatsButton">
             Поделиться статистикой
+          </button>
+          <button class="button" id="exportProfileButton">
+            Экспорт прогресса
+          </button>
+          <button class="button" id="importProfileButton">
+            Импорт прогресса
           </button>
         </div>
       </div>
@@ -456,6 +540,18 @@
     <section class="overlay" id="onlineOverlay" hidden>
       <div class="modal">
         <h2>Онлайн-комната</h2>
+        <div class="online-flow-actions" role="group" aria-label="Онлайн режим">
+          <button
+            class="button primary"
+            id="createOnlineRoomButton"
+            type="button"
+          >
+            Создать комнату
+          </button>
+          <button class="button" id="joinOnlineRoomButton" type="button">
+            Войти по коду
+          </button>
+        </div>
         <div class="room-card">
           <div>
             <span>Код комнаты</span>
@@ -484,7 +580,11 @@
             />
           </div>
         </div>
-        <label class="toggle-row">
+        <p class="online-security-notice" id="onlineSecurityNotice" hidden>
+          Аккаунты и рейтинговые матчи включатся после подключения HTTPS.
+          Обычные комнаты уже доступны по текущему адресу.
+        </p>
+        <label class="toggle-row ranked-controls">
           <span id="onlineRankedLabel">Ranked PvP</span>
           <input id="onlineRankedToggle" type="checkbox" />
         </label>
@@ -508,6 +608,18 @@
               autocomplete="current-password"
               type="password"
               placeholder="8+ symbols"
+            />
+          </div>
+          <div class="setting account-new-password" hidden>
+            <label for="accountNewPasswordInput">Новый пароль</label>
+            <input
+              class="input"
+              id="accountNewPasswordInput"
+              maxlength="128"
+              minlength="8"
+              autocomplete="new-password"
+              type="password"
+              placeholder="8+ символов"
             />
           </div>
         </div>
@@ -581,7 +693,21 @@
           Запись появится после нового рекорда.
         </p>
         <div class="replay-track" id="replayTimeline"></div>
+        <div class="settings-grid replay-settings">
+          <div class="setting">
+            <label for="replaySpeedSelect">Скорость повтора</label>
+            <select class="select" id="replaySpeedSelect">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </div>
+        </div>
         <div class="modal-actions">
+          <button class="button primary" id="playReplayButton">
+            Смотреть повтор
+          </button>
           <button class="button primary" id="startGhostButton">
             Играть против призрака
           </button>
@@ -635,7 +761,14 @@
     </section>
 
     <div class="fx-layer" id="fxLayer"></div>
-    <div class="toast" id="toast"></div>
+    <div class="sr-only" id="assertiveLiveRegion" aria-live="assertive"></div>
+    <div class="pwa-update-notice" id="pwaUpdateNotice" hidden>
+      <span id="pwaUpdateText">Доступна новая версия</span>
+      <button class="button primary" id="applyPwaUpdateButton" type="button">
+        Обновить безопасно
+      </button>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script type="module" src="/js/game.js"></script>
     <script type="module" src="/js/pvp-enhancements.js"></script>

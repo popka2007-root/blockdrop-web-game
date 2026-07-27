@@ -1,0 +1,73 @@
+groups:
+  - name: blockdrop-beta
+    rules:
+      - alert: BlockDropHighHttpErrorRate
+        expr: rate(blockdrop_http_5xx_total[5m]) / clamp_min(rate(blockdrop_http_requests_total[5m]), 0.001) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop HTTP 5xx rate is above 1%
+      - alert: BlockDropApiLatency
+        expr: blockdrop_http_request_ms_p95 > 200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop API p95 is above 200 ms
+      - alert: BlockDropMatchLatency
+        expr: blockdrop_match_processing_ms_p95 > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop match processing p95 is above 50 ms
+      - alert: BlockDropEventLoopLag
+        expr: blockdrop_event_loop_lag_ms > 200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop event-loop lag is sustained above 200 ms
+      - alert: BlockDropHighCpu
+        expr: blockdrop_process_cpu_percent > 70
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop process CPU is sustained above 70%
+      - alert: BlockDropHighMemory
+        expr: blockdrop_memory_rss_bytes > 943718400
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop RSS is above 900 MiB
+      - alert: BlockDropDatabaseError
+        expr: increase(blockdrop_db_errors_total[5m]) > 0 or increase(blockdrop_db_lock_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: BlockDrop reported a SQLite error
+      - alert: BlockDropBackupStale
+        expr: blockdrop_backup_age_seconds < 0 or blockdrop_backup_age_seconds > 129600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: BlockDrop verified backup is missing or older than 36 hours
+      - alert: BlockDropDisconnectSpike
+        expr: increase(blockdrop_ws_disconnect_total[5m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop WebSocket disconnects are elevated
+      - alert: BlockDropMatchAbort
+        expr: increase(blockdrop_match_abort_total[5m]) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: BlockDrop matches are being aborted

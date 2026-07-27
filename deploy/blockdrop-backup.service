@@ -1,0 +1,19 @@
+[Unit]
+Description=BlockDrop verified SQLite backup
+After=tetris.service
+
+[Service]
+Type=oneshot
+User=tetris
+Group=tetris
+WorkingDirectory=/opt/tetris
+Environment=BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite
+Environment=BLOCKDROP_BACKUP_DIR=/opt/blockdrop-data/backups
+ExecStart=/usr/bin/npm run db:backup
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/blockdrop-data

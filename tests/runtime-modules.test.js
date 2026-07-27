@@ -40,8 +40,8 @@ describe("runtime helper modules", () => {
 
   it("builds and applies autosave snapshots without menu state leakage", () => {
     const state = {
-      board: [["I"]],
-      active: { kind: "T" },
+      board: Array.from({ length: 20 }, () => Array(10).fill(null)),
+      active: { kind: "T", rotation: 0, x: 3, y: 0 },
       queue: ["I"],
       bag: [],
       hold: { kind: "O" },

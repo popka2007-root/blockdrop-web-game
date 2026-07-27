@@ -8,6 +8,7 @@
   typeof globalThis !== "undefined" ? globalThis : this,
   function makeBlockDropProtocol() {
     const PROTOCOL_VERSION = 2;
+    const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([1, 2]);
     const BOARD_PREVIEW_ROWS = 15;
     const BOARD_PREVIEW_COLS = 10;
     const MAX_RECORD_SCORE = 99999999;
@@ -64,7 +65,25 @@
       "accountToken",
       "rankedQueue",
       "protocolVersion",
+      "reconnectToken",
     ];
+    const INPUT_ACTIONS = Object.freeze([
+      "left",
+      "right",
+      "rotateCW",
+      "rotateCCW",
+      "softDrop",
+      "hardDrop",
+      "hold",
+    ]);
+    const INPUT_KEYS = Object.freeze([
+      "type",
+      "matchId",
+      "seq",
+      "tick",
+      "action",
+      "pressed",
+    ]);
     const TOURNAMENT_KEYS = [
       "type",
       "room",
@@ -159,10 +178,16 @@
       identityToken = "",
       accountToken = "",
       rankedQueue = false,
+      protocolVersion = PROTOCOL_VERSION,
+      reconnectToken = "",
     }) {
       return {
         type: "join",
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion: clamp(
+          Math.floor(Number(protocolVersion) || PROTOCOL_VERSION),
+          1,
+          PROTOCOL_VERSION,
+        ),
         room: normalizeRoomId(room),
         name: normalizePlayerName(name),
         maxPlayers: Number(maxPlayers) || ROOM_PLAYER_LIMIT,
@@ -173,6 +198,18 @@
         identityToken: normalizeIdentityToken(identityToken),
         accountToken: normalizeIdentityToken(accountToken),
         rankedQueue: Boolean(rankedQueue),
+        reconnectToken: normalizeIdentityToken(reconnectToken),
+      };
+    }
+
+    function buildInputMessage({ matchId, seq, tick, action, pressed = true }) {
+      return {
+        type: "input",
+        matchId: String(matchId || "").slice(0, 128),
+        seq: clamp(Math.floor(Number(seq) || 0), 1, 2_147_483_647),
+        tick: clamp(Math.floor(Number(tick) || 0), 0, 60 * 60 * 60),
+        action: INPUT_ACTIONS.includes(action) ? action : "",
+        pressed: pressed !== false,
       };
     }
 
@@ -243,12 +280,17 @@
         attackLines: clamp(Math.floor(Number(event.attackLines) || 0), 0, 12),
         combo: clamp(Math.floor(Number(event.combo) || 0), 0, 999),
         score: clamp(Math.floor(Number(event.score) || 0), 0, MAX_RECORD_SCORE),
-        elapsedMs: clamp(Math.floor(Number(event.elapsedMs) || 0), 0, 3 * 60 * 60 * 1000),
+        elapsedMs: clamp(
+          Math.floor(Number(event.elapsedMs) || 0),
+          0,
+          3 * 60 * 60 * 1000,
+        ),
       };
     }
 
     return {
       PROTOCOL_VERSION,
+      SUPPORTED_PROTOCOL_VERSIONS,
       BOARD_PREVIEW_ROWS,
       BOARD_PREVIEW_COLS,
       MAX_RECORD_SCORE,
@@ -261,6 +303,8 @@
       MATCH_EVENT_KEYS,
       PING_KEYS,
       JOIN_KEYS,
+      INPUT_ACTIONS,
+      INPUT_KEYS,
       TOURNAMENT_KEYS,
       normalizeRoomId,
       normalizePlayerName,
@@ -270,6 +314,7 @@
       createLocalPlayerId,
       sanitizeBoardPreview,
       buildJoinMessage,
+      buildInputMessage,
       buildUpdateMessage,
       buildTournamentMessage,
       buildPingMessage,
