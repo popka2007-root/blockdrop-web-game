@@ -89,10 +89,9 @@ test("dialogs expose dialog semantics and keep focus inside", async ({
     .toBe(true);
 });
 
-test("Galaxy S25 FE sustains the frame and local input latency budget", async ({
+test("@performance Galaxy S25 FE sustains the frame and local input latency budget", async ({
   page,
-}, testInfo) => {
-  test.skip(testInfo.project.name !== "galaxy-s25-fe");
+}) => {
   await page.goto("/");
   await page.locator("#startButton").click();
 

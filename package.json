@@ -1,6 +1,6 @@
 {
   "name": "blockdrop-web-game",
-  "version": "3.0.0-beta.12",
+  "version": "3.0.0-beta.13",
   "private": true,
   "description": "Deterministic BlockDrop Web/PWA game with authoritative PvP, AI, and verified replays.",
   "scripts": {
@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run test:e2e:functional && npm run test:e2e:performance",
+    "test:e2e:functional": "playwright test --project=chromium-functional --project=firefox --project=galaxy-s25-fe --project=mobile-360x700 --project=mobile-390x844 --project=mobile-landscape-780x360 --project=webkit --project=chromium",
+    "test:e2e:performance": "playwright test --project=galaxy-s25-fe-performance --no-deps",
     "verify": "npm run lint && npm run test:coverage && npm run db:verify-backup && npm run test:e2e && npm audit --audit-level=high",
     "health:check": "node scripts/check-health.js",
     "smoke:prod": "node scripts/prod-smoke.js",
@@ -25,11 +27,11 @@
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""
   },
   "engines": {
-    "node": "^20.19.0 || ^22.13.0 || >=24"
+    "node": ">=22.13.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@capacitor/cli": "^7.6.8",
+    "@capacitor/cli": "^8.4.2",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.53.0",
     "@vitest/coverage-v8": "^4.1.5",
