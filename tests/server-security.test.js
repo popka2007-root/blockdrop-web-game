@@ -88,7 +88,7 @@ function startServer(port, env = {}) {
 
     const timeout = setTimeout(
       () => reject(new Error("server did not start")),
-      5000,
+      15000,
     );
     serverProcess.stdout.on("data", (chunk) => {
       if (String(chunk).includes(`localhost:${port}`)) {

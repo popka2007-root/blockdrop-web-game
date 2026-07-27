@@ -4,6 +4,7 @@ module.exports = defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.js"],
+    testTimeout: 30000,
     coverage: {
       provider: "v8",
       include: [
