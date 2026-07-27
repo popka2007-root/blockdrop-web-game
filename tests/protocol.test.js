@@ -15,10 +15,7 @@ describe("wire protocol payload builders", () => {
     expect(protocol.normalizeMatchMode("unknown")).toBe("classic");
     expect(protocol.sanitizeBoardPreview(null)).toEqual([]);
     expect(
-      protocol.sanitizeBoardPreview([
-        [true, false, null, "2", "bad"],
-        "0101",
-      ]),
+      protocol.sanitizeBoardPreview([[true, false, null, "2", "bad"], "0101"]),
     ).toEqual([
       [1, 0, 0, 1, 0],
       [0, 1, 0, 1],

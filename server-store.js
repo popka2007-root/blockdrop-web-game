@@ -1634,8 +1634,9 @@ function createServerStore({
 
   function pruneExpiredProductData(now = Date.now()) {
     const prune = db.transaction(() => ({
-      dailyRuns: db.prepare("DELETE FROM daily_runs WHERE expires_at <= ?").run(now)
-        .changes,
+      dailyRuns: db
+        .prepare("DELETE FROM daily_runs WHERE expires_at <= ?")
+        .run(now).changes,
       matches: db
         .prepare("DELETE FROM match_sessions WHERE expires_at <= ?")
         .run(now).changes,

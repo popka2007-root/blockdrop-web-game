@@ -104,7 +104,10 @@ describe("PWA update architecture", () => {
 
 describe("strict CSP source gate", () => {
   it("contains no inline style attributes or runtime style assignments", () => {
-    const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const html = fs.readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
     const browserSources = ["ui.js", "game.js", "online.js"].map((name) =>
       fs.readFileSync(new URL(`../js/${name}`, import.meta.url), "utf8"),
     );

@@ -23,9 +23,9 @@ test("strict CSP allows normal menu, gameplay, stats, and replay flows", async (
   await page.locator("#closeStatsButton").click();
   await page.locator("#replayButton").click();
 
-  expect(
-    await page.evaluate(() => window.__blockdropCspViolations),
-  ).toEqual([]);
+  expect(await page.evaluate(() => window.__blockdropCspViolations)).toEqual(
+    [],
+  );
   const csp = await page.request
     .get("/")
     .then((response) => response.headers()["content-security-policy"]);

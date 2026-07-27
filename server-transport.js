@@ -26,9 +26,7 @@ function isLoopbackAddress(value) {
   return (
     octets.length === 4 &&
     octets[0] === "127" &&
-    octets.every(
-      (octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255,
-    )
+    octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
   );
 }
 

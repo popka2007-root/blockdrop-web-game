@@ -15,7 +15,8 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--rollback") options.rollback = true;
-    else if (argument.startsWith("--")) options[argument.slice(2)] = argv[++index];
+    else if (argument.startsWith("--"))
+      options[argument.slice(2)] = argv[++index];
   }
   return options;
 }
@@ -35,9 +36,11 @@ function applyRollout(options = {}) {
   const store = createServerStore({ dbFile: databaseFile });
   try {
     const existing = store.getFeatureFlag(key);
-    const secureTransportRequired = ["accounts", "ranked", "pwaInstall"].includes(
-      key,
-    );
+    const secureTransportRequired = [
+      "accounts",
+      "ranked",
+      "pwaInstall",
+    ].includes(key);
     return store.upsertFeatureFlag({
       key,
       enabled: options.rollback ? false : stage !== "internal",

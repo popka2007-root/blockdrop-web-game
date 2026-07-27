@@ -62,7 +62,10 @@ async function createVerifiedBackup(sourceFile, destinationFile) {
 }
 
 function sha256File(file) {
-  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(file))
+    .digest("hex");
 }
 
 function recordBackupAudit(sourceFile, created) {

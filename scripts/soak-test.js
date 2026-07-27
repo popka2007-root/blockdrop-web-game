@@ -70,7 +70,9 @@ function connectClient(url, room, index, state) {
     };
     const timer = setTimeout(() => {
       socket.terminate();
-      reject(new Error(`Client ${index} timed out during protocol negotiation`));
+      reject(
+        new Error(`Client ${index} timed out during protocol negotiation`),
+      );
     }, 10000);
 
     socket.on("open", () => {
@@ -98,7 +100,9 @@ function connectClient(url, room, index, state) {
       if (message.type === "protocol") {
         if (message.selectedVersion !== 2 || !message.authoritative) {
           clearTimeout(timer);
-          reject(new Error(`Client ${index} did not negotiate authoritative v2`));
+          reject(
+            new Error(`Client ${index} did not negotiate authoritative v2`),
+          );
           return;
         }
         if (!client.ready) {
@@ -126,7 +130,9 @@ function connectClient(url, room, index, state) {
       } else if (message.type === "error") {
         state.protocolErrors += 1;
         if (state.protocolErrorMessages.length < 20) {
-          state.protocolErrorMessages.push(String(message.message || "unknown"));
+          state.protocolErrorMessages.push(
+            String(message.message || "unknown"),
+          );
         }
       }
     });
@@ -156,7 +162,8 @@ function connectClient(url, room, index, state) {
 
 function sendInputs(clients, state) {
   for (const client of clients) {
-    if (!client.matchId || client.socket.readyState !== WebSocket.OPEN) continue;
+    if (!client.matchId || client.socket.readyState !== WebSocket.OPEN)
+      continue;
     client.seq += 1;
     client.socket.send(
       JSON.stringify({
@@ -178,7 +185,9 @@ function metricDelta(after, before, name) {
 
 async function runSoak(options = {}) {
   const target = String(
-    options.target || process.env.BLOCKDROP_SOAK_TARGET || "http://127.0.0.1:8787",
+    options.target ||
+      process.env.BLOCKDROP_SOAK_TARGET ||
+      "http://127.0.0.1:8787",
   );
   const ccu = integerOption(
     options.ccu || process.env.BLOCKDROP_SOAK_CCU,
@@ -226,7 +235,10 @@ async function runSoak(options = {}) {
 
     const cpuSamples = [];
     const rssSamples = [];
-    const inputTimer = setInterval(() => sendInputs(clients, state), INPUT_INTERVAL_MS);
+    const inputTimer = setInterval(
+      () => sendInputs(clients, state),
+      INPUT_INTERVAL_MS,
+    );
     const metricTimer = setInterval(async () => {
       try {
         const sample = await readMetrics(target, metricsToken);
@@ -253,20 +265,39 @@ async function runSoak(options = {}) {
       peakRssBytes: Math.max(0, ...rssSamples),
       httpP95Ms: Number(after.blockdrop_http_request_ms_p95 || 0),
       matchP95Ms: Number(after.blockdrop_match_processing_ms_p95 || 0),
-      dbLockErrors: metricDelta(after, before, "blockdrop_db_lock_errors_total"),
-      serverDisconnects: metricDelta(after, before, "blockdrop_ws_disconnect_total"),
+      dbLockErrors: metricDelta(
+        after,
+        before,
+        "blockdrop_db_lock_errors_total",
+      ),
+      serverDisconnects: metricDelta(
+        after,
+        before,
+        "blockdrop_ws_disconnect_total",
+      ),
     };
     const failures = [];
-    if (result.connected !== ccu) failures.push(`connected ${result.connected}/${ccu}`);
-    if (result.snapshots < ccu) failures.push("authoritative snapshots were not received");
-    if (result.unexpectedDisconnects || result.socketErrors || result.protocolErrors) {
+    if (result.connected !== ccu)
+      failures.push(`connected ${result.connected}/${ccu}`);
+    if (result.snapshots < ccu)
+      failures.push("authoritative snapshots were not received");
+    if (
+      result.unexpectedDisconnects ||
+      result.socketErrors ||
+      result.protocolErrors
+    ) {
       failures.push("client connection or protocol errors occurred");
     }
-    if (result.peakCpuPercent >= 70) failures.push(`CPU ${result.peakCpuPercent.toFixed(1)}%`);
-    if (result.peakRssBytes >= 1024 ** 3) failures.push(`RSS ${result.peakRssBytes} bytes`);
-    if (result.dbLockErrors !== 0) failures.push(`${result.dbLockErrors} SQLite lock errors`);
-    if (result.httpP95Ms >= 200) failures.push(`HTTP p95 ${result.httpP95Ms.toFixed(1)} ms`);
-    if (result.matchP95Ms >= 50) failures.push(`match p95 ${result.matchP95Ms.toFixed(1)} ms`);
+    if (result.peakCpuPercent >= 70)
+      failures.push(`CPU ${result.peakCpuPercent.toFixed(1)}%`);
+    if (result.peakRssBytes >= 1024 ** 3)
+      failures.push(`RSS ${result.peakRssBytes} bytes`);
+    if (result.dbLockErrors !== 0)
+      failures.push(`${result.dbLockErrors} SQLite lock errors`);
+    if (result.httpP95Ms >= 200)
+      failures.push(`HTTP p95 ${result.httpP95Ms.toFixed(1)} ms`);
+    if (result.matchP95Ms >= 50)
+      failures.push(`match p95 ${result.matchP95Ms.toFixed(1)} ms`);
     result.ok = failures.length === 0;
     result.failures = failures;
     return result;

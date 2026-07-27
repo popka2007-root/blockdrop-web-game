@@ -66,9 +66,9 @@ export function resultBadgeForGame({
     return t(language, "Perfect Clear", "Perfect Clear");
   if (totalTSpins > 0) return t(language, "T-Spin серия", "T-Spin run");
   if (bestBackToBackRun >= 3) return t(language, "B2B цепь", "B2B chain");
-  if (bestClearInGame >= 4) return t(language, "Момент Tetris", "Tetris moment");
-  if (bestComboRun >= 4)
-    return t(language, "Комбо-машина", "Combo machine");
+  if (bestClearInGame >= 4)
+    return t(language, "Момент Tetris", "Tetris moment");
+  if (bestComboRun >= 4) return t(language, "Комбо-машина", "Combo machine");
   if (holes >= 8) return t(language, "Много дыр", "Too many holes");
   if (score >= bestScore) return t(language, "Новый рекорд", "New record");
   return t(language, "Стабильная партия", "Steady run");

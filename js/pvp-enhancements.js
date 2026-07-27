@@ -9,7 +9,10 @@ import {
 (() => {
   "use strict";
 
-  if (typeof document === "undefined" || typeof globalThis.addEventListener !== "function") {
+  if (
+    typeof document === "undefined" ||
+    typeof globalThis.addEventListener !== "function"
+  ) {
     return;
   }
 
@@ -296,10 +299,7 @@ import {
     toast.textContent = message;
     toast.classList.add("show");
     clearTimeout(showPvpToast.timer);
-    showPvpToast.timer = setTimeout(
-      () => toast.classList.remove("show"),
-      1800,
-    );
+    showPvpToast.timer = setTimeout(() => toast.classList.remove("show"), 1800);
   }
 
   function escapeHtml(value) {
