@@ -71,8 +71,7 @@ js/replay.js              replay/checkpoint/checksum
 js/online*.js             protocol v1/v2 и client reconciliation
 js/i18n.js                RU/EN-каталоги локализации и UI-тексты
 js/progression.js         профиль, достижения (Achievements), cosmetics, import/export
-server.js                 HTTP/WebSocket entrypoint и базовая инициализация
-src/server/               Модульная архитектура сервера (http.js, ws.js, matchmaking.js)
+server.js                 HTTP/WebSocket authoritative runtime
 server-store.js           SQLite migrations и persistence
 scripts/                  backup, restore, smoke, rollout, soak
 deploy/                   systemd, Prometheus, Grafana, `.github/workflows` (APK CI)
