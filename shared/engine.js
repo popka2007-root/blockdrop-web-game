@@ -7,7 +7,7 @@
   function engineFactory() {
     "use strict";
 
-    const ENGINE_VERSION = 2;
+    const ENGINE_VERSION = 3;
     const SNAPSHOT_VERSION = 1;
     const REPLAY_VERSION = 1;
     const TICK_RATE = 60;
@@ -382,21 +382,36 @@
 
     function hashSeed(value) {
       const text = String(value || "blockdrop");
-      let hash = 2166136261;
+      let h = 2166136261 >>> 0;
       for (let index = 0; index < text.length; index += 1) {
-        hash ^= text.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
+        h ^= text.charCodeAt(index);
+        h = Math.imul(h, 16777619);
       }
-      return hash >>> 0 || 0x9e3779b9;
+      let seed = h >>> 0 || 0x9e3779b9;
+      function splitmix32() {
+        seed = (seed + 0x9e3779b9) | 0;
+        let t = seed ^ (seed >>> 16);
+        t = Math.imul(t, 0x21f0aaad);
+        t = t ^ (t >>> 15);
+        t = Math.imul(t, 0x735a2d97);
+        return (t ^ (t >>> 15)) >>> 0;
+      }
+      return [splitmix32(), splitmix32(), splitmix32(), splitmix32()];
     }
 
     function nextRandom(state) {
-      let value = state.randomState >>> 0;
-      value ^= value << 13;
-      value ^= value >>> 17;
-      value ^= value << 5;
-      state.randomState = value >>> 0 || 0x9e3779b9;
-      return state.randomState / 0x100000000;
+      let s = state.randomState;
+      if (!Array.isArray(s)) s = hashSeed(String(s));
+      let a = s[0] >>> 0, b = s[1] >>> 0, c = s[2] >>> 0, d = s[3] >>> 0;
+      let t = (a + b) | 0;
+      a = b ^ (b >>> 9);
+      b = (c + (c << 3)) | 0;
+      c = (c << 21) | (c >>> 11);
+      d = (d + 1) | 0;
+      t = (t + d) | 0;
+      c = (c + t) | 0;
+      state.randomState = [a >>> 0, b >>> 0, c >>> 0, d >>> 0];
+      return (t >>> 0) / 4294967296;
     }
 
     function fillBag(state) {
@@ -866,7 +881,7 @@
         seed: state.seed,
         mode: state.mode,
         tick: state.tick,
-        randomState: state.randomState,
+        randomState: Array.isArray(state.randomState) ? [...state.randomState] : state.randomState,
         board: state.board.map((row) => [...row]),
         active: state.active ? { ...state.active } : null,
         queue: [...state.queue],
@@ -950,7 +965,12 @@
         seed: String(value.seed || "blockdrop").slice(0, 128),
         mode,
         tick: integer(value.tick, 0, 0, TICK_RATE * 60 * 60 * 24),
-        randomState: integer(value.randomState, 1, 0, 0xffffffff) >>> 0,
+        randomState: Array.isArray(value.randomState) ? [
+          integer(value.randomState[0], 0, 0, 0xffffffff) >>> 0,
+          integer(value.randomState[1], 0, 0, 0xffffffff) >>> 0,
+          integer(value.randomState[2], 0, 0, 0xffffffff) >>> 0,
+          integer(value.randomState[3], 0, 0, 0xffffffff) >>> 0
+        ] : hashSeed(""),
         board,
         active,
         queue,
