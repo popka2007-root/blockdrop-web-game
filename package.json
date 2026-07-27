@@ -1,6 +1,6 @@
 {
   "name": "blockdrop-web-game",
-  "version": "3.0.0-beta.1",
+  "version": "3.0.0-beta.5",
   "private": true,
   "description": "Deterministic BlockDrop Web/PWA game with authoritative PvP, AI, and verified replays.",
   "scripts": {
