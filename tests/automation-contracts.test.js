@@ -35,6 +35,12 @@ describe("automation contracts", () => {
     expect(workflows["release-deploy.yml"]).toContain(
       "files: release-assets/app-debug.apk",
     );
+    expect(workflows["release-deploy.yml"]).toContain(
+      "ref: ${{ needs.release-check.outputs.release_ref }}",
+    );
+    expect(workflows["build-apk.yml"]).toContain(
+      "ref: ${{ inputs.ref || github.ref }}",
+    );
   });
 
   it("uses action majors whose JavaScript runtime is Node 24", () => {
@@ -52,6 +58,25 @@ describe("automation contracts", () => {
     }
     expect(allWorkflows).not.toMatch(/actions\/(checkout|setup-node)@v4/);
     expect(allWorkflows).not.toContain("softprops/action-gh-release@v2");
+  });
+
+  it("fails VPS deployment atomically and fetches only the release tag", () => {
+    const releaseWorkflow = workflows["release-deploy.yml"];
+
+    expect(releaseWorkflow).toContain("set -Eeuo pipefail");
+    expect(releaseWorkflow).toContain("exit_status=\\$?");
+    expect(releaseWorkflow).toContain('exit "\\$exit_status"');
+    expect(releaseWorkflow).toContain("safe.directory=/opt/tetris");
+    expect(releaseWorkflow).toContain(
+      '"refs/tags/$DEPLOY_REF:refs/tags/$DEPLOY_REF"',
+    );
+    expect(releaseWorkflow).not.toContain("fetch origin --tags");
+    expect(releaseWorkflow).toContain(
+      "EXPECTED_REVISION: ${{ needs.release-check.outputs.revision }}",
+    );
+    expect(releaseWorkflow).toContain(
+      "EXPECTED_VERSION: ${{ needs.release-check.outputs.release_ref }}",
+    );
   });
 
   it("parallelizes functional E2E while isolating the performance budget", () => {

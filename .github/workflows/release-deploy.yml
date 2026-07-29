@@ -8,8 +8,7 @@ on:
     inputs:
       ref:
         description: "Git ref or tag to deploy"
-        required: false
-        default: ""
+        required: true
 
 concurrency:
   group: blockdrop-release
@@ -19,12 +18,27 @@ jobs:
   release-check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      release_ref: ${{ steps.release-metadata.outputs.release_ref }}
+      revision: ${{ steps.release-metadata.outputs.revision }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Resolve release metadata
+        id: release-metadata
+        env:
+          RELEASE_REF: ${{ github.event.inputs.ref || github.ref_name }}
+        run: |
+          case "$RELEASE_REF" in
+            v*) ;;
+            *) echo "Release ref must start with v" >&2; exit 1 ;;
+          esac
+          echo "release_ref=$RELEASE_REF" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -54,18 +68,23 @@ jobs:
         run: npm run test:e2e
 
       - name: Validate release metadata
+        env:
+          GITHUB_REF_NAME: ${{ steps.release-metadata.outputs.release_ref }}
+          GITHUB_SHA: ${{ steps.release-metadata.outputs.revision }}
         run: npm run release:validate
 
   build-apk:
     needs: release-check
     uses: ./.github/workflows/build-apk.yml
+    with:
+      ref: ${{ needs.release-check.outputs.release_ref }}
 
   publish-release:
     needs:
       - release-check
       - build-apk
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(needs.release-check.outputs.release_ref, 'v') }}
     permissions:
       contents: write
     timeout-minutes: 10
@@ -80,10 +99,11 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.release-check.outputs.release_ref }}
           files: release-assets/app-debug.apk
           fail_on_unmatched_files: true
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.release-check.outputs.release_ref, '-') }}
 
   deploy:
     needs:
@@ -97,7 +117,7 @@ jobs:
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
       TARGET_URL: ${{ secrets.TARGET_URL }}
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(needs.release-check.outputs.release_ref, 'v') }}
 
     steps:
       - name: Check deployment configuration
@@ -113,6 +133,8 @@ jobs:
       - name: Checkout
         if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-check.outputs.release_ref }}
 
       - name: Setup Node
         if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
@@ -145,18 +167,20 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          DEPLOY_REF: ${{ github.ref_name }}
-          EXPECTED_REVISION: ${{ github.sha }}
+          DEPLOY_REF: ${{ needs.release-check.outputs.release_ref }}
+          EXPECTED_REVISION: ${{ needs.release-check.outputs.revision }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
             'if [ "$(id -u)" -eq 0 ]; then exec bash -s; else exec sudo -n bash -s; fi' <<EOF
-          set -e
+          set -Eeuo pipefail
           DATA_DIR=/opt/blockdrop-data
           BACKUP_DIR="/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"
           NEXT_DIR=\$(mktemp -d /opt/tetris-release.XXXXXX)
           CUTOVER=0
           install -d -o tetris -g tetris -m 750 "\$DATA_DIR" "\$DATA_DIR/backups"
           rollback() {
+            exit_status=\$?
+            trap - ERR
             set +e
             echo "Deploy failed; cutover=\$CUTOVER"
             if [ "\$CUTOVER" = "1" ] && [ -d "\$BACKUP_DIR" ]; then
@@ -166,16 +190,21 @@ jobs:
               mv "\$BACKUP_DIR" /opt/tetris
               chown -R tetris:tetris /opt/tetris
               systemctl restart tetris.service
-            elif [ -n "\$NEXT_DIR" ]; then
-              case "\$NEXT_DIR" in
-                /opt/tetris-release.*) rm -rf -- "\$NEXT_DIR" ;;
-              esac
+            else
+              if [ -n "\$NEXT_DIR" ]; then
+                case "\$NEXT_DIR" in
+                  /opt/tetris-release.*) rm -rf -- "\$NEXT_DIR" ;;
+                esac
+              fi
+              systemctl start tetris.service || true
             fi
+            exit "\$exit_status"
           }
           trap rollback ERR
 
-          git -C /opt/tetris fetch origin --tags
-          git clone --local --no-hardlinks /opt/tetris "\$NEXT_DIR"
+          git -c safe.directory=/opt/tetris -C /opt/tetris fetch --force origin \
+            "refs/tags/$DEPLOY_REF:refs/tags/$DEPLOY_REF"
+          git -c safe.directory=/opt/tetris clone --local --no-hardlinks /opt/tetris "\$NEXT_DIR"
           git -C "\$NEXT_DIR" checkout --detach "$DEPLOY_REF"
           ACTUAL_REVISION=\$(git -C "\$NEXT_DIR" rev-parse HEAD)
           test "\$ACTUAL_REVISION" = "$EXPECTED_REVISION"
@@ -190,9 +219,6 @@ jobs:
           fi
           chown -R tetris:tetris "\$DATA_DIR"
           find "\$DATA_DIR" -maxdepth 1 -type f -name 'blockdrop.sqlite*' -exec chmod 600 {} \;
-          git fetch origin --tags
-          git checkout "$DEPLOY_REF"
-          npm ci
           if [ -f "\$DATA_DIR/blockdrop.sqlite" ]; then
             BLOCKDROP_DB_FILE="\$DATA_DIR/blockdrop.sqlite" BLOCKDROP_BACKUP_DIR="\$DATA_DIR/backups" npm run db:backup
           fi
@@ -226,13 +252,13 @@ jobs:
         if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
-          EXPECTED_REVISION: ${{ github.sha }}
-          EXPECTED_VERSION: ${{ github.ref_name }}
+          EXPECTED_REVISION: ${{ needs.release-check.outputs.revision }}
+          EXPECTED_VERSION: ${{ needs.release-check.outputs.release_ref }}
         run: npm run health:check
 
       - name: Run public smoke
         if: ${{ steps.deploy-config.outputs.enabled == 'true' }}
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
-          EXPECTED_REVISION: ${{ github.sha }}
+          EXPECTED_REVISION: ${{ needs.release-check.outputs.revision }}
         run: npm run smoke:prod
