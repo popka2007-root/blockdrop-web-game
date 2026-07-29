@@ -175,6 +175,7 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           DEPLOY_REF: ${{ needs.release-check.outputs.release_ref }}
           EXPECTED_REVISION: ${{ needs.release-check.outputs.revision }}
+          REPOSITORY_URL: https://github.com/${{ github.repository }}.git
         run: |
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
             'if [ "$(id -u)" -eq 0 ]; then exec bash -s; else exec sudo -n bash -s; fi' <<EOF
@@ -208,10 +209,7 @@ jobs:
           }
           trap rollback ERR
 
-          git -c safe.directory=/opt/tetris -C /opt/tetris fetch --force origin \
-            "refs/tags/$DEPLOY_REF:refs/tags/$DEPLOY_REF"
-          git -c safe.directory=/opt/tetris clone --local --no-hardlinks /opt/tetris "\$NEXT_DIR"
-          git -C "\$NEXT_DIR" checkout --detach "$DEPLOY_REF"
+          git clone --branch "$DEPLOY_REF" --single-branch "$REPOSITORY_URL" "\$NEXT_DIR"
           ACTUAL_REVISION=\$(git -C "\$NEXT_DIR" rev-parse HEAD)
           test "\$ACTUAL_REVISION" = "$EXPECTED_REVISION"
           printf '%s\n' "\$ACTUAL_REVISION" > "\$NEXT_DIR/REVISION"

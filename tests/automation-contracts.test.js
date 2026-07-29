@@ -60,16 +60,16 @@ describe("automation contracts", () => {
     expect(allWorkflows).not.toContain("softprops/action-gh-release@v2");
   });
 
-  it("fails VPS deployment atomically and fetches only the release tag", () => {
+  it("fails VPS deployment atomically and clones only the release tag", () => {
     const releaseWorkflow = workflows["release-deploy.yml"];
 
     expect(releaseWorkflow).toContain("set -Eeuo pipefail");
     expect(releaseWorkflow).toContain("exit_status=\\$?");
     expect(releaseWorkflow).toContain('exit "\\$exit_status"');
-    expect(releaseWorkflow).toContain("safe.directory=/opt/tetris");
     expect(releaseWorkflow).toContain(
-      '"refs/tags/$DEPLOY_REF:refs/tags/$DEPLOY_REF"',
+      'git clone --branch "$DEPLOY_REF" --single-branch "$REPOSITORY_URL"',
     );
+    expect(releaseWorkflow).not.toContain("clone --local");
     expect(releaseWorkflow).not.toContain("fetch origin --tags");
     expect(releaseWorkflow).toContain(
       "EXPECTED_REVISION: ${{ needs.release-check.outputs.revision }}",
