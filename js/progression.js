@@ -1,4 +1,14 @@
-export const PROFILE_SCHEMA_VERSION = 1;
+import "../shared/balance.js";
+
+const balance = globalThis.__blockdropBalance;
+
+if (!balance) throw new Error("BlockDrop balance configuration failed to load");
+
+export const {
+  PROFILE_SCHEMA_VERSION,
+  QUEST_BALANCE,
+  QUEST_BALANCE_VERSION,
+} = balance;
 
 export const COSMETICS = Object.freeze([
   { id: "mint-trail", unlockLevel: 1 },
@@ -7,17 +17,8 @@ export const COSMETICS = Object.freeze([
   { id: "mono-ghost", unlockLevel: 10 },
 ]);
 
-const DAILY_QUESTS = Object.freeze([
-  { id: "daily-games", type: "games", target: 2, rewardXp: 100 },
-  { id: "daily-lines", type: "lines", target: 12, rewardXp: 120 },
-  { id: "daily-drops", type: "hardDrops", target: 20, rewardXp: 100 },
-]);
-
-const WEEKLY_QUESTS = Object.freeze([
-  { id: "weekly-games", type: "games", target: 12, rewardXp: 400 },
-  { id: "weekly-lines", type: "lines", target: 80, rewardXp: 500 },
-  { id: "weekly-wins", type: "wins", target: 5, rewardXp: 500 },
-]);
+const DAILY_QUESTS = QUEST_BALANCE.daily;
+const WEEKLY_QUESTS = QUEST_BALANCE.weekly;
 
 function clampInteger(value, min = 0, max = 1_000_000_000) {
   return Math.max(min, Math.min(max, Math.floor(Number(value) || 0)));
@@ -74,6 +75,26 @@ function questsForPeriod(templates, periodKey, count) {
   );
 }
 
+function reconcileQuests(rawQuests, templates, periodKey, count) {
+  const previous = new Map(
+    (Array.isArray(rawQuests) ? rawQuests : [])
+      .filter((quest) => quest && typeof quest === "object")
+      .map((quest) => [String(quest.id || ""), quest]),
+  );
+  return questsForPeriod(templates, periodKey, count).map((quest) => {
+    const saved = previous.get(quest.id);
+    return normalizeQuest(
+      saved
+        ? {
+            ...quest,
+            progress: saved.progress,
+            claimed: saved.claimed,
+          }
+        : quest,
+    );
+  });
+}
+
 export function levelFromXp(xp) {
   return Math.max(1, Math.floor(Math.sqrt(clampInteger(xp) / 250)) + 1);
 }
@@ -88,14 +109,18 @@ export function normalizeProfile(raw = {}, now = new Date()) {
   const level = levelFromXp(xp);
   const currentDailyKey = dateKey(now);
   const currentWeekKey = weekKey(now);
-  const daily =
-    raw.dailyKey === currentDailyKey && Array.isArray(raw.dailyQuests)
-      ? raw.dailyQuests
-      : questsForPeriod(DAILY_QUESTS, currentDailyKey, 2);
-  const weekly =
-    raw.weeklyKey === currentWeekKey && Array.isArray(raw.weeklyQuests)
-      ? raw.weeklyQuests
-      : questsForPeriod(WEEKLY_QUESTS, currentWeekKey, 2);
+  const daily = reconcileQuests(
+    raw.dailyKey === currentDailyKey ? raw.dailyQuests : [],
+    DAILY_QUESTS,
+    currentDailyKey,
+    2,
+  );
+  const weekly = reconcileQuests(
+    raw.weeklyKey === currentWeekKey ? raw.weeklyQuests : [],
+    WEEKLY_QUESTS,
+    currentWeekKey,
+    2,
+  );
   const unlocked = new Set(
     Array.isArray(raw.unlockedCosmetics) ? raw.unlockedCosmetics : [],
   );
@@ -121,8 +146,8 @@ export function normalizeProfile(raw = {}, now = new Date()) {
     selectedCosmetic,
     dailyKey: currentDailyKey,
     weeklyKey: currentWeekKey,
-    dailyQuests: daily.map(normalizeQuest),
-    weeklyQuests: weekly.map(normalizeQuest),
+    dailyQuests: daily,
+    weeklyQuests: weekly,
     updatedAt: String(raw.updatedAt || new Date(now).toISOString()),
   };
 }
@@ -140,7 +165,7 @@ function normalizeQuest(quest = {}) {
     periodKey: String(quest.periodKey || "").slice(0, 16),
     progress,
     completed: progress >= target,
-    claimed: Boolean(quest.claimed),
+    claimed: progress >= target && Boolean(quest.claimed),
   };
 }
 
@@ -167,13 +192,14 @@ export function applyGameProgress(rawProfile, game = {}, now = new Date()) {
 
   const completedQuestIds = [];
   for (const quest of [...profile.dailyQuests, ...profile.weeklyQuests]) {
-    if (quest.completed) continue;
-    quest.progress = Math.min(
-      quest.target,
-      quest.progress +
-        gameContribution({ ...game, lines, hardDrops }, quest.type),
-    );
-    quest.completed = quest.progress >= quest.target;
+    if (!quest.completed) {
+      quest.progress = Math.min(
+        quest.target,
+        quest.progress +
+          gameContribution({ ...game, lines, hardDrops }, quest.type),
+      );
+      quest.completed = quest.progress >= quest.target;
+    }
     if (quest.completed && !quest.claimed) {
       quest.claimed = true;
       profile.xp += quest.rewardXp;

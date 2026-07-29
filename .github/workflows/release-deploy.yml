@@ -148,7 +148,8 @@ jobs:
           DEPLOY_REF: ${{ github.ref_name }}
           EXPECTED_REVISION: ${{ github.sha }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<EOF
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            'if [ "$(id -u)" -eq 0 ]; then exec bash -s; else exec sudo -n bash -s; fi' <<EOF
           set -e
           DATA_DIR=/opt/blockdrop-data
           BACKUP_DIR="/opt/tetris_backup_\$(date +%Y%m%d_%H%M%S)"

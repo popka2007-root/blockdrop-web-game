@@ -1,4 +1,5 @@
 import { ATTACK_TABLE, SCORE_TABLE, SCORING_THRESHOLDS } from "./config.js";
+import { calculateClearResult } from "./engine.js";
 
 const RANKS = [
   ["Новичок", 0],
@@ -18,6 +19,10 @@ export function scoreLineClear(count, level = 1) {
 
 export function attackLinesForClear(count) {
   return ATTACK_TABLE[Math.min(count, 4)] || 0;
+}
+
+export function scoreClear(options) {
+  return calculateClearResult(options);
 }
 
 export function addPositiveScore(score, value) {

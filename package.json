@@ -1,6 +1,6 @@
 {
   "name": "blockdrop-web-game",
-  "version": "3.0.0-beta.13",
+  "version": "3.1.0",
   "private": true,
   "description": "Deterministic BlockDrop Web/PWA game with authoritative PvP, AI, and verified replays.",
   "scripts": {
@@ -24,6 +24,7 @@
     "feature:rollout": "node scripts/feature-rollout.js",
     "soak:100": "node scripts/soak-test.js --ccu 100 --duration 7200",
     "capture:media": "node scripts/capture-media.js",
+    "balance:calibrate": "node scripts/calibrate-balance.js",
     "format": "prettier --write \"**/*.{html,css,js,json,md}\""
   },
   "engines": {

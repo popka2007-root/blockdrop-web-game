@@ -54,6 +54,10 @@ describe("beam-search AI", () => {
     );
     expect(ai.DIFFICULTIES.easy.allowHold).toBe(false);
     expect(ai.DIFFICULTIES.insane.allowHold).toBe(true);
+    expect(ai.DIFFICULTIES.easy.mistakeRate).toBe(0.2);
+    expect(ai.DIFFICULTIES.easy.mistakeWindow).toBe(4);
+    expect(ai.DIFFICULTIES.normal.mistakeRate).toBe(0.05);
+    expect(ai.DIFFICULTIES.insane.maxNodes).toBeLessThanOrEqual(3_600);
   });
 
   it("plays a long deterministic sequence without illegal moves", () => {
@@ -87,5 +91,22 @@ describe("beam-search AI", () => {
     });
     expect(metrics.bumpiness).toBeGreaterThan(0);
     expect(metrics.wells).toBeGreaterThanOrEqual(0);
+  });
+
+  it("keeps deliberate mistakes near the configured rate with vector RNG seeds", () => {
+    let easyMistakes = 0;
+    for (let index = 0; index < 80; index += 1) {
+      const state = engine.createState({ seed: `ai-rate-${index}` });
+      state.tick = index * 17;
+      state.pieces = index;
+      const plan = ai.planMove(engine.snapshot(state), {
+        difficulty: "easy",
+        style: "balanced",
+      });
+      easyMistakes += plan.mistake ? 1 : 0;
+    }
+
+    expect(easyMistakes).toBeGreaterThanOrEqual(8);
+    expect(easyMistakes).toBeLessThanOrEqual(28);
   });
 });

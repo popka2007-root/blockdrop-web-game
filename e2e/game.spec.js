@@ -114,7 +114,7 @@ test("autosave restores an active game from the menu", async ({ page }) => {
     JSON.parse(localStorage.getItem("blockdrop-save-v2") || "null"),
   );
   expect(saved?.saveSchemaVersion).toBe(2);
-  expect(saved?.engineVersion).toBe(3);
+  expect(saved?.engineVersion).toBe(4);
   expect(saved?.state?.active).toBeTruthy();
   expect(saved?.state?.hold).toBeTruthy();
 
@@ -535,10 +535,10 @@ test("golden replay checksum matches browser and Worker", async ({ page }) => {
   });
 
   expect(result).toEqual({
-    expected: "39cca084",
-    browser: "39cca084",
+    expected: "f9788ab1",
+    browser: "f9788ab1",
     browserOk: true,
-    worker: "39cca084",
+    worker: "f9788ab1",
     workerOk: true,
   });
 });

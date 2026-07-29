@@ -580,7 +580,7 @@ function validateAttackPayload(client, data) {
   return (
     hasOnlyKeys(data, ATTACK_KEYS) &&
     matchesClientRoom(client, data) &&
-    isIntegerInRange(data.lines, 1, 6)
+    isIntegerInRange(data.lines, 1, engine.MAX_ATTACK_PER_LOCK)
   );
 }
 
@@ -1559,7 +1559,7 @@ function recordMatchEvent(client, data) {
     if (elapsedMs > startedElapsed + 15000) return;
     const attackLines = clamp(safeNumber(data.attackLines), 0, 12);
     const lines = clamp(safeNumber(data.lines), 0, 4);
-    if (attackLines > maxAttackForEvent(lines, safeNumber(data.combo))) {
+    if (attackLines > maxAttackForEvent(lines)) {
       metrics.increment("blockdrop_ranked_event_rejected_total");
       return;
     }
@@ -1580,10 +1580,8 @@ function recordMatchEvent(client, data) {
   }
 }
 
-function maxAttackForEvent(lines, combo) {
-  const base = [0, 0, 1, 2, 4][clamp(lines, 0, 4)] || 0;
-  const comboBonus = combo >= 2 ? Math.min(4, Math.floor(combo / 2)) : 0;
-  return Math.min(12, base + comboBonus + 4);
+function maxAttackForEvent(lines) {
+  return clamp(lines, 0, 4) > 0 ? engine.MAX_ATTACK_PER_LOCK : 0;
 }
 
 function rankedParticipant(room, id) {
@@ -1726,7 +1724,7 @@ function broadcastAttack(attacker, lines) {
       type: "garbage",
       from: attacker.name,
       fromId: attacker.id,
-      lines: clamp(lines, 1, 6),
+      lines: clamp(lines, 1, engine.MAX_ATTACK_PER_LOCK),
     },
     (client) => client.id !== attacker.id,
   );
@@ -1735,7 +1733,7 @@ function broadcastAttack(attacker, lines) {
     {
       type: "attack",
       from: attacker.name,
-      lines: clamp(lines, 1, 6),
+      lines: clamp(lines, 1, engine.MAX_ATTACK_PER_LOCK),
     },
     (client) => client.id !== attacker.id,
   );

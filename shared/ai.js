@@ -15,47 +15,47 @@
     if (!engine)
       throw new Error("BlockDrop AI requires the deterministic engine");
 
-    const AI_VERSION = 1;
+    const AI_VERSION = 2;
     const DIFFICULTIES = Object.freeze({
       easy: Object.freeze({
         depth: 1,
-        beamWidth: 6,
-        thinkTicks: 90,
-        mistakeRate: 0.24,
-        mistakeWindow: 6,
+        beamWidth: 8,
+        thinkTicks: 84,
+        mistakeRate: 0.2,
+        mistakeWindow: 4,
         allowCounterClockwise: false,
         allowHold: false,
-        maxNodes: 260,
+        maxNodes: 320,
       }),
       normal: Object.freeze({
         depth: 1,
         beamWidth: 14,
-        thinkTicks: 58,
-        mistakeRate: 0.1,
-        mistakeWindow: 4,
+        thinkTicks: 54,
+        mistakeRate: 0.05,
+        mistakeWindow: 2,
         allowCounterClockwise: true,
         allowHold: false,
-        maxNodes: 600,
+        maxNodes: 640,
       }),
       hard: Object.freeze({
         depth: 2,
-        beamWidth: 20,
-        thinkTicks: 34,
-        mistakeRate: 0.025,
+        beamWidth: 18,
+        thinkTicks: 32,
+        mistakeRate: 0.02,
         mistakeWindow: 2,
         allowCounterClockwise: true,
         allowHold: true,
-        maxNodes: 1800,
+        maxNodes: 1600,
       }),
       insane: Object.freeze({
         depth: 3,
-        beamWidth: 28,
+        beamWidth: 24,
         thinkTicks: 18,
         mistakeRate: 0,
         mistakeWindow: 1,
         allowCounterClockwise: true,
         allowHold: true,
-        maxNodes: 4200,
+        maxNodes: 3600,
       }),
     });
 
@@ -66,17 +66,17 @@
         bumpiness: -0.36,
         wells: -0.22,
         lineClears: 3.8,
-        attackPotential: 5.2,
-        topOutRisk: -18,
+        attackPotential: 5.8,
+        topOutRisk: -20,
       }),
       aggressive: Object.freeze({
         aggregateHeight: -0.4,
-        holes: -7.1,
+        holes: -7.4,
         bumpiness: -0.3,
         wells: -0.15,
         lineClears: 3.4,
-        attackPotential: 7.4,
-        topOutRisk: -15,
+        attackPotential: 8,
+        topOutRisk: -17,
       }),
       defensive: Object.freeze({
         aggregateHeight: -0.62,
@@ -211,7 +211,7 @@
 
     function deterministicIndex(state, difficulty, length, window) {
       if (length <= 1) return 0;
-      let randomState = engine.hashSeed(
+      let randomState = scalarSeed(
         `${state.seed}:${state.tick}:${state.pieces}:${difficulty}:choice`,
       );
       const next = () => {
@@ -225,9 +225,14 @@
       return Math.min(length - 1, 1 + Math.floor(next() * Math.max(1, window)));
     }
 
+    function scalarSeed(value) {
+      const seed = engine.hashSeed(value);
+      return Array.isArray(seed) ? seed[0] >>> 0 : Number(seed) >>> 0;
+    }
+
     function shouldMakeMistake(state, difficulty, rate) {
       if (!rate) return false;
-      let randomState = engine.hashSeed(
+      let randomState = scalarSeed(
         `${state.seed}:${state.tick}:${state.pieces}:${difficulty}:mistake`,
       );
       randomState ^= randomState << 13;

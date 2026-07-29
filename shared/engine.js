@@ -7,12 +7,16 @@
   function engineFactory() {
     "use strict";
 
-    const ENGINE_VERSION = 3;
+    const ENGINE_VERSION = 4;
     const SNAPSHOT_VERSION = 1;
     const REPLAY_VERSION = 1;
     const TICK_RATE = 60;
     const COLS = 10;
     const ROWS = 20;
+    const MAX_ATTACK_PER_LOCK = 12;
+    const MAX_PENDING_GARBAGE = 40;
+    const MAX_GARBAGE_PER_APPLY = 20;
+    const GARBAGE_HOLE_CHANGE_RATE = 0.25;
     const PIECES = Object.freeze(["I", "O", "T", "S", "Z", "J", "L"]);
     const SHAPES = Object.freeze({
       I: [
@@ -307,8 +311,8 @@
       line: [0, 0, 1, 2, 4],
       tSpin: [0, 2, 4, 6],
       tSpinMini: [0, 1],
-      combo: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5],
-      perfectClear: [0, 4, 6, 8, 10],
+      combo: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 4],
+      perfectClear: [0, 10, 10, 10, 10],
     });
     const ACTIONS = Object.freeze([
       "left",
@@ -510,10 +514,10 @@
     function tableValue(table, index) {
       if (index <= 0) return table[0] || 0;
       if (index < table.length) return table[index] || 0;
-      return table.at(-1) + index - (table.length - 1);
+      return table.at(-1) || 0;
     }
 
-    function clearResult({
+    function calculateClearResult({
       lines,
       level,
       combo,
@@ -521,34 +525,43 @@
       perfectClear,
       backToBack,
     }) {
+      const safeLines = Math.max(0, Math.min(4, Math.floor(Number(lines) || 0)));
+      const safeLevel = Math.max(1, Math.min(99, Math.floor(Number(level) || 1)));
+      const safeCombo = Math.max(0, Math.floor(Number(combo) || 0));
       const baseScore =
         tSpinType === "full"
-          ? SCORE.tSpin[lines] || 0
+          ? SCORE.tSpin[safeLines] || 0
           : tSpinType === "mini"
-            ? SCORE.tSpinMini[lines] || 0
-            : SCORE.line[lines] || 0;
+            ? SCORE.tSpinMini[safeLines] || 0
+            : SCORE.line[safeLines] || 0;
       const baseAttack =
         tSpinType === "full"
-          ? ATTACK.tSpin[lines] || 0
+          ? ATTACK.tSpin[safeLines] || 0
           : tSpinType === "mini"
-            ? ATTACK.tSpinMini[lines] || 0
-            : ATTACK.line[lines] || 0;
-      const difficult = lines === 4 || (tSpinType === "full" && lines > 0);
+            ? ATTACK.tSpinMini[safeLines] || 0
+            : ATTACK.line[safeLines] || 0;
+      const difficult =
+        safeLines === 4 || (tSpinType === "full" && safeLines > 0);
       return {
         difficult,
         score:
-          Math.round(baseScore * level * (difficult && backToBack ? 1.5 : 1)) +
-          tableValue(SCORE.combo, combo) +
+          Math.round(
+            baseScore * safeLevel * (difficult && backToBack ? 1.5 : 1),
+          ) +
+          tableValue(SCORE.combo, safeCombo) +
           (perfectClear
-            ? (SCORE.perfectClear[lines] || SCORE.perfectClear[4]) * level
+            ? (SCORE.perfectClear[safeLines] || SCORE.perfectClear[4]) *
+              safeLevel
             : 0),
-        attack:
+        attack: Math.min(
+          MAX_ATTACK_PER_LOCK,
           baseAttack +
-          tableValue(ATTACK.combo, combo) +
-          (difficult && backToBack ? 1 : 0) +
-          (perfectClear
-            ? ATTACK.perfectClear[lines] || ATTACK.perfectClear[4]
-            : 0),
+            tableValue(ATTACK.combo, safeCombo) +
+            (difficult && backToBack ? 1 : 0) +
+            (perfectClear
+              ? ATTACK.perfectClear[safeLines] || ATTACK.perfectClear[4]
+              : 0),
+        ),
       };
     }
 
@@ -664,10 +677,14 @@
     function addGarbage(state, count) {
       const safeCount = Math.max(
         0,
-        Math.min(20, Math.floor(Number(count) || 0)),
+        Math.min(MAX_GARBAGE_PER_APPLY, Math.floor(Number(count) || 0)),
       );
+      if (!safeCount) return;
+      let hole = Math.floor(nextRandom(state) * COLS);
       for (let index = 0; index < safeCount; index += 1) {
-        const hole = Math.floor(nextRandom(state) * COLS);
+        if (index > 0 && nextRandom(state) < GARBAGE_HOLE_CHANGE_RATE) {
+          hole = (hole + 1 + Math.floor(nextRandom(state) * (COLS - 1))) % COLS;
+        }
         state.board.shift();
         state.board.push(
           Array.from({ length: COLS }, (_, x) => (x === hole ? null : "X")),
@@ -681,7 +698,10 @@
     function queueGarbage(state, count) {
       state.pendingGarbage = Math.max(
         0,
-        Math.min(40, state.pendingGarbage + Math.floor(Number(count) || 0)),
+        Math.min(
+          MAX_PENDING_GARBAGE,
+          state.pendingGarbage + Math.floor(Number(count) || 0),
+        ),
       );
     }
 
@@ -699,7 +719,7 @@
       const perfectClear = state.board.every((row) =>
         row.every((cell) => !cell),
       );
-      const result = clearResult({
+      const result = calculateClearResult({
         lines: cleared.count,
         level: state.level,
         combo: state.combo,
@@ -1228,6 +1248,10 @@
       ATTACK,
       COLS,
       ENGINE_VERSION,
+      GARBAGE_HOLE_CHANGE_RATE,
+      MAX_ATTACK_PER_LOCK,
+      MAX_GARBAGE_PER_APPLY,
+      MAX_PENDING_GARBAGE,
       MODE_RULES,
       PIECES,
       REPLAY_VERSION,
@@ -1241,6 +1265,7 @@
       advanceReplayState,
       applyInput,
       buildReplayCheckpoints,
+      calculateClearResult,
       checksum,
       clearLines,
       createReplay,

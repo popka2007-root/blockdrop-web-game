@@ -9,6 +9,7 @@ const {
 } = require("./server-transport");
 const protocol = require("./shared/protocol.js");
 const engine = require("./shared/engine.js");
+const balance = require("./shared/balance.js");
 const { HTTP_STORE_CONTRACT, assertMethods } = require("./server-contracts");
 
 const HTTP_RATE_WINDOW_MS = 10 * 60 * 1000;
@@ -948,7 +949,9 @@ function createHttpService({
         payload.kind !== "blockdrop-profile" ||
         Number(payload.exportSchemaVersion) !== 1 ||
         !payload.profile ||
-        Number(payload.profile.profileSchemaVersion) !== 1
+        !Number.isInteger(Number(payload.profile.profileSchemaVersion)) ||
+        Number(payload.profile.profileSchemaVersion) < 1 ||
+        Number(payload.profile.profileSchemaVersion) > balance.PROFILE_SCHEMA_VERSION
       ) {
         sendJson(res, { error: "invalidProfile" }, 422);
         return;

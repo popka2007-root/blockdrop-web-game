@@ -1,4 +1,5 @@
 import "../shared/protocol.js";
+import { ATTACK, MAX_ATTACK_PER_LOCK } from "./engine.js";
 
 export const ONLINE_UPDATE_INTERVAL_MS = 125;
 export const ONLINE_PING_INTERVAL_MS = 4000;
@@ -80,10 +81,7 @@ export function loadAccountToken(
 }
 
 export function attackLinesForClear(count) {
-  if (count < 2) return 0;
-  if (count === 2) return 1;
-  if (count === 3) return 2;
-  return 4;
+  return ATTACK.line[Math.max(0, Math.min(4, Math.floor(Number(count) || 0)))] || 0;
 }
 
 export function generateRoomCode(random = Math.random) {
@@ -225,7 +223,10 @@ export function sendAttack(client, room, lines) {
   return sendOnlineMessage(client, {
     type: "attack",
     room: normalizeRoomId(room),
-    lines: Math.max(1, Math.min(6, Math.floor(Number(lines) || 0))),
+    lines: Math.max(
+      1,
+      Math.min(MAX_ATTACK_PER_LOCK, Math.floor(Number(lines) || 0)),
+    ),
   });
 }
 

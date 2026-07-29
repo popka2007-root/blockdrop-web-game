@@ -6,6 +6,7 @@ import {
   rankTextForScore,
   resultBadgeForGame,
   resultHighlightsForGame,
+  scoreClear,
   scoreLineClear,
 } from "../js/scoring.js";
 import {
@@ -19,6 +20,9 @@ import { applySaveSnapshot, buildSavePayload } from "../js/save-load.js";
 describe("runtime helper modules", () => {
   it("keeps scoring and rank calculations deterministic", () => {
     expect(scoreLineClear(4, 2)).toBe(1600);
+    expect(
+      scoreClear({ lines: 4, level: 1, combo: 2, backToBack: true }),
+    ).toMatchObject({ score: 1250, attack: 6 });
     expect(rankTextForScore(3500)).toBe("Профи");
     expect(rankInfo(7000)).toMatchObject({
       current: "Мастер",

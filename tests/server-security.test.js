@@ -410,6 +410,32 @@ describe("server hardening", () => {
     expect(tampered.status).toBe(422);
   });
 
+  it("accepts the current portable profile schema", async () => {
+    const port = 18924;
+    await startServer(port);
+    const response = await fetch(
+      `http://127.0.0.1:${port}/api/profile-transfer`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sign",
+          payload: {
+            kind: "blockdrop-profile",
+            exportSchemaVersion: 1,
+            profile: { profileSchemaVersion: 2, xp: 900 },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      envelopeSchemaVersion: 1,
+      payload: { profile: { profileSchemaVersion: 2 } },
+    });
+  });
+
   it("accepts only consented analytics behind its feature flag", async () => {
     const port = 18922;
     await startServer(port, { BLOCKDROP_FEATURE_ANALYTICS: "true" });

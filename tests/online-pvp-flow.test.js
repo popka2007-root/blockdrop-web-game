@@ -699,7 +699,7 @@ describe("online PvP room flow", () => {
     const match = await first.waitForType("matchStart", () => true, 6000);
     expect(match).toMatchObject({
       protocolVersion: 2,
-      engineVersion: 3,
+      engineVersion: 4,
       authoritative: true,
     });
 

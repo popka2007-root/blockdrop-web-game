@@ -232,6 +232,18 @@ describe("online module", () => {
     expect(sendRematchReady(client, "duel")).toBe(false);
   });
 
+  it("uses the canonical per-lock attack cap for legacy casual rooms", () => {
+    const socket = { readyState: 1, send: vi.fn() };
+    const client = createOnlineClient();
+    client.socket = socket;
+
+    expect(sendAttack(client, "duel", 99)).toBe(true);
+    expect(JSON.parse(socket.send.mock.calls[0][0])).toMatchObject({
+      type: "attack",
+      lines: 12,
+    });
+  });
+
   it("copies invite text with secure clipboard and HTTP fallback", async () => {
     const clipboard = { writeText: vi.fn().mockResolvedValue() };
     const originalNavigator = Object.getOwnPropertyDescriptor(
