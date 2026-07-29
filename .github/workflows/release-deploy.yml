@@ -69,9 +69,15 @@ jobs:
 
       - name: Validate release metadata
         env:
-          GITHUB_REF_NAME: ${{ steps.release-metadata.outputs.release_ref }}
-          GITHUB_SHA: ${{ steps.release-metadata.outputs.revision }}
-        run: npm run release:validate
+          RELEASE_REF: ${{ steps.release-metadata.outputs.release_ref }}
+          EXPECTED_REVISION: ${{ steps.release-metadata.outputs.revision }}
+        run: |
+          set -euo pipefail
+          package_version=$(node -p "require('./package.json').version")
+          normalized_version=${RELEASE_REF#v}
+          test "$normalized_version" = "$package_version"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          echo "release validation passed for $package_version on ${EXPECTED_REVISION:0:7}"
 
   build-apk:
     needs: release-check

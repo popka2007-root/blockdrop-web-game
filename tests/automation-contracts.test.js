@@ -77,6 +77,8 @@ describe("automation contracts", () => {
     expect(releaseWorkflow).toContain(
       "EXPECTED_VERSION: ${{ needs.release-check.outputs.release_ref }}",
     );
+    expect(releaseWorkflow).toContain("normalized_version=${RELEASE_REF#v}");
+    expect(releaseWorkflow).not.toContain("GITHUB_REF_NAME: ${{ steps.");
   });
 
   it("parallelizes functional E2E while isolating the performance budget", () => {
