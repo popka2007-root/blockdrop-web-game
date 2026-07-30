@@ -215,10 +215,10 @@ async function smokeViewport(browser, viewport) {
   );
 
   await page.locator("#dailyButton").click();
-  await page.waitForTimeout(250);
-  assert(
-    await page.locator("#startOverlay").evaluate((node) => node.hidden),
-    `${viewport.name}: daily did not start`,
+  await page.waitForFunction(
+    () => document.querySelector("#startOverlay")?.hidden === true,
+    undefined,
+    { timeout: 10_000 },
   );
 
   assert(
