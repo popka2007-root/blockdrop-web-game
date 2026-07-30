@@ -1,31 +1,41 @@
 # BlockDrop
 
-BlockDrop — детерминированная браузерная игра в жанре falling blocks. Один игровой движок используется в одиночной игре, AI, replay и server-authoritative PvP, поэтому одинаковые seed и последовательность команд дают одинаковый результат на клиенте и сервере.
+[![CI](https://github.com/popka2007-root/blockdrop-web-game/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/popka2007-root/blockdrop-web-game/actions/workflows/ci.yml)
+[![Android APK](https://github.com/popka2007-root/blockdrop-web-game/actions/workflows/build-apk.yml/badge.svg?branch=master)](https://github.com/popka2007-root/blockdrop-web-game/actions/workflows/build-apk.yml)
+[![Release](https://img.shields.io/github/v/release/popka2007-root/blockdrop-web-game)](https://github.com/popka2007-root/blockdrop-web-game/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Текущая версия: **3.1.0**.
+Детерминированная falling-blocks игра для Web/PWA и Android: одиночные режимы, AI в Web Worker, проверяемые повторы и server-authoritative PvP на общем игровом движке.
 
-Публичный стенд: [http://45.148.117.119/](http://45.148.117.119/). Он может отставать от текущей ветки репозитория. Пока стенд работает без HTTPS, аккаунты, ranked-режим и установка PWA намеренно отключены серверными capabilities.
+_BlockDrop is a deterministic falling-blocks game with RU/EN UI, offline support, AI, verified replays and authoritative multiplayer._
+
+[Играть](http://45.148.117.119/) · [Релиз 3.1.0](https://github.com/popka2007-root/blockdrop-web-game/releases/tag/v3.1.0) · [Production runbook](docs/operations.md) · [Баланс](docs/BALANCE.md)
+
+> Публичный стенд пока работает по HTTP и может обновляться позже ветки `master`. До появления HTTPS аккаунты, ranked и публичная установка PWA намеренно отключены серверными capabilities.
+
+![Геймплей BlockDrop](e2e/visual.spec.js-snapshots/day-gameplay-chromium-linux.png)
 
 ## Возможности
 
-- Детерминированный движок без зависимости от DOM: 7-bag, SRS, hold, ghost piece, gravity, lock delay, combo, back-to-back, T-Spin, Perfect Clear и garbage cancellation.
-- Одиночная игра, Daily Challenge, локальный прогресс, достижения и косметические награды.
-- AI-соперник с beam search, работающий в Web Worker вне основного UI-потока.
-- Casual PvP по WebSocket: клиент отправляет input-команды, а сервер рассчитывает матч и публикует подтверждённые snapshots и результат.
-- Client prediction, reconciliation по `ackSeq`, интерполяция состояния соперника и reconnect grace period.
-- Проверяемые replay с input stream, checkpoints, checksum, seek и скоростью воспроизведения от 0.5× до 4×.
-- Интерфейс на русском и английском, клавиатурное и сенсорное управление, screen-reader описание поля, focus management и reduced motion.
-- PWA с offline fallback и безопасным обновлением service worker после завершения матча.
-- Android-приложение на Capacitor; APK собирается в GitHub Actions и не хранится в Git.
-- SQLite в режиме WAL, forward-only migrations, проверяемые backup/restore, JSONL-логи, Prometheus metrics и Grafana dashboard.
+- Единый детерминированный engine v4 для браузера, Web Worker, replay и Node.js-сервера.
+- 7-bag, SRS, hold, ghost piece, фиксированный tick, gravity и lock delay.
+- Combo, back-to-back, T-Spin, Perfect Clear, garbage queue и cancellation.
+- Одиночная игра, Daily Challenge, локальный профиль, задания и косметические награды.
+- Четыре уровня AI на beam search без блокировки основного UI-потока.
+- Replay с seed, input stream, checkpoints, checksum, seek и скоростью 0.5×–4×.
+- Casual PvP по WebSocket с authoritative snapshots, prediction, reconciliation и reconnect grace period.
+- RU/EN, клавиатура и touch, screen-reader описание поля, focus management и reduced motion.
+- Адаптивные профили для Galaxy S25 FE, небольших мобильных экранов и landscape.
+- Offline fallback, безопасное обновление service worker и Android-сборка через Capacitor.
+- SQLite WAL, forward-only migrations, проверяемые backup/restore, structured logs и Prometheus metrics.
 
 ## Быстрый старт
 
-### Требования
+Требования:
 
 - Node.js `>=22.13.0`;
-- npm и зависимости из `package-lock.json`;
-- 64-битный Node.js на Windows: `better-sqlite3` использует нативный модуль.
+- npm;
+- Git.
 
 ```bash
 git clone https://github.com/popka2007-root/blockdrop-web-game.git
@@ -34,9 +44,9 @@ npm ci
 npm start
 ```
 
-Игра откроется по адресу [http://localhost:8787](http://localhost:8787). По умолчанию SQLite-файл создаётся как `blockdrop.sqlite` в корне проекта; для production храните его вне каталога приложения.
+Откройте [http://localhost:8787](http://localhost:8787). Локальная SQLite-база создаётся автоматически и игнорируется Git.
 
-Пример запуска с отдельной базой и портом:
+Другой порт и отдельный путь к БД:
 
 ```bash
 PORT=9000 BLOCKDROP_DB_FILE=/opt/blockdrop-data/blockdrop.sqlite npm start
@@ -52,7 +62,7 @@ npm start
 
 ## Управление
 
-| Действие               | Клавиатура                |
+| Действие               | Клавиши                   |
 | ---------------------- | ------------------------- |
 | Движение               | `←` / `→` или `A` / `D`   |
 | Soft drop              | `↓` или `S`               |
@@ -68,86 +78,52 @@ npm start
 
 ```text
 Browser / PWA / Android WebView
-        │
-        ├── js/game.js                  UI и orchestration игровой сессии
-        ├── js/runtime-loop.js          фиксированный игровой цикл
-        ├── js/online-controller.js     PvP lifecycle и reconciliation
-        ├── js/ai-worker.js             AI вне main thread
-        └── js/replay.js                запись и проверка replay
-                    │
-                    ▼
-        shared/engine.js + shared/protocol.js
-                    │
-                    ▼
-server.js                            composition root и authoritative match loop
-        ├── server-http.js            HTTP, API, static files, health и metrics
-        ├── server-store.js           SQLite, migrations и persistence
-        ├── server-auth.js            пароли, сессии и auth contracts
-        ├── server-transport.js       HTTPS/proxy trust boundary
-        ├── server-observability.js   structured logs и Prometheus metrics
-        └── server-contracts.js       исполняемые контракты между модулями
+  ├─ js/game.js                UI и orchestration сессии
+  ├─ js/runtime-loop.js        фиксированный игровой цикл
+  ├─ js/online-controller.js   PvP lifecycle и reconciliation
+  ├─ js/ai-worker.js           AI вне main thread
+  └─ js/replay.js              запись и воспроизведение
+             │
+             ▼
+  shared/engine.js + shared/protocol.js
+             │
+             ▼
+  server.js                   authoritative match loop
+  ├─ server-http.js           HTTP/API/static/health
+  ├─ server-store.js          SQLite и migrations
+  ├─ server-auth.js           auth contracts
+  ├─ server-transport.js      origin/proxy boundary
+  └─ server-observability.js  logs и metrics
 ```
 
-Движок и сетевой протокол лежат в `shared/`, чтобы браузер, Web Worker, тесты и Node.js выполняли одну реализацию правил. `server.js` только связывает серверные границы и содержит lifecycle матчей; HTTP, storage, transport, observability и контракты вынесены в отдельные модули.
+Движок и протокол находятся в `shared/`, поэтому одинаковые seed и inputs дают одинаковый snapshot/checksum в браузере, Worker и Node.js.
 
-## Конфигурация сервера
+## Основные команды
 
-Приложение читает настройки непосредственно из переменных окружения.
+| Команда                     | Назначение                                             |
+| --------------------------- | ------------------------------------------------------ |
+| `npm start`                 | Запустить HTTP/WebSocket сервер                        |
+| `npm run build`             | Собрать web assets в `www/`                            |
+| `npm run lint`              | Проверить исходники ESLint                             |
+| `npm test`                  | Запустить unit, property, integration и contract tests |
+| `npm run test:coverage`     | Запустить Vitest с coverage gates                      |
+| `npm run test:e2e`          | Запустить Playwright functional и performance suites   |
+| `npm run verify`            | Выполнить полный локальный release gate                |
+| `npm run balance:calibrate` | Проверить AI, scoring, garbage и задания               |
+| `npm run db:verify-backup`  | Проверить цикл SQLite backup/restore                   |
+| `npm run feature:rollout`   | Изменить staged rollout feature flag                   |
+| `npm run soak:100`          | Запустить двухчасовой soak на 100 CCU                  |
 
-| Переменная                          | Назначение                                       | По умолчанию              |
-| ----------------------------------- | ------------------------------------------------ | ------------------------- |
-| `PORT`                              | HTTP/WebSocket порт                              | `8787`                    |
-| `BLOCKDROP_DB_FILE`                 | Путь к SQLite                                    | `./blockdrop.sqlite`      |
-| `BLOCKDROP_ALLOWED_ORIGINS`         | Разрешённые WebSocket origins через запятую      | same-origin policy        |
-| `BLOCKDROP_METRICS_TOKEN`           | Bearer token для удалённого доступа к `/metrics` | только loopback           |
-| `BLOCKDROP_TRUST_PROXY`             | Разрешить доверенный reverse proxy               | `false`                   |
-| `BLOCKDROP_TRUSTED_PROXY_ADDRESSES` | Адреса доверенных proxy через запятую            | пусто                     |
-| `BLOCKDROP_REVISION`                | Revision для health API                          | `REVISION` или Git commit |
-| `BLOCKDROP_DEPLOY_REASON`           | Причина старта в structured log                  | `startup`                 |
-
-Feature flags `casualV2`, `accounts`, `ranked`, `analytics` и `pwaInstall` хранятся в SQLite и меняются через `npm run feature:rollout`. Для аварийного override поддерживаются переменные вида `BLOCKDROP_FEATURE_ACCOUNTS=true`. Функции, требующие безопасного транспорта, не активируются на публичном HTTP даже при включённом флаге.
-
-## Команды
-
-| Команда                    | Назначение                                              |
-| -------------------------- | ------------------------------------------------------- |
-| `npm start`                | Запустить HTTP/WebSocket сервер                         |
-| `npm run build`            | Собрать статические web assets в `www/`                 |
-| `npm run lint`             | Проверить исходники ESLint                              |
-| `npm test`                 | Запустить unit, property, integration и contract tests  |
-| `npm run test:coverage`    | Запустить Vitest с покрытием                            |
-| `npm run test:e2e`         | Запустить функциональный и performance Playwright-набор |
-| `npm run db:verify-backup` | Проверить полный цикл SQLite backup/restore             |
-| `npm run verify`           | Выполнить полный локальный release gate                 |
-| `npm run health:check`     | Проверить health, version и revision deployment         |
-| `npm run smoke:prod`       | Выполнить production smoke test                         |
-| `npm run release:validate` | Сверить tag, package version и commit revision          |
-| `npm run feature:rollout`  | Изменить процент rollout или выполнить rollback флага   |
-| `npm run soak:100`         | Запустить двухчасовой WebSocket soak на 100 CCU         |
-| `npm run capture:media`    | Снять проектные media-материалы локально                |
-
-## Тестирование
-
-Быстрый локальный gate:
-
-```bash
-npm run lint
-npm test
-npm run build
-```
-
-Полная проверка перед релизом:
+Перед первым E2E-прогоном установите браузеры:
 
 ```bash
 npx playwright install chromium firefox webkit
 npm run verify
 ```
 
-Playwright использует четыре worker по умолчанию. Независимые Chromium, Firefox и mobile-проекты идут параллельно; WebKit, visual regression и performance выполняются последовательно, чтобы снизить шум измерений. Количество worker можно изменить через `PLAYWRIGHT_WORKERS`.
-
-Visual regression хранит отдельные эталоны для Linux CI и Windows. Матрица включает четыре темы и семь состояний интерфейса; эти PNG являются тестовыми fixtures, а не сборочными артефактами.
-
 ## Android
+
+Для локальной сборки нужны JDK 21 и Android SDK:
 
 ```bash
 npm run build
@@ -156,54 +132,49 @@ cd android
 ./gradlew assembleDebug
 ```
 
-На Windows используйте `gradlew.bat assembleDebug`. Нужны JDK 21 и Android SDK. Результат создаётся в `android/app/build/outputs/apk/debug/`; каталог сборки игнорируется Git.
+На Windows используйте `gradlew.bat assembleDebug`. APK появится в `android/app/build/outputs/apk/debug/`; build-артефакты не хранятся в Git. GitHub Actions прикладывает APK к каждому релизу.
 
-Workflow `Build Android APK` выполняет те же шаги на pull request и при push в `master`. Release workflow повторно использует эту сборку и прикладывает APK к GitHub Release.
+## Сервер и feature gates
 
-## CI и релизы
+Минимальная конфигурация:
 
-- `CI` запускает lint, coverage, dependency audit, проверку backup/restore и полный E2E.
-- `Build Android APK` проверяет воспроизводимость Android-сборки.
-- `Release Deploy` — единственный владелец публикации GitHub Release и последующего VPS deployment.
-- Теги `v*` проходят release validation; prerelease определяется по дефису в имени версии.
-- Deployment сверяет ожидаемый commit, проверяет live/readiness endpoints и выполняет rollback при неудачном cutover.
+| Переменная                  | Назначение                    | По умолчанию         |
+| --------------------------- | ----------------------------- | -------------------- |
+| `PORT`                      | HTTP/WebSocket порт           | `8787`               |
+| `BLOCKDROP_DB_FILE`         | Путь к SQLite                 | `./blockdrop.sqlite` |
+| `BLOCKDROP_ALLOWED_ORIGINS` | Разрешённые WebSocket origins | same-origin          |
+| `BLOCKDROP_METRICS_TOKEN`   | Bearer token для `/metrics`   | только loopback      |
+| `BLOCKDROP_TRUST_PROXY`     | Доверять reverse proxy        | `false`              |
 
-Основные endpoints:
+Capabilities API — единственный источник доступности клиентских функций. На публичном HTTP `accounts`, `ranked` и `pwaInstall` остаются выключенными независимо от значений в БД.
 
-- `/health/live` — процесс и event loop отвечают;
-- `/health/ready` — приложение готово и SQLite доступна;
-- `/health` — подробное состояние, версия и revision;
-- `/metrics` — Prometheus metrics, доступные с loopback или по Bearer token;
-- `/api/capabilities` — единственный источник доступности клиентских функций.
-
-Подробные инструкции по VPS, backup/restore, systemd, feature rollout, soak, метрикам и rollback находятся в [docs/operations.md](docs/operations.md).
+Production deployment использует pinned SSH key, exact release tag, pre-migration backup, атомарный cutover и rollback. Полная инструкция находится в [docs/operations.md](docs/operations.md).
 
 ## Структура репозитория
 
-| Путь         | Содержимое                                                                 |
-| ------------ | -------------------------------------------------------------------------- |
-| `js/`        | Browser UI, input, modes, progression, replay, AI и online orchestration   |
-| `shared/`    | Детерминированный engine, AI и protocol, общие для клиента и сервера       |
-| `server*.js` | Composition root и изолированные серверные границы                         |
-| `tests/`     | Vitest unit, property, integration, security и contract tests              |
-| `e2e/`       | Playwright functional, mobile, accessibility, security, PWA и visual tests |
-| `scripts/`   | Build, backup/restore, smoke, rollout, release и soak automation           |
-| `android/`   | Capacitor Android project и Gradle wrapper                                 |
-| `deploy/`    | systemd units, Prometheus alerts и Grafana dashboard                       |
-| `docs/`      | Design system и production runbook                                         |
+| Путь         | Содержимое                                                       |
+| ------------ | ---------------------------------------------------------------- |
+| `js/`        | UI, input, modes, progression, replay, AI и online orchestration |
+| `shared/`    | Детерминированные engine, AI, balance и protocol                 |
+| `server*.js` | Серверные границы и authoritative match loop                     |
+| `tests/`     | Vitest unit, property, integration, security и contracts         |
+| `e2e/`       | Playwright mobile, accessibility, PWA, security и visual tests   |
+| `scripts/`   | Build, backup/restore, release, rollout, calibration и soak      |
+| `android/`   | Capacitor Android project и Gradle wrapper                       |
+| `deploy/`    | systemd units, Prometheus alerts и Grafana dashboard             |
+| `docs/`      | Баланс, design system и production runbook                       |
 
-Генерируемые `node_modules/`, `coverage/`, `test-results/`, `www/`, `dist/` и Android build-каталоги не должны попадать в Git.
+`node_modules/`, `coverage/`, `test-results/`, `www/`, локальные SQLite-файлы и Android build-каталоги являются регенерируемыми или локальными данными и игнорируются Git.
 
-## Безопасность и приватность
+## Документация
 
-- Не публикуйте credentials, production-БД, полные IP, input streams или приватные replay.
-- `/metrics` нельзя выставлять наружу без Bearer token.
-- Production SQLite следует хранить вне checkout с правами `0600`.
-- Accounts, ranked и публичная установка PWA требуют HTTPS.
-- Уязвимости следует сообщать приватно по процедуре из [SECURITY.md](SECURITY.md), а не через публичный issue.
-
-Дополнительные документы: [PRIVACY.md](PRIVACY.md), [TERMS.md](TERMS.md) и [docs/design-system.md](docs/design-system.md).
+- [Balance and calibration](docs/BALANCE.md)
+- [Design system](docs/design-system.md)
+- [Production operations](docs/operations.md)
+- [Security policy](SECURITY.md)
+- [Privacy notice](PRIVACY.md)
+- [Beta terms](TERMS.md)
 
 ## Лицензия
 
-Проект распространяется по лицензии [MIT](LICENSE).
+[MIT](LICENSE) © BlockDrop contributors.

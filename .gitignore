@@ -1,5 +1,13 @@
 node_modules/
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 *.log
 blockdrop.sqlite*
 test-results/
